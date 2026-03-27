@@ -46,7 +46,7 @@ setup(
     description="Proofreading backend for Neuroglancer",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/seung-lab/PyChunkedGraph",
+    url="https://github.com/CAVEconnectome/PyChunkedGraph",
     packages=find_packages(),
     install_requires=required,
     dependency_links=dependency_links,

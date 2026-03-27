@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.graph.attributes import Concurrency
+from pychunkedgraph.graph import attributes
 from pychunkedgraph.graph.operation import GraphEditOperation
 
 
@@ -51,13 +51,11 @@ if __name__ == "__main__":
     cg = ChunkedGraph(graph_id="<graph_id>")
     node_attrs = cg.client.read_nodes(node_ids=locked_roots)
     for node_id, attrs in node_attrs.items():
-        if Concurrency.IndefiniteLock in attrs:
-            locked_op = attrs[Concurrency.IndefiniteLock][0].value
+        if attributes.Concurrency.IndefiniteLock in attrs:
+            locked_op = attrs[attributes.Concurrency.IndefiniteLock][0].value
             op_ids_to_retry.append(locked_op)
             print(f"{node_id} indefinitely locked by op {locked_op}")
     print(f"total to retry: {len(op_ids_to_retry)}")
-
-    logs = cg.client.read_log_entries(op_ids_to_retry)
-    for op_id, log in logs.items():
+    for op_id in op_ids_to_retry:
         print(f"repairing {op_id}")
-        repair_operation(cg, log, op_id)
+        repair_operation(cg, op_id)

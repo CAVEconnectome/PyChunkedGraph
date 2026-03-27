@@ -1,12 +1,16 @@
 # pylint: disable=invalid-name, missing-docstring
 
-from typing import List
 from typing import Union
 from typing import Optional
 from typing import Sequence
+from typing import Tuple
 from typing import Iterable
 
+from copy import copy
+from functools import lru_cache
+
 import numpy as np
+
 
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
@@ -43,7 +47,7 @@ def normalize_bounding_box(
 
 
 def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:
-    """ Extract Layer from Node ID or Chunk ID """
+    """Extract Layer from Node ID or Chunk ID"""
     return int(int(node_or_chunk_id) >> 64 - meta.graph_config.LAYER_ID_BITS)
 
 
@@ -75,9 +79,9 @@ def get_chunk_coordinates(meta, node_or_chunk_id: np.uint64) -> np.ndarray:
     y_offset = x_offset - bits_per_dim
     z_offset = y_offset - bits_per_dim
 
-    x = int(node_or_chunk_id) >> x_offset & 2 ** bits_per_dim - 1
-    y = int(node_or_chunk_id) >> y_offset & 2 ** bits_per_dim - 1
-    z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
+    x = int(node_or_chunk_id) >> x_offset & 2**bits_per_dim - 1
+    y = int(node_or_chunk_id) >> y_offset & 2**bits_per_dim - 1
+    z = int(node_or_chunk_id) >> z_offset & 2**bits_per_dim - 1
     return np.array([x, y, z])
 
 
@@ -86,8 +90,8 @@ def get_chunk_coordinates_multiple(meta, ids: np.ndarray) -> np.ndarray:
     Array version of get_chunk_coordinates.
     Assumes all given IDs are in same layer.
     """
-    if not len(ids):
-        return np.array([])
+    if len(ids) == 0:
+        return np.array([], dtype=int).reshape(0, 3)
     layer = get_chunk_layer(meta, ids[0])
     bits_per_dim = meta.bitmasks[layer]
 
@@ -96,9 +100,9 @@ def get_chunk_coordinates_multiple(meta, ids: np.ndarray) -> np.ndarray:
     z_offset = y_offset - bits_per_dim
 
     ids = np.array(ids, dtype=int)
-    X = ids >> x_offset & 2 ** bits_per_dim - 1
-    Y = ids >> y_offset & 2 ** bits_per_dim - 1
-    Z = ids >> z_offset & 2 ** bits_per_dim - 1
+    X = ids >> x_offset & 2**bits_per_dim - 1
+    Y = ids >> y_offset & 2**bits_per_dim - 1
+    Z = ids >> z_offset & 2**bits_per_dim - 1
     return np.column_stack((X, Y, Z))
 
 
@@ -125,6 +129,7 @@ def get_chunk_id(
 
 
 def get_chunk_ids_from_coords(meta, layer: int, coords: np.ndarray):
+    layer = int(layer)
     result = np.zeros(len(coords), dtype=np.uint64)
     s_bits_per_dim = meta.bitmasks[layer]
 
@@ -142,14 +147,15 @@ def get_chunk_ids_from_coords(meta, layer: int, coords: np.ndarray):
 
 
 def get_chunk_ids_from_node_ids(meta, ids: Iterable[np.uint64]) -> np.ndarray:
-    """ Extract Chunk IDs from Node IDs"""
+    """Extract Chunk IDs from Node IDs"""
     if len(ids) == 0:
         return np.array([], dtype=np.uint64)
 
     bits_per_dims = np.array([meta.bitmasks[l] for l in get_chunk_layers(meta, ids)])
     offsets = 64 - meta.graph_config.LAYER_ID_BITS - 3 * bits_per_dims
 
-    cids1 = np.array((np.array(ids, dtype=int) >> offsets) << offsets, dtype=np.uint64)
+    ids = np.array(ids, dtype=int)
+    cids1 = np.array((ids >> offsets) << offsets, dtype=np.uint64)
     # cids2 = np.vectorize(get_chunk_id)(meta, ids)
     # assert np.all(cids1 == cids2)
     return cids1
@@ -163,9 +169,7 @@ def _compute_chunk_id(
     z: int,
 ) -> np.uint64:
     s_bits_per_dim = meta.bitmasks[layer]
-    if not (
-        x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
-    ):
+    if not (x < 2**s_bits_per_dim and y < 2**s_bits_per_dim and z < 2**s_bits_per_dim):
         raise ValueError(
             f"Coordinate is out of range \
             layer: {layer} bits/dim {s_bits_per_dim}. \
@@ -208,8 +212,9 @@ def _get_chunk_coordinates_from_vol_coordinates(
     return coords.astype(int)
 
 
+@lru_cache()
 def get_bounding_children_chunks(
-    cg_meta, layer: int, chunk_coords: Sequence[int], children_layer, return_unique=True
+    cg_meta, layer: int, chunk_coords: Tuple[int], children_layer, return_unique=True
 ) -> np.ndarray:
     """Children chunk coordinates at given layer, along the boundary of a chunk"""
     chunk_coords = np.array(chunk_coords, dtype=int)
@@ -233,3 +238,97 @@ def get_bounding_children_chunks(
     if return_unique:
         return np.unique(result, axis=0) if result.size else result
     return result
+
+
+@lru_cache()
+def get_l2chunkids_along_boundary(cg_meta, mlayer: int, coord_a, coord_b, padding: int = 0):
+    """
+    Gets L2 Chunk IDs along opposing faces for larger chunks.
+    If padding is enabled, more faces of L2 chunks are padded on both sides.
+    This is necessary to find fake edges that can span more than 2 L2 chunks.
+    """
+    bounds_a = get_bounding_children_chunks(cg_meta, mlayer, tuple(coord_a), 2)
+    bounds_b = get_bounding_children_chunks(cg_meta, mlayer, tuple(coord_b), 2)
+
+    coord_a, coord_b = np.array(coord_a, dtype=int), np.array(coord_b, dtype=int)
+    direction = coord_a - coord_b
+    major_axis = np.argmax(np.abs(direction))
+
+    l2chunk_count = 2 ** (mlayer - 2)
+    max_coord = coord_a if direction[major_axis] > 0 else coord_b
+
+    skip = abs(direction[major_axis]) - 1
+    l2_skip = skip * l2chunk_count
+
+    mid = max_coord[major_axis] * l2chunk_count
+    face_a = mid if direction[major_axis] > 0 else (mid - l2_skip - 1)
+    face_b = mid if direction[major_axis] < 0 else (mid - l2_skip - 1)
+
+    l2chunks_a = [bounds_a[bounds_a[:, major_axis] == face_a]]
+    l2chunks_b = [bounds_b[bounds_b[:, major_axis] == face_b]]
+
+    step_a, step_b = (1, -1) if direction[major_axis] > 0 else (-1, 1)
+    for _ in range(padding):
+        _l2_chunks_a = copy(l2chunks_a[-1])
+        _l2_chunks_b = copy(l2chunks_b[-1])
+        _l2_chunks_a[:, major_axis] += step_a
+        _l2_chunks_b[:, major_axis] += step_b
+        l2chunks_a.append(_l2_chunks_a)
+        l2chunks_b.append(_l2_chunks_b)
+
+    l2chunks_a = np.concatenate(l2chunks_a)
+    l2chunks_b = np.concatenate(l2chunks_b)
+
+    l2chunk_ids_a = get_chunk_ids_from_coords(cg_meta, 2, l2chunks_a)
+    l2chunk_ids_b = get_chunk_ids_from_coords(cg_meta, 2, l2chunks_b)
+    return l2chunk_ids_a, l2chunk_ids_b
+
+
+def chunks_overlapping_bbox(bbox_min, bbox_max, chunk_size) -> dict:
+    """
+    Find octree chunks overlapping with a bounding box in 3D
+    and return a dictionary mapping chunk indices to clipped bounding boxes.
+    """
+    bbox_min = np.asarray(bbox_min, dtype=int)
+    bbox_max = np.asarray(bbox_max, dtype=int)
+    chunk_size = np.asarray(chunk_size, dtype=int)
+
+    start_idx = np.floor_divide(bbox_min, chunk_size).astype(int)
+    end_idx = np.floor_divide(bbox_max, chunk_size).astype(int)
+
+    ix = np.arange(start_idx[0], end_idx[0] + 1)
+    iy = np.arange(start_idx[1], end_idx[1] + 1)
+    iz = np.arange(start_idx[2], end_idx[2] + 1)
+    grid = np.stack(np.meshgrid(ix, iy, iz, indexing="ij"), axis=-1, dtype=int)
+    grid = grid.reshape(-1, 3)
+
+    chunk_min = grid * chunk_size
+    chunk_max = chunk_min + chunk_size
+    clipped_min = np.maximum(chunk_min, bbox_min)
+    clipped_max = np.minimum(chunk_max, bbox_max)
+    return {
+        tuple(idx): np.stack([cmin, cmax], axis=0, dtype=int)
+        for idx, cmin, cmax in zip(grid, clipped_min, clipped_max)
+    }
+
+
+def get_neighbors(coord, inclusive: bool = True, min_coord=None, max_coord=None):
+    """
+    Get all valid coordinates in the 3×3×3 cube around a given chunk,
+    including the chunk itself (if inclusive=True),
+    respecting bounding box constraints.
+    """
+    offsets = np.array(np.meshgrid([-1, 0, 1], [-1, 0, 1], [-1, 0, 1])).T.reshape(-1, 3)
+    if not inclusive:
+        offsets = offsets[~np.all(offsets == 0, axis=1)]
+
+    neighbors = np.array(coord) + offsets
+    if min_coord is None:
+        min_coord = (0, 0, 0)
+    min_coord = np.array(min_coord)
+    neighbors = neighbors[(neighbors >= min_coord).all(axis=1)]
+
+    if max_coord is not None:
+        max_coord = np.array(max_coord)
+        neighbors = neighbors[(neighbors <= max_coord).all(axis=1)]
+    return neighbors

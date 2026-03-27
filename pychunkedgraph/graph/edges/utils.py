@@ -8,16 +8,18 @@ from typing import Dict
 from typing import Tuple
 from typing import Iterable
 from typing import Optional
+from collections import defaultdict
+from functools import reduce
 
 import fastremap
 import numpy as np
 
 from . import Edges
 from . import EDGE_TYPES
-from ..types import empty_2d
-from ..utils import basetypes
+from pychunkedgraph.graph import basetypes
 from ..chunks import utils as chunk_utils
 from ..meta import ChunkedGraphMeta
+from ...utils.general import in2d
 
 
 def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
@@ -45,18 +47,21 @@ def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
     return edges_dict
 
 
-def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict]) -> Dict:
+def concatenate_cross_edge_dicts(
+    edges_ds: Iterable[Dict], unique: bool = False
+) -> Dict:
     """Combines cross chunk edge dicts of form {layer id : edge list}."""
-    from collections import defaultdict
-
     result_d = defaultdict(list)
-
     for edges_d in edges_ds:
         for layer, edges in edges_d.items():
             result_d[layer].append(edges)
 
     for layer, edge_lists in result_d.items():
-        result_d[layer] = np.concatenate(edge_lists)
+        edge_lists = [np.asarray(e, dtype=basetypes.NODE_ID) for e in edge_lists]
+        edges = np.concatenate(edge_lists)
+        if unique:
+            edges = np.unique(edges, axis=0)
+        result_d[layer] = edges
     return result_d
 
 
@@ -65,7 +70,11 @@ def merge_cross_edge_dicts(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
     Combines two cross chunk dictionaries of form
     {node_id: {layer id : edge list}}.
     """
-    node_ids = np.unique(list(x_edges_d1.keys()) + list(x_edges_d2.keys()))
+    node_ids = np.unique(
+        np.array(
+            list(x_edges_d1.keys()) + list(x_edges_d2.keys()), dtype=basetypes.NODE_ID
+        )
+    )
     result_d = {}
     for node_id in node_ids:
         cross_edge_ds = [x_edges_d1.get(node_id, {}), x_edges_d2.get(node_id, {})]
@@ -131,7 +140,7 @@ def categorize_edges_v2(
 
 
 def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
-    """Computes the layer in which a cross chunk edge becomes relevant.
+    """Computes the layer in which an atomic cross chunk edge becomes relevant.
     I.e. if a cross chunk edge links two nodes in layer 4 this function
     returns 3.
     :param cross_edges: n x 2 array
@@ -152,40 +161,7 @@ def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
     return cross_chunk_edge_layers
 
 
-def filter_min_layer_cross_edges(
-    meta: ChunkedGraphMeta, cross_edges_d: Dict, node_layer: int = 2
-) -> Tuple[int, Iterable]:
-    """
-    Given a dict of cross chunk edges {layer: edges}
-    Return the first layer with cross edges.
-    """
-    for layer in range(node_layer, meta.layer_count):
-        edges_ = cross_edges_d.get(layer, empty_2d)
-        if edges_.size:
-            return (layer, edges_)
-    return (meta.layer_count, edges_)
-
-
-def filter_min_layer_cross_edges_multiple(
-    meta: ChunkedGraphMeta, l2id_atomic_cross_edges_ds: Iterable, node_layer: int = 2
-) -> Tuple[int, Iterable]:
-    """
-    Given a list of dicts of cross chunk edges [{layer: edges}]
-    Return the first layer with cross edges.
-    """
-    min_layer = meta.layer_count
-    for edges_d in l2id_atomic_cross_edges_ds:
-        layer_, _ = filter_min_layer_cross_edges(meta, edges_d, node_layer=node_layer)
-        min_layer = min(min_layer, layer_)
-    edges = [empty_2d]
-    for edges_d in l2id_atomic_cross_edges_ds:
-        edges.append(edges_d.get(min_layer, empty_2d))
-    return min_layer, np.concatenate(edges)
-
-
 def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
-    from ...utils.general import in2d
-
     coords0 = chunk_utils.get_chunk_coordinates_multiple(cg.meta, edges[:, 0])
     coords1 = chunk_utils.get_chunk_coordinates_multiple(cg.meta, edges[:, 1])
 
@@ -214,3 +190,20 @@ def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
         active_status.extend(mask)
     active_status = np.array(active_status, dtype=bool)
     return existence_status, active_status
+
+
+def filter_inactive_cross_edges(
+    cg, all_chunk_edges: Edges, time_stamp: Optional[float] = None
+):
+    result = []
+    layers = cg.get_cross_chunk_edges_layer(all_chunk_edges.get_pairs())
+    for layer in np.unique(layers):
+        layer_mask = layers == layer
+        parent_layer = layer + 1
+        layer_edges = all_chunk_edges[layer_mask]
+        n1, n2 = layer_edges.node_ids1, layer_edges.node_ids2
+        parents1 = cg.get_roots(n1, stop_layer=parent_layer, time_stamp=time_stamp)
+        parents2 = cg.get_roots(n2, stop_layer=parent_layer, time_stamp=time_stamp)
+        mask = parents1 == parents2
+        result.append(layer_edges[mask])
+    return reduce(lambda x, y: x + y, result, Edges([], []))

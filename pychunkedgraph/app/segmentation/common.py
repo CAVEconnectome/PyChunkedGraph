@@ -3,22 +3,21 @@
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import reduce
 from collections import deque, defaultdict
 
 import numpy as np
 import pandas as pd
+import fastremap
 from flask import current_app, g, jsonify, make_response, request
 from pytz import UTC
 
-from pychunkedgraph import __version__
+from pychunkedgraph import __version__, get_logger
+
+logger = get_logger(__name__)
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.graph import (
-    attributes,
-    cutting,
-    segmenthistory,
-)
+from pychunkedgraph.graph import attributes, cutting, segmenthistory, ChunkedGraph
 from pychunkedgraph.graph import (
     edges as cg_edges,
 )
@@ -26,10 +25,11 @@ from pychunkedgraph.graph import (
     exceptions as cg_exceptions,
 )
 from pychunkedgraph.graph.analysis import pathing
-from pychunkedgraph.graph.attributes import OperationLogs
+from pychunkedgraph.graph.edits_sv import split_supervoxel
 from pychunkedgraph.graph.misc import get_contact_sites
+from pychunkedgraph.debug.sv_split import check_unsplit_sv_bridges
 from pychunkedgraph.graph.operation import GraphEditOperation
-from pychunkedgraph.graph.utils import basetypes
+from pychunkedgraph.graph import basetypes
 from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
@@ -229,7 +229,9 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
         node_queue[layer].clear()
 
     # Return the download list
-    download_list = np.concatenate([np.array(list(v)) for v in download_list.values()])
+    download_list = np.concatenate(
+        [np.array(list(v), dtype=np.uint64) for v in download_list.values()]
+    )
 
     return download_list
 
@@ -394,7 +396,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.operation_id = ret.operation_id
     if ret.new_root_ids is None:
         raise cg_exceptions.InternalServerError(
-            "Could not merge selected " "supervoxel."
+            f"{ret.operation_id}: Could not merge selected supervoxels."
         )
 
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
@@ -408,24 +410,9 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 ### SPLIT ----------------------------------------------------------------------
 
 
-def handle_split(table_id):
-    current_app.table_id = table_id
-    user_id = str(g.auth_user.get("id", current_app.user_id))
-
-    data = json.loads(request.data)
-    is_priority = request.args.get("priority", True, type=str2bool)
-    remesh = request.args.get("remesh", True, type=str2bool)
-    mincut = request.args.get("mincut", True, type=str2bool)
-
-    current_app.logger.debug(data)
-
-    # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id, skip_cache=True)
+def _get_sources_and_sinks(cg: ChunkedGraph, data):
     node_idents = []
-    node_ident_map = {
-        "sources": 0,
-        "sinks": 1,
-    }
+    node_ident_map = {"sources": 0, "sinks": 1}
     coords = []
     node_ids = []
 
@@ -438,20 +425,106 @@ def handle_split(table_id):
     node_ids = np.array(node_ids, dtype=np.uint64)
     coords = np.array(coords)
     node_idents = np.array(node_idents)
-    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
-    current_app.logger.debug(
-        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
-    )
 
+    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
+    source_ids = sv_ids[node_idents == 0]
+    sink_ids = sv_ids[node_idents == 1]
+    source_coords = coords[node_idents == 0]
+    sink_coords = coords[node_idents == 1]
+    return (source_ids, sink_ids, source_coords, sink_coords)
+
+
+def split_with_sv_splits(cg, data, user_id="test", mincut=True):
+    """Remove edges with automatic supervoxel splitting when needed.
+
+    Attempts remove_edges. If source/sink SVs share a cross-chunk representative,
+    splits the overlapping SVs in the segmentation and retries.
+    """
+    sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
+    logger.note(f"pre-split: sources={sources}, sinks={sinks}")
+    t0 = time.time()
     try:
         ret = cg.remove_edges(
             user_id=user_id,
-            source_ids=sv_ids[node_idents == 0],
-            sink_ids=sv_ids[node_idents == 1],
-            source_coords=coords[node_idents == 0],
-            sink_coords=coords[node_idents == 1],
+            source_ids=sources,
+            sink_ids=sinks,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
             mincut=mincut,
         )
+        logger.note(f"remove_edges ({time.time() - t0:.2f}s)")
+    except cg_exceptions.SupervoxelSplitRequiredError as e:
+        logger.note(f"sv split required ({time.time() - t0:.2f}s): {e}")
+        sources_remapped = fastremap.remap(
+            sources,
+            e.sv_remapping,
+            preserve_missing_labels=True,
+            in_place=False,
+        )
+        sinks_remapped = fastremap.remap(
+            sinks,
+            e.sv_remapping,
+            preserve_missing_labels=True,
+            in_place=False,
+        )
+        logger.note(f"remapped sources={sources_remapped}, sinks={sinks_remapped}")
+        overlap_mask = np.isin(sources_remapped, sinks_remapped)
+        logger.note(f"overlapping reps: {np.unique(sources_remapped[overlap_mask])}")
+        t1 = time.time()
+        for rep in np.unique(sources_remapped[overlap_mask]):
+            _mask0 = sources_remapped == rep
+            _mask1 = sinks_remapped == rep
+            split_supervoxel(
+                cg,
+                sources[_mask0][0],
+                source_coords[_mask0],
+                sink_coords[_mask1],
+                e.operation_id,
+                sv_remapping=e.sv_remapping,
+            )
+        logger.note(f"sv splits done ({time.time() - t1:.2f}s)")
+
+        sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
+        logger.note(f"post-split: sources={sources}, sinks={sinks}")
+        t1 = time.time()
+        try:
+            ret = cg.remove_edges(
+                user_id=user_id,
+                source_ids=sources,
+                sink_ids=sinks,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+                mincut=mincut,
+            )
+        except cg_exceptions.SupervoxelSplitRequiredError as e2:
+            # The cross-chunk representative group extends beyond the split
+            # bbox. Unsplit SVs inside the bbox still have inf edges to SVs
+            # outside, bridging source and sink through the broader component.
+
+            logger.note(f"retry still requires sv split")
+            # check_unsplit_sv_bridges(cg, e2.sv_remapping, sources, sinks)
+            raise cg_exceptions.PreconditionError(
+                "Supervoxel split succeeded but the split region is too small "
+                "to fully separate source and sink. "
+                "Try placing source and sink points farther apart."
+            ) from e2
+        logger.note(f"remove_edges after sv split ({time.time() - t1:.2f}s)")
+    return ret
+
+
+def handle_split(table_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
+
+    data = json.loads(request.data)
+    is_priority = request.args.get("priority", True, type=str2bool)
+    remesh = request.args.get("remesh", True, type=str2bool)
+    mincut = request.args.get("mincut", True, type=str2bool)
+
+    cg = app_utils.get_cg(table_id, skip_cache=True)
+    current_app.logger.debug(data)
+    try:
+        ret = split_with_sv_splits(cg, data, user_id, mincut)
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
     except cg_exceptions.PreconditionError as e:
@@ -460,7 +533,7 @@ def handle_split(table_id):
     current_app.operation_id = ret.operation_id
     if ret.new_root_ids is None:
         raise cg_exceptions.InternalServerError(
-            "Could not split selected segment groups."
+            f"{ret.operation_id}: Could not split selected segment groups."
         )
 
     current_app.logger.debug(("after split:", ret.new_root_ids))
@@ -601,7 +674,9 @@ def all_user_operations(
     target_user_id = request.args.get("user_id", None)
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-    end_time = _parse_timestamp("end_time", datetime.utcnow(), return_datetime=True)
+    end_time = _parse_timestamp(
+        "end_time", datetime.now(timezone.utc), return_datetime=True
+    )
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
@@ -611,23 +686,24 @@ def all_user_operations(
 
     valid_entry_ids = []
     timestamp_list = []
-    undone_ids = np.array([])
+    undone_ids = np.array([], dtype=np.uint64)
 
     entry_ids = np.sort(list(log_rows.keys()))
     for entry_id in entry_ids:
         entry = log_rows[entry_id]
-        user_id = entry[OperationLogs.UserID]
+        user_id = entry[attributes.OperationLogs.UserID]
 
         should_check = (
-            OperationLogs.Status not in entry
-            or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
+            attributes.OperationLogs.Status not in entry
+            or entry[attributes.OperationLogs.Status]
+            == attributes.OperationLogs.StatusCodes.SUCCESS.value
         )
 
         split_valid = (
             include_partial_splits
-            or (OperationLogs.AddedEdge in entry)
-            or (OperationLogs.RootID not in entry)
-            or (len(entry[OperationLogs.RootID]) > 1)
+            or (attributes.OperationLogs.AddedEdge in entry)
+            or (attributes.OperationLogs.RootID not in entry)
+            or (len(entry[attributes.OperationLogs.RootID]) > 1)
         )
         if not split_valid:
             print("excluding partial split", entry_id)
@@ -641,13 +717,13 @@ def all_user_operations(
 
         if should_check:
             # if it is an undo of another operation, mark it as undone
-            if OperationLogs.UndoOperationID in entry:
-                undone_id = entry[OperationLogs.UndoOperationID]
+            if attributes.OperationLogs.UndoOperationID in entry:
+                undone_id = entry[attributes.OperationLogs.UndoOperationID]
                 undone_ids = np.append(undone_ids, undone_id)
 
             # if it is a redo of another operation, unmark it as undone
-            if OperationLogs.RedoOperationID in entry:
-                redone_id = entry[OperationLogs.RedoOperationID]
+            if attributes.OperationLogs.RedoOperationID in entry:
+                redone_id = entry[attributes.OperationLogs.RedoOperationID]
                 undone_ids = np.delete(undone_ids, np.argwhere(undone_ids == redone_id))
 
     if include_undone:
@@ -660,8 +736,8 @@ def all_user_operations(
         entry = log_rows[entry_id]
 
         if (
-            OperationLogs.UndoOperationID in entry
-            or OperationLogs.RedoOperationID in entry
+            attributes.OperationLogs.UndoOperationID in entry
+            or attributes.OperationLogs.RedoOperationID in entry
         ):
             continue
 
@@ -689,7 +765,7 @@ def handle_children(table_id, parent_id):
     if layer > 1:
         children = cg.get_children(parent_id)
     else:
-        children = np.array([])
+        children = np.array([], dtype=np.uint64)
 
     return children
 
@@ -792,8 +868,8 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
         supervoxels = np.concatenate(
             [agg.supervoxels for agg in l2id_agglomeration_d.values()]
         )
-        mask0 = np.in1d(edges.node_ids1, supervoxels)
-        mask1 = np.in1d(edges.node_ids2, supervoxels)
+        mask0 = np.isin(edges.node_ids1, supervoxels)
+        mask1 = np.isin(edges.node_ids2, supervoxels)
         edges = edges[mask0 & mask1]
 
     return edges

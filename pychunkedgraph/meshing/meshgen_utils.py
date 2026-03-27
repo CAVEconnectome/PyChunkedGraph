@@ -1,19 +1,13 @@
 import re
-import multiprocessing as mp
-from time import time
-from typing import List
-from typing import Dict
-from typing import Tuple
 from typing import Sequence
 from functools import lru_cache
 
 import numpy as np
-from cloudvolume import CloudVolume
 from cloudvolume.lib import Vec
-from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
+from pychunkedgraph.graph.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
+from pychunkedgraph.graph.utils import get_local_segmentation
 
 
 def str_to_slice(slice_str: str):
@@ -129,7 +123,13 @@ def get_downstream_multi_child_nodes(
             only_child_mask = np.array(
                 [len(children_for_node) == 1 for children_for_node in children_array]
             )
-            only_children = children_array[only_child_mask].astype(np.uint64).ravel()
+            # Extract children from object array - each filtered element is a 1-element array
+            filtered_children = children_array[only_child_mask]
+            only_children = (
+                np.concatenate(filtered_children).astype(np.uint64)
+                if filtered_children.size
+                else np.array([], dtype=np.uint64)
+            )
             if np.any(only_child_mask):
                 temp_array = cur_node_ids[stop_layer_mask]
                 temp_array[only_child_mask] = recursive_helper(only_children)
@@ -151,11 +151,9 @@ def get_json_info(cg):
 
 
 def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
-    cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip, fill_missing=True)
     mip_diff = mip - cg.meta.cv.mip
-
     mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int) / np.array(
-        [2 ** mip_diff, 2 ** mip_diff, 1]
+        [2**mip_diff, 2**mip_diff, 1]
     )
     mip_chunk_size = mip_chunk_size.astype(int)
 
@@ -169,11 +167,5 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
         cg.meta.cv.mip_voxel_offset(mip),
         cg.meta.cv.mip_voxel_offset(mip) + cg.meta.cv.mip_volume_size(mip),
     )
-
-    ws_seg = cv[
-        chunk_start[0] : chunk_end[0],
-        chunk_start[1] : chunk_end[1],
-        chunk_start[2] : chunk_end[2],
-    ].squeeze()
-
+    ws_seg = get_local_segmentation(cg.meta, chunk_start, chunk_end).squeeze()
     return ws_seg

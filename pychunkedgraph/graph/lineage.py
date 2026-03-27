@@ -1,26 +1,27 @@
 """
 Functions for tracking root ID changes over time.
 """
+
 from typing import Union
 from typing import Optional
 from typing import Iterable
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 
 import numpy as np
 from networkx import DiGraph
 
-from . import attributes
+from pychunkedgraph.graph import (
+    attributes,
+    basetypes,
+    get_min_time,
+    get_max_time,
+    get_valid_timestamp,
+)
 from .exceptions import ChunkedGraphError
-from .attributes import Hierarchy
-from .attributes import OperationLogs
-from .utils.basetypes import NODE_ID
-from .utils.generic import get_min_time
-from .utils.generic import get_max_time
-from .utils.generic import get_valid_timestamp
 
 
-def get_latest_root_id(cg, root_id: NODE_ID.type) -> np.ndarray:
+def get_latest_root_id(cg, root_id: basetypes.NODE_ID.type) -> np.ndarray:
     """Returns the latest root id associated with the provided root id"""
     id_working_set = [root_id]
     latest_root_ids = []
@@ -38,7 +39,7 @@ def get_latest_root_id(cg, root_id: NODE_ID.type) -> np.ndarray:
 
 def get_future_root_ids(
     cg,
-    root_id: NODE_ID,
+    root_id: basetypes.NODE_ID,
     time_stamp: Optional[datetime] = get_max_time(),
 ) -> np.ndarray:
     """
@@ -69,12 +70,12 @@ def get_future_root_ids(
                 if next_id != root_id:
                     id_history.append(next_id)
         next_ids = temp_next_ids
-    return np.unique(np.array(id_history, dtype=NODE_ID))
+    return np.unique(np.array(id_history, dtype=basetypes.NODE_ID))
 
 
 def get_past_root_ids(
     cg,
-    root_id: NODE_ID,
+    root_id: basetypes.NODE_ID,
     time_stamp: Optional[datetime] = get_min_time(),
 ) -> np.ndarray:
     """
@@ -108,12 +109,12 @@ def get_past_root_ids(
                 if next_id != root_id:
                     id_history.append(next_id)
         next_ids = temp_next_ids
-    return np.unique(np.array(id_history, dtype=NODE_ID))
+    return np.unique(np.array(id_history, dtype=basetypes.NODE_ID))
 
 
 def get_previous_root_ids(
     cg,
-    root_ids: Iterable[NODE_ID.type],
+    root_ids: Iterable[basetypes.NODE_ID.type],
 ) -> dict:
     """Returns immediate former root IDs (1 step history)"""
     nodes_d = cg.client.read_nodes(
@@ -128,7 +129,7 @@ def get_previous_root_ids(
 
 def get_root_id_history(
     cg,
-    root_id: NODE_ID,
+    root_id: basetypes.NODE_ID,
     time_stamp_past: Optional[datetime] = get_min_time(),
     time_stamp_future: Optional[datetime] = get_max_time(),
 ) -> np.ndarray:
@@ -140,18 +141,24 @@ def get_root_id_history(
     """
     past_ids = get_past_root_ids(cg, root_id, time_stamp=time_stamp_past)
     future_ids = get_future_root_ids(cg, root_id, time_stamp=time_stamp_future)
-    return np.concatenate([past_ids, np.array([root_id], dtype=NODE_ID), future_ids])
+    return np.concatenate(
+        [past_ids, np.array([root_id], dtype=basetypes.NODE_ID), future_ids]
+    )
 
 
 def _get_node_properties(node_entry: dict) -> dict:
     node_d = {}
-    node_d["timestamp"] = node_entry[Hierarchy.Child][0].timestamp.timestamp()
-    if OperationLogs.OperationID in node_entry:
-        if len(node_entry[OperationLogs.OperationID]) == 2 or (
-            len(node_entry[OperationLogs.OperationID]) == 1
-            and Hierarchy.NewParent in node_entry
+    node_d["timestamp"] = node_entry[attributes.Hierarchy.Child][
+        0
+    ].timestamp.timestamp()
+    if attributes.OperationLogs.OperationID in node_entry:
+        if len(node_entry[attributes.OperationLogs.OperationID]) == 2 or (
+            len(node_entry[attributes.OperationLogs.OperationID]) == 1
+            and attributes.Hierarchy.NewParent in node_entry
         ):
-            node_d["operation_id"] = node_entry[OperationLogs.OperationID][0].value
+            node_d["operation_id"] = node_entry[attributes.OperationLogs.OperationID][
+                0
+            ].value
     return node_d
 
 
@@ -170,11 +177,11 @@ def lineage_graph(
         node_ids = [node_ids]
 
     graph = DiGraph()
-    past_ids = np.array(node_ids, dtype=NODE_ID)
-    future_ids = np.array(node_ids, dtype=NODE_ID)
+    past_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
+    future_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
     timestamp_past = float(0) if timestamp_past is None else timestamp_past.timestamp()
     timestamp_future = (
-        datetime.utcnow().timestamp()
+        datetime.now(timezone.utc).timestamp()
         if timestamp_future is None
         else timestamp_future.timestamp()
     )
@@ -190,10 +197,10 @@ def lineage_graph(
             graph.add_node(k, **node_d)
             if (
                 node_d["timestamp"] < timestamp_past
-                or not Hierarchy.FormerParent in val
+                or not attributes.Hierarchy.FormerParent in val
             ):
                 continue
-            former_ids = val[Hierarchy.FormerParent][0].value
+            former_ids = val[attributes.Hierarchy.FormerParent][0].value
             next_past_ids.extend(
                 [former_id for former_id in former_ids if not former_id in graph.nodes]
             )
@@ -206,7 +213,10 @@ def lineage_graph(
             val = nodes_raw[k]
             node_d = _get_node_properties(val)
             graph.add_node(k, **node_d)
-            if node_d["timestamp"] > timestamp_future or not Hierarchy.NewParent in val:
+            if (
+                node_d["timestamp"] > timestamp_future
+                or not attributes.Hierarchy.NewParent in val
+            ):
                 continue
             try:
                 future_operation_id_dict[node_d["operation_id"]].append(k)
@@ -215,13 +225,13 @@ def lineage_graph(
 
         logs_raw = cg.client.read_log_entries(list(future_operation_id_dict.keys()))
         for operation_id in future_operation_id_dict:
-            new_ids = logs_raw[operation_id][OperationLogs.RootID]
+            new_ids = logs_raw[operation_id][attributes.OperationLogs.RootID]
             next_future_ids.extend(
                 [new_id for new_id in new_ids if not new_id in graph.nodes]
             )
             for new_id in new_ids:
                 for k in future_operation_id_dict[operation_id]:
                     graph.add_edge(k, new_id)
-        past_ids = np.array(np.unique(next_past_ids), dtype=NODE_ID)
-        future_ids = np.array(np.unique(next_future_ids), dtype=NODE_ID)
+        past_ids = np.array(np.unique(next_past_ids), dtype=basetypes.NODE_ID)
+        future_ids = np.array(np.unique(next_future_ids), dtype=basetypes.NODE_ID)
     return graph
