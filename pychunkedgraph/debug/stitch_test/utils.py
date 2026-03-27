@@ -1,5 +1,6 @@
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import gzip
 import json
 from multiprocessing import Pool
@@ -15,6 +16,13 @@ from tqdm import tqdm
 
 from pychunkedgraph.graph import ChunkedGraph, basetypes
 from .tables import setup_env
+
+
+@contextmanager
+def timed(target: dict, key: str):
+    t0 = time.time()
+    yield
+    target[key] = time.time() - t0
 
 
 def batch_get_l2children(cg_or_reader, node_ids: np.ndarray) -> dict:
@@ -316,6 +324,7 @@ def batched_extract_and_compare(
     Each node is identified by its SV set, compared with its cross edges at all layers.
     If baseline_extract_dir is provided, skips baseline extraction and loads from there.
     """
+    save_dir = Path(save_dir)
     dir_a = Path(baseline_extract_dir) if baseline_extract_dir else save_dir / "baseline"
     dir_b = save_dir / "proposed"
 
