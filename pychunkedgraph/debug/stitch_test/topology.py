@@ -24,7 +24,7 @@ def resolve_cx_at_layer(
 ) -> np.ndarray:
     edge_list = []
     for node in nodes:
-        cx_d = cache.raw_cx_edges.get(int(node), {})
+        cx_d = cache.unresolved_acx.get(int(node), {})
         edges = cx_d.get(layer)
         if edges is not None and len(edges) > 0:
             edge_list.append(edges)
@@ -58,12 +58,12 @@ def store_cx_from_resolved(cache, cx_edges: np.ndarray, layer: int) -> None:
 def resolve_remaining_cx(cache, lcg, child_to_parent: dict) -> None:
     get_layer = lambda nid: lcg.get_chunk_layer(np.uint64(nid))
     all_affected = set(cache.new_node_ids) | {
-        s for s in cache.sibling_ids if s in cache.raw_cx_edges
+        s for s in cache.dirty_siblings if s in cache.unresolved_acx
     }
     layer_nodes = defaultdict(list)
     for nid in all_affected:
         existing = cache.cx_cache.get(int(nid), {})
-        raw = cache.raw_cx_edges.get(int(nid), {})
+        raw = cache.unresolved_acx.get(int(nid), {})
         for lyr in raw:
             if lyr > 2 and lyr not in existing and len(raw[lyr]) > 0:
                 layer_nodes[lyr].append(nid)

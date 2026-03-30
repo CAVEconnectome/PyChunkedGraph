@@ -15,8 +15,6 @@ def resolve_sv_to_layer(
     for l, ident in chain.items():
         if l <= target_layer and l > best:
             best, identity = l, ident
-    if identity in cache.old_to_new:
-        identity = cache.old_to_new[identity]
     while identity in child_to_parent:
         nxt = child_to_parent[identity]
         if get_layer(nxt) > target_layer:
@@ -79,11 +77,12 @@ def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
     return result
 
 
-def filter_orphaned(lcg, node_ids: np.ndarray, children_d: dict) -> np.ndarray:
+def filter_orphaned(lcg, node_ids: np.ndarray) -> np.ndarray:
     if len(node_ids) == 0:
         return node_ids
+    ch_view = lcg._cache.children
     max_ch = np.array([
-        int(np.max(children_d[n])) if len(children_d.get(n, [])) > 0 else 0
+        int(np.max(ch_view[int(n)])) if len(ch_view.get(int(n), [])) > 0 else 0
         for n in node_ids
     ])
     seg_ids = np.array([lcg.get_segment_id(n) for n in node_ids])
@@ -137,20 +136,20 @@ def resolve_partner_sv_parents(lcg, unknown_svs: set) -> dict:
 
 
 def update_parents_cache(cache, children: np.ndarray, parent) -> None:
-    cache_utils.update(cache.parents_cache, children, parent)
+    for ch in children:
+        cache.put_parent(int(ch), int(parent))
 
 
 def restore_known_siblings(lcg, cache, known: np.ndarray) -> None:
     if len(known) == 0:
         return
-    children_d, acx_d = lcg.read_l2(known)
+    # Known siblings are guaranteed cached from prior waves (in preloaded).
+    # Access cache directly — skip _ensure_cached / has_batch overhead.
     for sib in known:
         sib_int = int(sib)
         entry = cache.get_sibling(sib_int)
         if entry is None:
             continue
-        cache.children_d[sib] = children_d[sib]
-        cache.atomic_cx_stitch[sib] = acx_d[sib]
-        cache.raw_cx_edges[sib_int] = entry.raw_cx_edges
+        cache.unresolved_acx[sib_int] = entry.unresolved_acx
         for sv_int, resolver_entry in entry.resolver_entries.items():
             cache.resolver[sv_int] = resolver_entry

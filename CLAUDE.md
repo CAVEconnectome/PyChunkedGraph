@@ -19,6 +19,7 @@
 - Never modify user's code without asking first.
 - Test code end-to-end before presenting.
 - Terse responses — no trailing summaries.
+- Debugging: always write debugging code in its own module, and save all data/info/logs needed for thorough analysis without requiring multiple test runs.
 
 # Project Context
 Read `pychunkedgraph/debug/stitch_test/SESSION.md` for full stitch redesign context.

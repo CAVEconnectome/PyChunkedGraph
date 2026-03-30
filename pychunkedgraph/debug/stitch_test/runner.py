@@ -140,8 +140,9 @@ def _worker_proposed(args: tuple) -> tuple:
 
 def _run_wave_pool(
     pool: Pool, table_name: str, wave: int, lcg: LocalChunkedGraph,
+    edge_files: list = None,
 ) -> tuple:
-    edge_files = _list_wave_files(wave)
+    edge_files = edge_files or _list_wave_files(wave)
     args = [(table_name, f, i) for i, f in enumerate(edge_files)]
     random.shuffle(args)
 
@@ -219,17 +220,21 @@ def _log_wave_stats(wave: int, results: list, elapsed: float, lcg: LocalChunkedG
     )
 
 
-def _save_results(path: str, results: list, elapsed: float, table: str) -> None:
+def _save_results(path: str, results: list, elapsed: float, table: str, wave_walls: dict = None) -> None:
     if not path:
         return
+    data = {"file_results": results, "elapsed": elapsed, "table_name": table}
+    if wave_walls:
+        data["wave_walls"] = wave_walls
     with open(path, "w") as f:
-        json.dump(_convert_for_json({
-            "file_results": results, "elapsed": elapsed, "table_name": table,
-        }), f)
+        json.dump(_convert_for_json(data), f)
 
 
 def run_proposed(
     experiment: str = "multiwave", n_workers: int = None,
+    baseline_table: str = "stitch_redesign_test_cmp_prod_wave0",
+    baseline_roots_file: str = "/tmp/wave0_prod_checkpoint.pkl",
+    filename: str = None,
 ) -> tuple:
     global _shared_cache, _shared_inc
 
@@ -244,26 +249,36 @@ def run_proposed(
     restore_test_table(table_name)
     set_autoscaling(target_cpu=25, min_nodes=5)
 
-    waves = _list_all_waves()
+    if filename:
+        waves = [0]
+    elif experiment == "wave":
+        waves = [0]
+    else:
+        waves = _list_all_waves()
+
     lcg = LocalChunkedGraph(table_name)
     init = lcg.prepare_pool_init()
     all_results = []
+    wave_walls = {}
     total_wall = 0
     results_path = str(log_dir / "stitch_results.json")
 
     # Wave 0
-    nw0 = n_workers or _default_n_workers(len(_list_wave_files(waves[0])))
+    wave0_files = [filename] if filename else _list_wave_files(waves[0])
+    nw0 = n_workers or _default_n_workers(len(wave0_files))
     _shared_cache = lcg.preloaded()
     _shared_inc = None
 
     with Pool(nw0, initializer=LocalChunkedGraph.pool_init, initargs=init) as pool:
-        results, elapsed = _run_wave_pool(pool, table_name, waves[0], lcg)
+        results, elapsed = _run_wave_pool(pool, table_name, waves[0], lcg, edge_files=wave0_files)
     all_results.extend(results)
+    wave_walls[waves[0]] = elapsed
     total_wall += elapsed
     _log_wave_stats(waves[0], results, elapsed, lcg)
-    _save_results(results_path, all_results, total_wall, table_name)
+    _save_results(results_path, all_results, total_wall, table_name, wave_walls)
 
     # Waves 1+
+    min_nodes_reset = False
     for wave in waves[1:]:
         files = _list_wave_files(wave)
         _shared_cache = lcg.preloaded()
@@ -277,9 +292,14 @@ def run_proposed(
                 results, elapsed = _run_wave_pool(pool, table_name, wave, lcg)
 
         all_results.extend(results)
+        wave_walls[wave] = elapsed
         total_wall += elapsed
         _log_wave_stats(wave, results, elapsed, lcg)
-        _save_results(results_path, all_results, total_wall, table_name)
+        _save_results(results_path, all_results, total_wall, table_name, wave_walls)
+
+        if not min_nodes_reset:
+            set_autoscaling(min_nodes=1)
+            min_nodes_reset = True
 
         errors = [r for r in results if r.get("error")]
         if errors:
@@ -298,28 +318,36 @@ def run_proposed(
     )
 
     # Compare
-    baseline_dir = LOGS_ROOT / experiment / "baseline"
-    baseline_table = f"stitch_redesign_test_hsmith_mec_baseline_{experiment}"
-
-    if not (baseline_dir / "stitch_results.json").exists():
-        print("no baseline to compare against")
-        set_autoscaling(target_cpu=60, min_nodes=1)
-        return None, None
-
-    with open(baseline_dir / "stitch_results.json") as f:
-        baseline_data = json.load(f)
-    baseline_roots = [r for fr in baseline_data["file_results"] for r in fr.get("new_roots", [])]
     proposed_roots = [r for fr in all_results for r in fr["new_roots"]]
+
+    if baseline_table and baseline_roots_file:
+        _bl_table = baseline_table
+        with open(baseline_roots_file, "rb") as f:
+            import pickle as _pkl
+            baseline_roots = _pkl.load(f)
+        _bl_extract_dir = None
+    else:
+        baseline_dir = LOGS_ROOT / experiment / "baseline"
+        _bl_table = f"stitch_redesign_test_hsmith_mec_baseline_{experiment}"
+        _bl_extract_dir = baseline_dir
+        if not (baseline_dir / "stitch_results.json").exists():
+            print("no baseline to compare against")
+            set_autoscaling(target_cpu=60, min_nodes=1)
+            return None, None
+        with open(baseline_dir / "stitch_results.json") as f:
+            baseline_data = json.load(f)
+        baseline_roots = [r for fr in baseline_data["file_results"] for r in fr.get("new_roots", [])]
 
     print(f"\ncomparing: {len(baseline_roots)} baseline vs {len(proposed_roots)} proposed roots")
     if len(baseline_roots) != len(proposed_roots):
         print(f"ROOT COUNT MISMATCH: {len(baseline_roots)} vs {len(proposed_roots)}")
 
+    set_autoscaling(min_nodes=5)
     match = batched_extract_and_compare(
-        baseline_table, np.array(baseline_roots, dtype=np.uint64),
+        _bl_table, np.array(baseline_roots, dtype=np.uint64),
         table_name, np.array(proposed_roots, dtype=np.uint64),
         save_dir=log_dir,
-        baseline_extract_dir=baseline_dir,
+        baseline_extract_dir=_bl_extract_dir,
     )
 
     print(f"\n{'MATCH' if match else 'MISMATCH'}")
@@ -327,7 +355,7 @@ def run_proposed(
     return match, {"run_id": run_id, "table": table_name, "results": all_results}
 
 
-def run_baseline(experiment: str = "multiwave", n_workers: int = None) -> dict:
+def run_baseline(experiment: str = "multiwave", n_workers: int = None, filename: str = None) -> dict:
     run_id = uuid.uuid4().hex[:8]
     log_dir = LOGS_ROOT / experiment / "baseline"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -348,12 +376,17 @@ def run_baseline(experiment: str = "multiwave", n_workers: int = None) -> dict:
         elapsed = time.time() - t0
         return {"idx": idx, "edge_file": edge_path, "n_edges": len(edges), "new_roots": [], "elapsed": elapsed}
 
-    waves = _list_all_waves()
+    if filename:
+        waves = [0]
+    elif experiment == "wave":
+        waves = [0]
+    else:
+        waves = _list_all_waves()
     all_results = []
     total_wall = 0
 
     for wave in waves:
-        files = _list_wave_files(wave)
+        files = [filename] if filename and wave == 0 else _list_wave_files(wave)
         nw = n_workers or _default_n_workers(len(files))
         args = [(table_name, f, i) for i, f in enumerate(files)]
         random.shuffle(args)

@@ -23,7 +23,7 @@ class StitchContext:
     # Accumulated through phases 2-4
     new_ids_d: dict = field(default_factory=lambda: defaultdict(list))
     old_to_new: dict = field(default_factory=dict)
-    raw_cx_edges: dict = field(default_factory=dict)
+    unresolved_acx: dict = field(default_factory=dict)
     l2_atomic_cx: dict = field(default_factory=dict)
     sibling_ids: set = field(default_factory=set)
     new_node_ids: set = field(default_factory=set)

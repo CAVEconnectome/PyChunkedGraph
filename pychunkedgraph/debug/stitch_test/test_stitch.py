@@ -3,7 +3,7 @@
 import numpy as np
 from pychunkedgraph.graph import basetypes, types
 
-from . import topology
+from . import resolver as topology
 from . import tree
 from .wave_cache import WaveCache
 
@@ -23,7 +23,7 @@ def _cache(**kw) -> WaveCache:
     c.begin_stitch()
     c.resolver = kw.get("resolver", {})
     c.old_to_new = kw.get("old_to_new", {})
-    c.raw_cx_edges = kw.get("raw_cx_edges", {})
+    c.unresolved_acx = kw.get("unresolved_acx", {})
     return c
 
 
@@ -37,8 +37,9 @@ class TestResolveSvToLayer:
         c = _cache(resolver={100: {2: 200, 4: 400}})
         assert tree.resolve_sv_to_layer(100, 3, c, {}, _get_layer) == 200
 
-    def test_own_sv_with_old_to_new(self) -> None:
-        c = _cache(resolver={100: {2: 200}}, old_to_new={200: 201})
+    def test_own_sv_resolver_has_current_identity(self) -> None:
+        """Resolver always has current L2 (updated after merge). No old_to_new needed."""
+        c = _cache(resolver={100: {2: 201}})
         assert tree.resolve_sv_to_layer(100, 2, c, {}, _get_layer) == 201
 
     def test_own_sv_walks_child_to_parent(self) -> None:
@@ -60,7 +61,7 @@ class TestResolveCxAtLayer:
 
     def test_basic_resolution(self) -> None:
         c = _cache(
-            raw_cx_edges={10: {2: np.array([[10, 100]], dtype=NODE_ID)}},
+            unresolved_acx={10: {2: np.array([[10, 100]], dtype=NODE_ID)}},
             resolver={100: {2: 200}},
         )
         result = topology.resolve_cx_at_layer([10], 2, c, {}, _get_layer)
@@ -70,7 +71,7 @@ class TestResolveCxAtLayer:
 
     def test_self_loops_filtered(self) -> None:
         c = _cache(
-            raw_cx_edges={10: {2: np.array([[10, 100]], dtype=NODE_ID)}},
+            unresolved_acx={10: {2: np.array([[10, 100]], dtype=NODE_ID)}},
             resolver={100: {2: 10}},
         )
         result = topology.resolve_cx_at_layer([10], 2, c, {}, _get_layer)
@@ -78,7 +79,7 @@ class TestResolveCxAtLayer:
 
     def test_duplicates_removed(self) -> None:
         c = _cache(
-            raw_cx_edges={10: {2: np.array([[10, 100], [10, 101]], dtype=NODE_ID)}},
+            unresolved_acx={10: {2: np.array([[10, 100], [10, 101]], dtype=NODE_ID)}},
             resolver={100: {2: 200}, 101: {2: 200}},
         )
         result = topology.resolve_cx_at_layer([10], 2, c, {}, _get_layer)
@@ -91,7 +92,7 @@ class TestResolveCxAtLayer:
 
     def test_multiple_nodes(self) -> None:
         c = _cache(
-            raw_cx_edges={
+            unresolved_acx={
                 10: {2: np.array([[10, 100]], dtype=NODE_ID)},
                 20: {2: np.array([[20, 200]], dtype=NODE_ID)},
             },
@@ -131,19 +132,19 @@ class TestStoreCxAndPropagate:
         c = _cache()
         cx_edges = np.array([[10, 100], [10, 200], [20, 300], [20, 400], [30, 500]], dtype=NODE_ID)
         topology.store_cx_from_resolved(c, cx_edges, 2)
-        assert len(c.cx_cache) == 3
-        assert len(c.cx_cache[10][2]) == 2
-        assert len(c.cx_cache[20][2]) == 2
-        assert len(c.cx_cache[30][2]) == 1
+        assert c.cx.get(10) is not None and c.cx.get(20) is not None and c.cx.get(30) is not None
+        assert len(c.cx[10][2]) == 2
+        assert len(c.cx[20][2]) == 2
+        assert len(c.cx[30][2]) == 1
 
     def test_store_cx_empty(self) -> None:
         c = _cache()
         topology.store_cx_from_resolved(c, types.empty_2d, 2)
-        assert len(c.cx_cache) == 0
+        assert c.cx.get(10) is None
 
     def test_consistency(self) -> None:
         c = _cache(
-            raw_cx_edges={10: {
+            unresolved_acx={10: {
                 2: np.array([[10, 100]], dtype=NODE_ID),
                 3: np.array([[10, 100]], dtype=NODE_ID),
             }},
@@ -151,64 +152,65 @@ class TestStoreCxAndPropagate:
         )
         resolved_l2 = topology.resolve_cx_at_layer([10], 2, c, {}, _get_layer)
         topology.store_cx_from_resolved(c, resolved_l2, 2)
-        assert 10 in c.cx_cache
-        assert int(c.cx_cache[10][2][0, 1]) == 200
-        assert int(c.raw_cx_edges[10][3][0, 1]) == 100
+        assert c.cx.get(10) is not None
+        assert int(c.cx[10][2][0, 1]) == 200
+        assert int(c.unresolved_acx[10][3][0, 1]) == 100
 
     def test_store_cx_multiple_layers(self) -> None:
         c = _cache()
         topology.store_cx_from_resolved(c, np.array([[10, 100]], dtype=NODE_ID), 2)
         topology.store_cx_from_resolved(c, np.array([[10, 200]], dtype=NODE_ID), 3)
-        assert set(c.cx_cache[10].keys()) == {2, 3}
-        assert int(c.cx_cache[10][2][0, 1]) == 100
-        assert int(c.cx_cache[10][3][0, 1]) == 200
+        assert set(c.cx[10].keys()) == {2, 3}
+        assert int(c.cx[10][2][0, 1]) == 100
+        assert int(c.cx[10][3][0, 1]) == 200
 
 
 class TestResolveRemainingCx:
 
     def test_fills_missing_layers(self) -> None:
         c = _cache(
-            raw_cx_edges={10: {
+            unresolved_acx={10: {
                 2: np.array([[10, 100]], dtype=NODE_ID),
                 3: np.array([[10, 100]], dtype=NODE_ID),
             }},
             resolver={100: {2: 200, 3: 300}},
         )
-        c.cx_cache[10] = {2: np.array([[10, 200]], dtype=NODE_ID)}
+        c.put_cx(10, {2: np.array([[10, 200]], dtype=NODE_ID)})
         c.new_node_ids = {10}
         topology.resolve_remaining_cx(c, None, {})
-        assert 3 in c.cx_cache[10]
-        assert int(c.cx_cache[10][3][0, 1]) == 300
+        assert 3 in c.cx[10]
+        assert int(c.cx[10][3][0, 1]) == 300
 
     def test_skips_already_resolved(self) -> None:
         existing = np.array([[10, 999]], dtype=NODE_ID)
         c = _cache(
-            raw_cx_edges={10: {2: np.array([[10, 100]], dtype=NODE_ID)}},
+            unresolved_acx={10: {2: np.array([[10, 100]], dtype=NODE_ID)}},
             resolver={100: {2: 200}},
         )
-        c.cx_cache[10] = {2: existing}
+        c.put_cx(10, {2: existing})
         c.new_node_ids = {10}
         topology.resolve_remaining_cx(c, None, {})
-        assert int(c.cx_cache[10][2][0, 1]) == 999
+        assert int(c.cx[10][2][0, 1]) == 999
 
     def test_filters_self_loops(self) -> None:
         c = _cache(
-            raw_cx_edges={10: {3: np.array([[10, 100]], dtype=NODE_ID)}},
+            unresolved_acx={10: {3: np.array([[10, 100]], dtype=NODE_ID)}},
             resolver={100: {3: 10}},
         )
         c.new_node_ids = {10}
         topology.resolve_remaining_cx(c, None, {})
-        assert 3 not in c.cx_cache.get(10, {})
+        assert 3 not in c.cx.get(10, {})
 
     def test_includes_siblings_with_raw_cx(self) -> None:
         """resolve_remaining_cx fills layer 3+ CX for siblings (layer 2 handled by layer loop)."""
         l2a = _node(2, 1)
         l3a = _node(3, 1)
         c = _cache(
-            raw_cx_edges={50: {3: np.array([[50, 100]], dtype=NODE_ID)}},
+            unresolved_acx={50: {3: np.array([[50, 100]], dtype=NODE_ID)}},
             resolver={100: {2: l2a}},
         )
         c.sibling_ids = {50}
+        c.dirty_siblings = {50}
         c.new_node_ids = set()
 
         class FakeLcg:
@@ -216,12 +218,12 @@ class TestResolveRemainingCx:
                 return (int(nid) >> 56) & 0xFF
 
         topology.resolve_remaining_cx(c, FakeLcg(), {l2a: l3a})
-        assert 3 in c.cx_cache[50]
+        assert 3 in c.cx[50]
 
     def test_uses_child_to_parent_walk(self) -> None:
         l2a, l3a = _node(2, 1), _node(3, 1)
         c = _cache(
-            raw_cx_edges={10: {3: np.array([[10, 100]], dtype=NODE_ID)}},
+            unresolved_acx={10: {3: np.array([[10, 100]], dtype=NODE_ID)}},
             resolver={100: {2: l2a}},
         )
         c.new_node_ids = {10}
@@ -231,16 +233,17 @@ class TestResolveRemainingCx:
                 return (int(nid) >> 56) & 0xFF
 
         topology.resolve_remaining_cx(c, FakeLcg(), {l2a: l3a})
-        assert 3 in c.cx_cache[10]
-        assert int(c.cx_cache[10][3][0, 1]) == l3a
+        assert 3 in c.cx[10]
+        assert int(c.cx[10][3][0, 1]) == l3a
 
 
 class TestResolveSvToLayerEdgeCases:
 
-    def test_old_to_new_then_child_to_parent(self) -> None:
-        l2_old, l2_new = _node(2, 10), _node(2, 11)
+    def test_resolver_current_then_child_to_parent(self) -> None:
+        """Resolver has current L2, child_to_parent walks to L3."""
+        l2_new = _node(2, 11)
         l3 = _node(3, 20)
-        c = _cache(resolver={100: {2: l2_old}}, old_to_new={l2_old: l2_new})
+        c = _cache(resolver={100: {2: l2_new}})
         result = tree.resolve_sv_to_layer(100, 3, c, {l2_new: l3}, _get_layer)
         assert result == l3
 

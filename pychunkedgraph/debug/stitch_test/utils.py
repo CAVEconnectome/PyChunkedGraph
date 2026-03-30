@@ -15,7 +15,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from pychunkedgraph.graph import ChunkedGraph, basetypes
-from .tables import setup_env
+from .tables import setup_env, set_autoscaling
 
 
 @contextmanager
@@ -276,7 +276,7 @@ def batched_extract_structure(graph_id, roots, save_dir):
 
         print(f"  batch {i+1}/{n_batches}: {len(batch)} roots, {len(shards)} shards")
         if args:
-            with Pool(min(len(args), 4 * os.cpu_count())) as pool:
+            with Pool(min(len(args), 3 * os.cpu_count())) as pool:
                 list(
                     tqdm(
                         pool.imap_unordered(_extract_and_save_worker, args),
@@ -328,11 +328,13 @@ def batched_extract_and_compare(
     dir_a = Path(baseline_extract_dir) if baseline_extract_dir else save_dir / "baseline"
     dir_b = save_dir / "proposed"
 
+    set_autoscaling(min_nodes=5)
     if not baseline_extract_dir:
         print("extracting baseline...")
         batched_extract_structure(graph_id_a, roots_a, save_dir=dir_a)
     print("extracting proposed...")
     batched_extract_structure(graph_id_b, roots_b, save_dir=dir_b)
+    set_autoscaling(min_nodes=1)
 
     print("comparing per-node...")
     t0 = time.time()
