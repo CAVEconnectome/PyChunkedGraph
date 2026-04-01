@@ -9,6 +9,10 @@ from pychunkedgraph.graph.utils import flatgraph
 
 from . import resolver as topology
 from . import tree
+from .test_helpers import (
+    noop_read, get_parent as _get_parent, get_children as _get_children,
+    get_acx as _get_acx, get_cx as _get_cx,
+)
 from .wave_cache import SiblingEntry, WaveCache
 
 NODE_ID = basetypes.NODE_ID
@@ -53,7 +57,7 @@ class TestReadGating:
     def test_has_batch_gates_reads(self) -> None:
         """has_batch returns False for unknown nodes, True for cached.
         Broken = _ensure_cached skips the check, causing duplicate BigTable reads."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         ids = np.array([10, 20], dtype=NODE_ID)
         assert not c.has_batch(ids).any()
         c.put_parent(10, 100)
@@ -66,41 +70,41 @@ class TestChainMapPriority:
     def test_local_shadows_preloaded(self) -> None:
         """Local writes must shadow preloaded (fork COW) values.
         Broken = stale preloaded data returned after a stitch updates a node."""
-        c = WaveCache(preloaded=({10: 100}, {}, {}))
-        assert c.parents[10] == 100
+        c = WaveCache(noop_read, preloaded=({10: 100}, {}, {}))
+        assert _get_parent(c, 10) == 100
         c.put_parent(10, 200)
-        assert c.parents[10] == 200
+        assert _get_parent(c, 10) == 200
 
 
 class TestFlushCreated:
 
     def test_all_writes_immediately_visible(self) -> None:
         """All put_* methods write directly to RowCache — immediately visible."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.put_children(99, np.array([1, 2], dtype=NODE_ID))
         c.put_parent(99, 999)
         c.put_acx(99, {2: "acx"})
         assert c.has(99)
-        assert len(c.children[99]) == 2
-        assert c.parents[99] == 999
-        assert c.acx[99] == {2: "acx"}
+        assert len(_get_children(c, 99)) == 2
+        assert _get_parent(c, 99) == 999
+        assert _get_acx(c, 99) == {2: "acx"}
 
     def test_flush_overwrites_stale_read(self) -> None:
         """Read stores parent=100, then stitch creates parent=200 for same node.
         Flush must overwrite the stale read value.
         Broken = stale parent used in hierarchy resolution → wrong CX edges."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.put_parent(10, 100)
         c.begin_stitch()
         c.put_parent(10, 200)
 
-        assert c.parents[10] == 200
+        assert _get_parent(c, 10) == 200
 
     def test_begin_stitch_clears_local(self) -> None:
         """begin_stitch clears local RowCache for retry safety.
         Data from completed stitches persists via snapshot→merge→preloaded."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.put_parent(99, 999)
         c.put_children(99, np.array([1], dtype=NODE_ID))
@@ -115,7 +119,7 @@ class TestSaveWaveState:
     def test_flushes_and_stores_siblings(self) -> None:
         """save_wave_state stores sibling entries.
         Broken = in-process waves lose created data or sibling cache."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.put_parent(99, 999)
         c.put_children(99, np.array([1], dtype=NODE_ID))
@@ -126,8 +130,8 @@ class TestSaveWaveState:
             sibling_ids={10}, unresolved_acx={10: {2: np.array([[10, 50]], dtype=NODE_ID)}},
         )
         assert c.has(99)
-        assert c.parents[99] == 999
-        assert c.acx[50] == {2: "acx"}
+        assert _get_parent(c, 99) == 999
+        assert _get_acx(c, 50) == {2: "acx"}
         assert 10 in c._siblings
         assert 2 in c._siblings[10].unresolved_acx
 
@@ -137,7 +141,7 @@ class TestMergeOperations:
     def test_merge_inc_stores_siblings_and_incremental(self) -> None:
         """merge_inc stores sibling data + old_to_new + new_node_ids for incremental optimization.
         Broken = partition_siblings can't find known siblings → all re-read from BigTable."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         children = np.array([1, 2, 3], dtype=NODE_ID)
         c.merge_inc({
             "old_to_new": {10: 11},
@@ -148,18 +152,17 @@ class TestMergeOperations:
         })
         assert c.get_sibling(50) is not None
         assert c.get_sibling(50).unresolved_acx == {2: "edges"}
-        assert set(c.get_sibling(50).resolver_entries.keys()) == {1, 2, 3}
         assert c.accumulated_replacements == {10: 11}
         assert 11 in c._new_node_ids
 
     def test_incremental_state_to_new_cache(self) -> None:
         """incremental_state() tuple passed to new WaveCache gives it sibling + old_to_new data.
         Broken = pool workers don't know about prior waves' siblings → can't skip reads."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c._siblings[10] = SiblingEntry({2: "raw"}, {1: {2: 10}})
         c.accumulated_replacements = {100: 101}
         c._new_node_ids = {101}
-        c2 = WaveCache(incremental=c.incremental_state())
+        c2 = WaveCache(noop_read, incremental=c.incremental_state())
         assert c2.get_sibling(10) is not None
         assert c2.accumulated_replacements == {100: 101}
 
@@ -168,13 +171,13 @@ class TestSplitKnown:
 
     def test_empty_all_unknown(self) -> None:
         """No prior siblings → all unknown (first wave)."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         known, unknown = c.split_known_siblings(np.array([10, 20], dtype=NODE_ID))
         assert len(known) == 0 and len(unknown) == 2
 
     def test_mixed(self) -> None:
         """Known siblings from prior wave cached, new ones unknown."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c._siblings[10] = SiblingEntry({}, {})
         c._siblings[20] = SiblingEntry({}, {})
         known, unknown = c.split_known_siblings(np.array([10, 20, 30], dtype=NODE_ID))
@@ -187,7 +190,7 @@ class TestComplexFlows:
     def test_pool_wave_roundtrip(self) -> None:
         """Simulates pool wave: worker reads + creates → snapshot → parent merges → new worker finds all.
         Broken = created nodes lost in transit → BigTable re-reads in next wave."""
-        worker = WaveCache()
+        worker = WaveCache(noop_read)
         worker.begin_stitch()
         worker.put_parent(1, 10)
         worker.put_parent(50, 500)
@@ -200,47 +203,47 @@ class TestComplexFlows:
             sibling_ids=set(), unresolved_acx={},
         )
 
-        parent = WaveCache()
+        parent = WaveCache(noop_read)
         parent.merge_reader(local_snap)
         parent.merge_inc(inc_snap)
 
         assert parent.has(1)
         assert parent.has(50)
-        assert parent.parents[50] == 500
-        assert len(parent.children[500]) == 1
+        assert _get_parent(parent, 50) == 500
+        assert len(_get_children(parent, 500)) == 1
 
-        worker2 = WaveCache(preloaded=parent.preloaded())
+        worker2 = WaveCache(noop_read, preloaded=parent.preloaded())
         assert worker2.has(1)
         assert worker2.has(50)
-        assert worker2.parents[50] == 500
+        assert _get_parent(worker2, 50) == 500
 
     def test_two_workers_merge_no_loss(self) -> None:
         """Two workers create different nodes. Parent merges both. No data lost.
         Broken = second merge overwrites first → missing nodes."""
-        w1 = WaveCache()
+        w1 = WaveCache(noop_read)
         w1.begin_stitch()
         w1.put_parent(1, 10)
         w1.put_parent(100, 1000)
 
 
-        w2 = WaveCache()
+        w2 = WaveCache(noop_read)
         w2.begin_stitch()
         w2.put_parent(2, 20)
         w2.put_parent(200, 2000)
 
 
-        parent = WaveCache()
+        parent = WaveCache(noop_read)
         parent.merge_reader(w1.local_snapshot())
         parent.merge_reader(w2.local_snapshot())
         assert parent.has(1) and parent.has(2)
         assert parent.has(100) and parent.has(200)
-        assert parent.parents[100] == 1000
-        assert parent.parents[200] == 2000
+        assert _get_parent(parent, 100) == 1000
+        assert _get_parent(parent, 200) == 2000
 
     def test_full_multiwave(self) -> None:
         """Three waves accumulating data. Each wave's created + read data persists.
         Broken = any wave's data lost → re-reads or missing nodes."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
 
         c.begin_stitch()
         c.put_parent(1, 10)
@@ -253,7 +256,7 @@ class TestComplexFlows:
 
         c.begin_stitch()
         assert c.has(1) and c.has(100)
-        assert c.parents[100] == 1000
+        assert _get_parent(c, 100) == 1000
         c.put_parent(3, 30)
         c.put_parent(200, 2000)
         c.save_wave_state(
@@ -264,8 +267,8 @@ class TestComplexFlows:
         c.begin_stitch()
         assert c.has(1) and c.has(100) and c.has(200)
         assert c.has(3)
-        assert c.parents[100] == 1000
-        assert c.parents[200] == 2000
+        assert _get_parent(c, 100) == 1000
+        assert _get_parent(c, 200) == 2000
 
 
 class TestDirtySiblings:
@@ -273,11 +276,11 @@ class TestDirtySiblings:
     def test_affected_partner_makes_dirty(self) -> None:
         """Sibling with partner SV resolving to a replaced L2 → dirty.
         Broken = unchanged CX written for this sibling, wasting BigTable writes."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.old_to_new = {100: 200}
         c.new_ids_d[2] = [200]
-        c.resolver = {50: {2: 100}}
+        c.put_parent(50, 100)
         c.sibling_ids = {10}
         c.unresolved_acx = {10: {2: np.array([[10, 50]], dtype=NODE_ID)}}
         c._siblings[10] = SiblingEntry({}, {})
@@ -287,11 +290,11 @@ class TestDirtySiblings:
     def test_new_node_partner_makes_dirty(self) -> None:
         """Sibling with partner SV resolving to a newly created L2 → dirty.
         Broken = partner points to new node with new parents, CX would differ."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.old_to_new = {}
         c.new_ids_d[2] = [200]
-        c.resolver = {50: {2: 200}}
+        c.put_parent(50, 200)
         c.sibling_ids = {10}
         c.unresolved_acx = {10: {2: np.array([[10, 50]], dtype=NODE_ID)}}
         c._siblings[10] = SiblingEntry({}, {})
@@ -301,11 +304,11 @@ class TestDirtySiblings:
     def test_unaffected_partner_is_clean(self) -> None:
         """Sibling with partner SV resolving to unrelated L2 → clean.
         Broken = sibling marked dirty unnecessarily, extra writes."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.old_to_new = {100: 200}
         c.new_ids_d[2] = [200]
-        c.resolver = {50: {2: 999}}
+        c.put_parent(50, 999)
         c.sibling_ids = {10}
         c.unresolved_acx = {10: {2: np.array([[10, 50]], dtype=NODE_ID)}}
         c._siblings[10] = SiblingEntry({}, {})
@@ -315,11 +318,10 @@ class TestDirtySiblings:
     def test_unknown_sibling_always_dirty(self) -> None:
         """Sibling without SiblingEntry (first wave) → always dirty.
         Broken = unknown sibling skipped, CX never written."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.old_to_new = {}
         c.new_ids_d[2] = []
-        c.resolver = {}
         c.sibling_ids = {10}
         c.unresolved_acx = {}
         c.compute_dirty_siblings()
@@ -329,13 +331,14 @@ class TestDirtySiblings:
         """Wave 0: create A,B. Wave 1: replace A→X, S1(→A) dirty, S2(→B) clean.
         Wave 2: replace B→Y, S1(→X) clean, S2(→B) dirty.
         Broken = wrong siblings marked dirty → wrong CX written or extra writes."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
 
         # Wave 0: S1 partners with SV 50→A(100), S2 partners with SV 60→B(200)
         c.begin_stitch()
         c.old_to_new = {}
         c.new_ids_d[2] = [100, 200]
-        c.resolver = {50: {2: 100}, 60: {2: 200}}
+        c.put_parent(50, 100)
+        c.put_parent(60, 200)
         c.sibling_ids = {10, 20}
         c.unresolved_acx = {
             10: {2: np.array([[10, 50]], dtype=NODE_ID)},
@@ -354,7 +357,8 @@ class TestDirtySiblings:
         c.begin_stitch()
         c.old_to_new = {100: 300}
         c.new_ids_d[2] = [300]
-        c.resolver = {50: {2: 100}, 60: {2: 200}}
+        c.put_parent(50, 100)
+        c.put_parent(60, 200)
         c.sibling_ids = {10, 20}
         c.unresolved_acx = {
             10: {2: np.array([[10, 50]], dtype=NODE_ID)},
@@ -374,7 +378,8 @@ class TestDirtySiblings:
         c.begin_stitch()
         c.old_to_new = {**c.accumulated_replacements, 200: 400}
         c.new_ids_d[2] = [400]
-        c.resolver = {50: {2: 100}, 60: {2: 200}}
+        c.put_parent(50, 100)
+        c.put_parent(60, 200)
         c.sibling_ids = {10, 20}
         c.unresolved_acx = {
             10: {2: np.array([[10, 50]], dtype=NODE_ID)},
@@ -388,7 +393,7 @@ class TestDirtySiblings:
         """old_to_new used for resolution must include ALL prior waves' replacements.
         Without this, resolve_sv_to_layer returns dead node IDs for known siblings
         whose partners were replaced in prior waves. Caused task_2_5 mismatch."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
 
         c.begin_stitch()
         c.save_wave_state(
@@ -408,12 +413,12 @@ class TestDirtySiblings:
         """Wave 0: replaces A→X. Wave 1: different replacements (B→Y).
         S1(partner→A) is dirty in wave 1 because A in accumulated_replacements.
         Broken = only per-wave old_to_new checked → stale resolver entry used."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
 
         c.begin_stitch()
         c.old_to_new = {100: 200}
         c.new_ids_d[2] = [200]
-        c.resolver = {50: {2: 100}}
+        c.put_parent(50, 100)
         c.sibling_ids = {10}
         c.unresolved_acx = {10: {2: np.array([[10, 50]], dtype=NODE_ID)}}
         c._siblings[10] = SiblingEntry({}, {})
@@ -429,7 +434,7 @@ class TestDirtySiblings:
         c.begin_stitch()
         c.old_to_new = {**c.accumulated_replacements, 300: 400}
         c.new_ids_d[2] = [400]
-        c.resolver = {50: {2: 100}}
+        c.put_parent(50, 100)
         c.sibling_ids = {10}
         c.unresolved_acx = {10: {2: np.array([[10, 50]], dtype=NODE_ID)}}
         c.compute_dirty_siblings()
@@ -456,9 +461,10 @@ class TestCleanSiblingSkipIntegration:
 
     def test_store_cx_skips_siblings(self) -> None:
         """store_cx_from_resolved skips siblings — BigTable CX preserved for counterpart remap."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
-        c.resolver = {50: {2: 200}, 60: {2: 100}}
+        c.put_parent(50, 200)
+        c.put_parent(60, 100)
         c.sibling_ids = {10, 20}
         c.new_node_ids = {300}
         c.unresolved_acx = {
@@ -467,12 +473,12 @@ class TestCleanSiblingSkipIntegration:
             300: {2: np.array([[300, 50]], dtype=NODE_ID)},
         }
 
-        cx_resolved = topology.resolve_cx_at_layer([10, 20, 300], 2, c, {}, _get_layer)
+        cx_resolved = topology.resolve_cx_at_layer([10, 20, 300], 2, c, _get_layer)
         topology.store_cx_from_resolved(c, cx_resolved, 2)
 
-        assert c.cx.get(10) is None, "Sibling CX not stored"
-        assert c.cx.get(20) is None, "Sibling CX not stored"
-        assert c.cx.get(300) is not None, "New node CX stored"
+        assert not _get_cx(c, 10), "Sibling CX not stored"
+        assert not _get_cx(c, 20), "Sibling CX not stored"
+        assert _get_cx(c, 300), "New node CX stored"
 
     def test_build_rows_skips_clean_siblings(self) -> None:
         """build_rows only writes CX for siblings in RowCache cx (dirty ones).
@@ -480,20 +486,22 @@ class TestCleanSiblingSkipIntegration:
         from kvdbclient import serializers
         from pychunkedgraph.graph import attributes
 
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.sibling_ids = {10, 20}
         c.new_node_ids = set()
         c.put_cx(20, {2: np.array([[20, 200]], dtype=NODE_ID)})
 
         rows = {}
+        sib_cx = c.get_cx_batch(np.array(list(c.sibling_ids), dtype=NODE_ID))
         for nid in c.sibling_ids:
-            if c.cx.get(nid) is None:
+            cx_d = sib_cx.get(int(nid), {})
+            if not cx_d:
                 continue
             rk = serializers.serialize_uint64(np.uint64(nid))
             rows[rk] = {
                 attributes.Connectivity.CrossChunkEdge[layer]: cx
-                for layer, cx in c.cx[nid].items()
+                for layer, cx in cx_d.items()
             }
 
         assert len(rows) == 1
@@ -514,9 +522,9 @@ class TestResolveRemainingCxBatched:
     def test_skips_layer_2(self) -> None:
         """resolve_remaining_cx must not process layer 2 — handled by build_hierarchy layer loop.
         Broken = clean siblings get layer 2 CX stored → written to BigTable unnecessarily."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
-        c.resolver = {50: {2: 200}}
+        c.put_parent(50, 200)
         c.sibling_ids = {10}
         c.new_node_ids = set()
         c.unresolved_acx = {10: {2: np.array([[10, 50]], dtype=NODE_ID)}}
@@ -525,8 +533,8 @@ class TestResolveRemainingCxBatched:
             def get_chunk_layer(self, nid):
                 return (int(nid) >> 56) & 0xFF
 
-        topology.resolve_remaining_cx(c, FakeLcg(), {})
-        assert c.cx.get(10) is None, "Layer 2 must not be processed by resolve_remaining_cx"
+        topology.resolve_remaining_cx(c, FakeLcg())
+        assert not _get_cx(c, 10), "Layer 2 must not be processed by resolve_remaining_cx"
 
     def test_processes_layer_3_new_nodes_only(self) -> None:
         """resolve_remaining_cx processes layer 3+ for new nodes only.
@@ -535,9 +543,9 @@ class TestResolveRemainingCxBatched:
         P3 = _node(3, 10)
         NEW = _node(3, 99)
 
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
-        c.resolver = {50: {2: A}}
+        c.put_parent(50, A)
         c.sibling_ids = {10}
         c.new_node_ids = {NEW}
         c.unresolved_acx = {
@@ -549,10 +557,11 @@ class TestResolveRemainingCxBatched:
             def get_chunk_layer(self, nid):
                 return (int(nid) >> 56) & 0xFF
 
-        topology.resolve_remaining_cx(c, FakeLcg(), {A: P3})
-        assert c.cx.get(10) is None, "Sibling higher-layer CX not re-derived"
-        assert c.cx.get(NEW) is not None, "New node processed"
-        assert 3 in c.cx[NEW]
+        c.put_parent(A, P3)
+        topology.resolve_remaining_cx(c, FakeLcg())
+        assert not _get_cx(c, 10), "Sibling higher-layer CX not re-derived"
+        assert _get_cx(c, NEW), "New node processed"
+        assert 3 in _get_cx(c, NEW)
 
 
 class TestEndToEndMultiwave:
@@ -571,25 +580,25 @@ class TestPartnerResolution:
         partner_sv = 50
         new_l2 = 300
 
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
-        c.resolver = {partner_sv: {2: new_l2}}
+        c.put_parent(partner_sv, new_l2)
         c.new_ids_d[2] = [new_l2]
         c.unresolved_acx = {S: {2: np.array([[S, partner_sv]], dtype=NODE_ID)}}
 
         def _get_layer(nid):
             return (int(nid) >> 56) & 0xFF
 
-        cx = topology.resolve_cx_at_layer([S], 2, c, {}, _get_layer)
+        cx = topology.resolve_cx_at_layer([S], 2, c, _get_layer)
         assert len(cx) == 1
         assert int(cx[0, 1]) == new_l2, "Partner SV resolved via resolver (current identity)"
 
-        c2 = WaveCache()
+        c2 = WaveCache(noop_read)
         c2.begin_stitch()
-        c2.resolver = {}
+
         c2.unresolved_acx = {S: {2: np.array([[S, partner_sv]], dtype=NODE_ID)}}
 
-        cx_bad = topology.resolve_cx_at_layer([S], 2, c2, {}, _get_layer)
+        cx_bad = topology.resolve_cx_at_layer([S], 2, c2, _get_layer)
         if len(cx_bad) > 0:
             assert int(cx_bad[0, 1]) == partner_sv, \
                 "Without resolver entry, partner SV returned as-is (wrong)"
@@ -606,22 +615,19 @@ class TestPartnerResolution:
         partner_l2_dirty = 200
         partner_l2_clean = 300
 
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c._siblings[S_dirty] = SiblingEntry(
             unresolved_acx={2: np.array([[S_dirty, partner_sv_dirty]], dtype=NODE_ID)},
-            resolver_entries={70: {2: S_dirty}},
         )
         c._siblings[S_clean] = SiblingEntry(
             unresolved_acx={2: np.array([[S_clean, partner_sv_clean]], dtype=NODE_ID)},
-            resolver_entries={80: {2: S_clean}},
         )
         c.begin_stitch()
         c.old_to_new = {partner_l2_dirty: 400}
         c.new_ids_d[2] = [400]
-        c.resolver = {
-            70: {2: S_dirty}, 80: {2: S_clean},
-            partner_sv_dirty: {2: partner_l2_dirty},
-        }
+        c.put_parent(70, S_dirty)
+        c.put_parent(80, S_clean)
+        c.put_parent(partner_sv_dirty, partner_l2_dirty)
         c.sibling_ids = {S_dirty, S_clean}
         c.unresolved_acx = {
             S_dirty: {2: np.array([[S_dirty, partner_sv_dirty]], dtype=NODE_ID)},
@@ -637,8 +643,8 @@ class TestPartnerResolution:
         assert len(unknown) == 0, "All siblings known"
         assert len(known) == 2
 
-        assert partner_sv_dirty in c.resolver, \
-            "Dirty known sibling's partner SV MUST be in resolver for correct resolution"
+        assert c.has(partner_sv_dirty), \
+            "Dirty known sibling's partner SV MUST be cached for correct resolution"
 
     def test_partner_resolution_before_dirty_check(self) -> None:
         """Partner SVs must be in resolver BEFORE compute_dirty_siblings runs.
@@ -653,10 +659,9 @@ class TestPartnerResolution:
         partner_l2 = _node(2, 200)
         replacement = _node(2, 300)
 
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c._siblings[S] = SiblingEntry(
             unresolved_acx={2: np.array([[S, partner_sv]], dtype=NODE_ID)},
-            resolver_entries={70: {2: S}},
         )
 
         c.begin_stitch()
@@ -665,14 +670,14 @@ class TestPartnerResolution:
         c.sibling_ids = {S}
         c.unresolved_acx = {S: {2: np.array([[S, partner_sv]], dtype=NODE_ID)}}
 
-        # Without partner SV in resolver: dirty check returns clean (WRONG)
+        # Without partner SV cached: dirty check returns clean (can't resolve)
         c.compute_dirty_siblings()
-        assert S not in c.dirty_siblings, "BUG confirmed: without resolver entry, dirty check misses it"
+        assert S not in c.dirty_siblings, "Without cached partner, dirty check misses it"
 
-        # With partner SV in resolver (as if collect_and_resolve_partners ran first): dirty (CORRECT)
-        c.resolver[partner_sv] = {2: partner_l2}
+        # With partner SV cached (ensure_partners_cached): dirty (CORRECT)
+        c.put_parent(partner_sv, partner_l2)
         c.compute_dirty_siblings()
-        assert S in c.dirty_siblings, "With resolver entry, dirty check correctly detects replaced partner"
+        assert S in c.dirty_siblings, "With cached partner, dirty check correctly detects replaced partner"
 
 
 
@@ -685,16 +690,17 @@ class TestRestoreKnownSkipsHasBatch:
     def test_known_sibling_data_from_preloaded(self) -> None:
         """Known sibling's children + acx accessible via cache.children / cache.acx
         without triggering _ensure_cached. Data in preloaded from prior wave."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.put_children(10, np.array([50, 60], dtype=NODE_ID))
+        c.put_parent(50, 10)
+        c.put_parent(60, 10)
         c.put_acx(10, {2: np.array([[10, 100]], dtype=NODE_ID)})
         c._siblings[10] = SiblingEntry(
             unresolved_acx={2: np.array([[10, 100]], dtype=NODE_ID)},
-            resolver_entries={50: {2: 10}},
         )
         # Simulate wave boundary: local → preloaded via snapshot+merge+promote
         snap = c.local_snapshot()
-        c2 = WaveCache()
+        c2 = WaveCache(noop_read)
         c2._siblings = c._siblings
         c2.merge_reader(snap)
         c2._rows.promote_local()
@@ -702,10 +708,10 @@ class TestRestoreKnownSkipsHasBatch:
         c2.begin_stitch()
         tree.restore_known_siblings(None, c2, np.array([10], dtype=NODE_ID))
 
-        assert c2.children.get(10) is not None
-        assert c2.acx.get(10) is not None
+        assert _get_children(c2, 10) is not None and len(_get_children(c2, 10)) > 0
+        assert _get_acx(c2, 10)
         assert 10 in c2.unresolved_acx
-        assert 50 in c2.resolver
+        assert c2.has(50)
 
 
 class TestHashBasedWriteSkip:
@@ -721,7 +727,7 @@ class TestAllSiblingsInCCGraph:
     def test_all_siblings_enter_layer2(self) -> None:
         """All siblings enter all_nodes at layer 2 — not just dirty ones.
         Sibling set is small from discover_siblings fix (immediate parents only)."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.new_ids_d[2] = [100, 200]
         c.siblings_d = {2: [10, 20, 30, 40, 50]}
@@ -738,9 +744,10 @@ class TestAllSiblingsInCCGraph:
     def test_resolve_returns_all_but_store_skips_siblings(self) -> None:
         """resolve_cx_at_layer returns CX for all nodes (for CC graph),
         but store_cx_from_resolved skips siblings (BigTable CX preserved)."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
-        c.resolver = {50: {2: 200}, 60: {2: 300}}
+        c.put_parent(50, 200)
+        c.put_parent(60, 300)
         c.unresolved_acx = {
             10: {2: np.array([[10, 50]], dtype=NODE_ID)},
             20: {2: np.array([[20, 60]], dtype=NODE_ID)},
@@ -754,13 +761,13 @@ class TestAllSiblingsInCCGraph:
         def _get_layer(nid):
             return (int(nid) >> 56) & 0xFF
 
-        cx = topology.resolve_cx_at_layer(all_nodes, 2, c, {}, _get_layer)
+        cx = topology.resolve_cx_at_layer(all_nodes, 2, c, _get_layer)
         assert len(cx) > 0, "CX returned for CC graph"
 
         topology.store_cx_from_resolved(c, cx, 2)
-        assert c.cx.get(10) is None, "Sibling CX not stored"
-        assert c.cx.get(20) is None, "Sibling CX not stored"
-        assert c.cx.get(99) is not None, "New node CX stored"
+        assert not _get_cx(c, 10), "Sibling CX not stored"
+        assert not _get_cx(c, 20), "Sibling CX not stored"
+        assert _get_cx(c, 99), "New node CX stored"
 
 
 class TestPartnerResolutionOptimized:
@@ -770,42 +777,45 @@ class TestPartnerResolutionOptimized:
     def test_known_siblings_with_cached_partners_skip_resolution(self) -> None:
         """If all partner SVs of known siblings are already in resolver,
         collect_and_resolve_partners should find nothing new to resolve."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
-        c.resolver = {50: {2: 200}, 60: {2: 300}}
+        c.put_parent(50, 200)
+        c.put_parent(60, 300)
         c.put_acx(10, {2: np.array([[10, 50]], dtype=NODE_ID)})
         c.put_acx(20, {2: np.array([[20, 60]], dtype=NODE_ID)})
-        resolver_keys = set(c.resolver.keys())
+        cached_svs = set()
+        sib_acx_batch = c.get_acx_batch(np.array([10, 20], dtype=NODE_ID))
         missing = {}
         for sib_int in [10, 20]:
-            acx_d = c.acx.get(sib_int)
-            if acx_d is None:
+            acx_d = sib_acx_batch.get(sib_int, {})
+            if not acx_d:
                 continue
             for layer_edges in acx_d.values():
                 if len(layer_edges) > 0:
                     for sv in layer_edges[:, 1]:
-                        if int(sv) not in resolver_keys:
+                        if not c.has(int(sv)):
                             missing[sib_int] = acx_d
                             break
         assert len(missing) == 0, "No missing partners — resolution skipped"
 
     def test_known_sibling_with_missing_partner_resolved(self) -> None:
         """If a known sibling has a partner SV NOT in resolver, it must be resolved."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
-        c.resolver = {50: {2: 200}}
+        c.put_parent(50, 200)
         c.put_acx(10, {2: np.array([[10, 50]], dtype=NODE_ID)})
         c.put_acx(20, {2: np.array([[20, 70]], dtype=NODE_ID)})  # sv 70 NOT in resolver
-        resolver_keys = set(c.resolver.keys())
+        cached_svs = set()
+        sib_acx_batch = c.get_acx_batch(np.array([10, 20], dtype=NODE_ID))
         missing = {}
         for sib_int in [10, 20]:
-            acx_d = c.acx.get(sib_int)
-            if acx_d is None:
+            acx_d = sib_acx_batch.get(sib_int, {})
+            if not acx_d:
                 continue
             for layer_edges in acx_d.values():
                 if len(layer_edges) > 0:
                     for sv in layer_edges[:, 1]:
-                        if int(sv) not in resolver_keys:
+                        if not c.has(int(sv)):
                             missing[sib_int] = acx_d
                             break
                     if sib_int in missing:
@@ -819,11 +829,13 @@ class TestVectorizedDirtyCheck:
 
     def test_vectorized_matches_python(self) -> None:
         """Vectorized dirty check must produce same result as Python loop."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.old_to_new = {100: 200, 300: 400}
         c.new_ids_d[2] = [200, 400]
-        c.resolver = {50: {2: 100}, 60: {2: 999}, 70: {2: 300}}
+        c.put_parent(50, 100)
+        c.put_parent(60, 999)
+        c.put_parent(70, 300)
         c.sibling_ids = {10, 20, 30}
         c.unresolved_acx = {
             10: {2: np.array([[10, 50]], dtype=NODE_ID)},  # sv50→100, 100 in old_to_new → dirty
@@ -850,7 +862,7 @@ class TestCCCorrectness:
         """Dirty node A has CX edge to clean sibling B.
         Both must be in CC graph so A and B are in the same CC.
         Broken = B excluded → A isolated → extra root."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         A = _node(2, 1)  # new node
@@ -858,10 +870,8 @@ class TestCCCorrectness:
         partner_sv_a = 5001  # SV in B that A connects to
         partner_sv_b = 5002  # SV in A that B connects to
 
-        c.resolver = {
-            partner_sv_a: {2: int(B)},
-            partner_sv_b: {2: int(A)},
-        }
+        c.put_parent(partner_sv_a, int(B))
+        c.put_parent(partner_sv_b, int(A))
         c.unresolved_acx = {
             int(A): {2: np.array([[A, partner_sv_a]], dtype=NODE_ID)},
             int(B): {2: np.array([[B, partner_sv_b]], dtype=NODE_ID)},
@@ -885,7 +895,7 @@ class TestCCCorrectness:
         assert int(B) in fixed_nodes, "Fix: clean B in CC graph"
 
         # Resolve CX and build CC with fixed set
-        cx = topology.resolve_cx_at_layer(fixed_nodes, 2, c, {}, _get_layer)
+        cx = topology.resolve_cx_at_layer(fixed_nodes, 2, c, _get_layer)
         assert len(cx) > 0, "A and B must have resolved CX edges"
 
         nodes_arr = np.array(fixed_nodes, dtype=NODE_ID)
@@ -899,7 +909,7 @@ class TestCCCorrectness:
     def test_dirty_cc_gets_new_parent(self) -> None:
         """CC with at least one new/dirty node must get a new parent.
         All members (dirty + clean) get new parent pointer."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         new1 = _node(2, 1)
@@ -907,7 +917,8 @@ class TestCCCorrectness:
         sv_new = 5001
         sv_clean = 5002
 
-        c.resolver = {sv_new: {2: int(clean1)}, sv_clean: {2: int(new1)}}
+        c.put_parent(sv_new, int(clean1))
+        c.put_parent(sv_clean, int(new1))
         c.unresolved_acx = {
             int(new1): {2: np.array([[new1, sv_new]], dtype=NODE_ID)},
             int(clean1): {2: np.array([[clean1, sv_clean]], dtype=NODE_ID)},
@@ -916,7 +927,7 @@ class TestCCCorrectness:
         c.dirty_siblings = set()
 
         all_nodes = [new1, clean1]
-        cx = topology.resolve_cx_at_layer(all_nodes, 2, c, {}, _get_layer)
+        cx = topology.resolve_cx_at_layer(all_nodes, 2, c, _get_layer)
         topology.store_cx_from_resolved(c, cx, 2)
 
         nodes_arr = np.array(all_nodes, dtype=NODE_ID)
@@ -971,7 +982,7 @@ class TestEndToEndHierarchy:
     def test_end_to_end_hierarchy_leaf_to_root(self) -> None:
         """10 L2 nodes: 3 new, 7 clean siblings. CX connects into 2 CCs.
         Build hierarchy L2 → L3 → root. Verify correct parents, CX, root count."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         # 3 new nodes + 7 clean siblings
@@ -987,11 +998,9 @@ class TestEndToEndHierarchy:
         all_l2 = cc1_nodes + cc2_nodes
 
         # Create resolver: each node's child SV maps to the node
-        resolver = {}
         for n in all_l2:
-            sv = int(n) * 10 + 1  # unique SV per node
-            resolver[sv] = {2: int(n)}
-        c.resolver = resolver
+            sv = int(n) * 10 + 1
+            c.put_parent(sv, int(n))
 
         # CX edges: chain connectivity within each CC
         # CC1: new1↔new2, new2↔cl1, cl1↔cl2
@@ -1023,7 +1032,7 @@ class TestEndToEndHierarchy:
         assert len(all_nodes_l2) == 10, "All 10 L2 nodes in CC graph"
 
         # Resolve CX at L2
-        cx = topology.resolve_cx_at_layer(all_nodes_l2, 2, c, {}, _get_layer)
+        cx = topology.resolve_cx_at_layer(all_nodes_l2, 2, c, _get_layer)
         assert len(cx) > 0, "Must have resolved CX edges"
         topology.store_cx_from_resolved(c, cx, 2)
 
@@ -1051,8 +1060,10 @@ class TestEndToEndHierarchy:
             assert int(n) in all_in_ccs, f"Clean sibling {n} must be in a CC"
 
         # Verify CX stored for all nodes
+        all_l2_arr = np.array(list(all_l2), dtype=NODE_ID)
+        all_l2_cx = c.get_cx_batch(all_l2_arr)
         for n in all_l2:
-            assert c.cx.get(int(n)) is not None, f"Node {n} must have CX in cache"
+            assert all_l2_cx.get(int(n)), f"Node {n} must have CX in cache"
 
 
 class TestFilterOrphaned:
@@ -1060,7 +1071,7 @@ class TestFilterOrphaned:
 
     def test_valid_nodes_kept(self) -> None:
         """Nodes whose segment_id is the highest for their max_child are kept."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         # Node 100: children [1, 5] → max_child=5, seg_id=10
         # Node 200: children [2, 8] → max_child=8, seg_id=20
         c.put_children(100, np.array([1, 5], dtype=NODE_ID))
@@ -1077,7 +1088,7 @@ class TestFilterOrphaned:
 
     def test_orphaned_filtered(self) -> None:
         """Failed node (lower seg_id, same max_child) is filtered out."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         # Both nodes have max_child=5, but node 100 has higher seg_id → valid
         # Node 200 has lower seg_id → orphaned (failed retry)
         c.put_children(100, np.array([1, 5], dtype=NODE_ID))
@@ -1096,7 +1107,7 @@ class TestFilterOrphaned:
 
     def test_empty_input(self) -> None:
         """Empty input returns empty array."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
 
         class FakeLCG:
             _cache = c
@@ -1109,7 +1120,7 @@ class TestFilterOrphaned:
 
     def test_no_children_uses_zero_max(self) -> None:
         """Nodes with empty children get max_child=0."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.put_children(100, np.array([], dtype=NODE_ID))
         c.put_children(200, np.array([3, 7], dtype=NODE_ID))
 
@@ -1131,7 +1142,7 @@ class TestExternalNodesInCCGraph:
         """A (in all_nodes) has CX to D (external). D has CX to B (in all_nodes).
         Without D's outgoing CX loaded, A-D connected but D-B missing → 2 CCs.
         With D in all_nodes, A-D-B forms 1 CC."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         A = _node(2, 1)   # in all_nodes
@@ -1142,11 +1153,9 @@ class TestExternalNodesInCCGraph:
         sv_b = 7002  # SV resolving to B
         sv_a = 7003  # SV resolving to A
 
-        c.resolver = {
-            sv_d: {2: int(D)},
-            sv_b: {2: int(B)},
-            sv_a: {2: int(A)},
-        }
+        c.put_parent(sv_d, int(D))
+        c.put_parent(sv_b, int(B))
+        c.put_parent(sv_a, int(A))
 
         # A→D and D→B should form one CC: {A, D, B}
         # But only A and B are in all_nodes
@@ -1158,7 +1167,7 @@ class TestExternalNodesInCCGraph:
 
         # Case 1: Only A, B in all_nodes (external D missing outgoing CX)
         all_nodes_partial = [A, B]
-        cx_partial = topology.resolve_cx_at_layer(all_nodes_partial, 2, c, {}, _get_layer)
+        cx_partial = topology.resolve_cx_at_layer(all_nodes_partial, 2, c, _get_layer)
         topology.store_cx_from_resolved(c, cx_partial, 2)
 
         nodes_arr = np.array(all_nodes_partial, dtype=NODE_ID)
@@ -1181,7 +1190,7 @@ class TestExternalNodesInCCGraph:
         A→D and D→B. A and B have NO direct CX to each other.
         Without D's outgoing CX, A connects to D, but B is isolated → 2 CCs.
         This is the exact bug causing 22 roots instead of 11."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         A = _node(2, 1)   # in all_nodes (new node)
@@ -1191,7 +1200,8 @@ class TestExternalNodesInCCGraph:
         sv_d = 7001  # SV resolving to D
         sv_b = 7002  # SV resolving to B
 
-        c.resolver = {sv_d: {2: int(D)}, sv_b: {2: int(B)}}
+        c.put_parent(sv_d, int(D))
+        c.put_parent(sv_b, int(B))
 
         # A→D, D→B. A and B connected only through D.
         c.unresolved_acx = {
@@ -1202,7 +1212,7 @@ class TestExternalNodesInCCGraph:
 
         # Only A, B in all_nodes — D's outgoing CX not resolved
         all_nodes = [A, B]
-        cx = topology.resolve_cx_at_layer(all_nodes, 2, c, {}, _get_layer)
+        cx = topology.resolve_cx_at_layer(all_nodes, 2, c, _get_layer)
 
         nodes_arr = np.array(all_nodes, dtype=NODE_ID)
         self_edges = np.vstack([nodes_arr, nodes_arr]).T
@@ -1222,7 +1232,7 @@ class TestExternalNodesInCCGraph:
         # Now with D in all_nodes — D's outgoing CX IS resolved
         all_nodes_full = [A, B, D]
         # CX reset not needed — RowCache cx overwritten by resolve_cx_at_layer
-        cx_full = topology.resolve_cx_at_layer(all_nodes_full, 2, c, {}, _get_layer)
+        cx_full = topology.resolve_cx_at_layer(all_nodes_full, 2, c, _get_layer)
 
         nodes_arr_full = np.array(all_nodes_full, dtype=NODE_ID)
         self_edges_full = np.vstack([nodes_arr_full, nodes_arr_full]).T
@@ -1245,7 +1255,7 @@ class TestExternalNodesInCCGraph:
         - L3 sibling discovery finds P_D → P1, P2, P_D in same CC → 1 root
 
         This test verifies the CONCEPT. Actual implementation requires BigTable reads."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         A = _node(2, 1)
@@ -1261,8 +1271,8 @@ class TestExternalNodesInCCGraph:
         # P_D has CX[3] to P2 (from D→B edge lifted to L3)
         sv_pd = 8001
         sv_p2 = 8002
-        c.resolver[sv_pd] = {2: int(D), 3: int(P_D)}
-        c.resolver[sv_p2] = {2: int(B), 3: int(P2)}
+        c.put_parent(sv_pd, int(D))
+        c.put_parent(sv_p2, int(B))
 
         c.unresolved_acx[int(P1)] = {3: np.array([[P1, sv_pd]], dtype=NODE_ID)}   # P1→P_D
         c.unresolved_acx[int(P_D)] = {3: np.array([[P_D, sv_p2]], dtype=NODE_ID)}  # P_D→P2
@@ -1270,8 +1280,10 @@ class TestExternalNodesInCCGraph:
 
         # Without L3 sibling discovery: only P1, P2 in all_nodes
         all_nodes_l3 = [P1, P2]
-        child_to_parent = {int(A): int(P1), int(B): int(P2), int(D): int(P_D)}
-        cx_l3 = topology.resolve_cx_at_layer(all_nodes_l3, 3, c, child_to_parent, _get_layer)
+        c.put_parent(int(A), int(P1))
+        c.put_parent(int(B), int(P2))
+        c.put_parent(int(D), int(P_D))
+        cx_l3 = topology.resolve_cx_at_layer(all_nodes_l3, 3, c, _get_layer)
 
         nodes_arr = np.array(all_nodes_l3, dtype=NODE_ID)
         self_edges = np.vstack([nodes_arr, nodes_arr]).T
@@ -1289,7 +1301,7 @@ class TestExternalNodesInCCGraph:
 
         # WITH L3 sibling discovery: P_D added to all_nodes
         all_nodes_l3_full = [P1, P2, P_D]
-        cx_l3_full = topology.resolve_cx_at_layer(all_nodes_l3_full, 3, c, child_to_parent, _get_layer)
+        cx_l3_full = topology.resolve_cx_at_layer(all_nodes_l3_full, 3, c, _get_layer)
 
         nodes_arr_full = np.array(all_nodes_l3_full, dtype=NODE_ID)
         self_edges_full = np.vstack([nodes_arr_full, nodes_arr_full]).T

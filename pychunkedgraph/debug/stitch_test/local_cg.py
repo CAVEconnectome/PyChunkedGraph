@@ -21,6 +21,7 @@ from pychunkedgraph.graph import ChunkedGraph, attributes, basetypes, types
 from pychunkedgraph.graph.chunks import hierarchy as chunk_hierarchy
 from pychunkedgraph.graph.edges.utils import get_cross_chunk_edges_layer
 from pychunkedgraph.graph.utils import flatgraph
+from pychunkedgraph.graph.utils.generic import filter_failed_node_ids
 from kvdbclient import serializers
 
 from . import resolver
@@ -48,7 +49,10 @@ class LocalChunkedGraph:
     def __init__(self, graph_id: str, preloaded: tuple = None, incremental: tuple = None, meta=None) -> None:
         _setup_env()
         self.cg = ChunkedGraph(graph_id=graph_id, meta=meta) if meta else ChunkedGraph(graph_id=graph_id)
-        self._cache = WaveCache(preloaded, incremental=incremental)
+        self._cache = WaveCache(
+            lambda ids: self._ensure_cached(ids, "cache_miss"),
+            preloaded, incremental=incremental,
+        )
         self.rpc_log: list[tuple] = []
         self._read_row_keys: set[int] = set()
 
@@ -114,36 +118,24 @@ class LocalChunkedGraph:
         entries = [self.cg.client.mutate_row(rk, vd, time_stamp=time_stamp) for rk, vd in rows.items()]
         self.cg.client.write(entries)
 
-    # -- Cached reads --
+    # -- Cached reads (delegate to cache batch API) --
 
     def get_parents(self, node_ids: np.ndarray) -> np.ndarray:
-        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
-        self._ensure_cached(node_ids, "get_parents")
-        return np.array([self._cache.parents[int(n)] for n in node_ids], dtype=basetypes.NODE_ID)
+        return self._cache.get_parents(np.asarray(node_ids, dtype=basetypes.NODE_ID))
 
     def get_children(self, node_ids: np.ndarray) -> dict:
-        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
-        self._ensure_cached(node_ids, "get_children")
-        return {n: self._cache.children[int(n)] for n in node_ids}
+        return self._cache.get_children_batch(np.asarray(node_ids, dtype=basetypes.NODE_ID))
 
     def get_acx(self, l2_ids: np.ndarray) -> dict:
-        l2_ids = np.asarray(l2_ids, dtype=basetypes.NODE_ID)
-        self._ensure_cached(l2_ids, "get_acx")
-        return {n: self._cache.acx.get(int(n), {}) for n in l2_ids}
+        return self._cache.get_acx_batch(np.asarray(l2_ids, dtype=basetypes.NODE_ID))
 
     def read_l2(self, l2_ids: np.ndarray) -> tuple:
         l2_ids = np.asarray(l2_ids, dtype=basetypes.NODE_ID)
-        self._ensure_cached(l2_ids, "read_l2")
-        return (
-            {n: self._cache.children[int(n)] for n in l2_ids},
-            {n: self._cache.acx.get(int(n), {}) for n in l2_ids},
-        )
+        return self._cache.get_children_batch(l2_ids), self._cache.get_acx_batch(l2_ids)
 
     def bulk_read_parent_child(self, node_ids: np.ndarray) -> tuple:
         node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
-        self._ensure_cached(node_ids, "bulk_pc")
-        parents = np.array([self._cache.parents.get(int(n), 0) for n in node_ids], dtype=basetypes.NODE_ID)
-        return parents, {n: self._cache.children[int(n)] for n in node_ids}
+        return self._cache.get_parents(node_ids), self._cache.get_children_batch(node_ids)
 
     # -- Stitch phases (called by stitch.py orchestrator) --
 
@@ -192,12 +184,9 @@ class LocalChunkedGraph:
                 for edge_list in layer_d.values():
                     partner_svs.update(np.array(edge_list, dtype=basetypes.NODE_ID)[:, 1])
 
-            known_svs = set()
-            for l2id in c.l2ids:
-                known_svs.update(c.children.get(int(l2id), []))
-
-            partner_sv_to_l2 = tree.resolve_partner_sv_parents(self, partner_svs - known_svs)
-            unique_partner_l2s = np.array(list(set(partner_sv_to_l2.values())), dtype=basetypes.NODE_ID)
+            partner_sv_arr = np.array(list(partner_svs), dtype=basetypes.NODE_ID)
+            partner_parents = c.get_parents(partner_sv_arr)
+            unique_partner_l2s = np.unique(partner_parents[partner_parents != 0])
 
             all_chain_l2s = np.concatenate([c.l2ids, unique_partner_l2s]) if len(unique_partner_l2s) > 0 else c.l2ids
             all_chains = tree.get_all_parents_filtered(self, np.unique(all_chain_l2s))
@@ -205,17 +194,6 @@ class LocalChunkedGraph:
             l2id_set = set(int(x) for x in c.l2ids)
             self._store_old_hierarchy({k: v for k, v in all_chains.items() if k in l2id_set})
 
-            partner_chains = {}
-            for sv_int, l2_int in partner_sv_to_l2.items():
-                chain = all_chains.get(l2_int, all_chains.get(np.uint64(l2_int), {}))
-                partner_chains[sv_int] = {2: l2_int, **{int(l): int(p) for l, p in chain.items()}}
-
-        resolver = {}
-        for sv_int, l2_int in sv_to_l2.items():
-            resolver[sv_int] = {2: l2_int}
-        for sv, chain in partner_chains.items():
-            resolver[int(sv)] = {int(l): int(p) for l, p in chain.items()}
-        c.resolver = resolver
 
     def merge_l2(self, perf: dict) -> list:
         c = self._cache
@@ -239,6 +217,14 @@ class LocalChunkedGraph:
         unresolved_acx = {}
 
         with timed(perf, "merge_l2_loop"):
+            all_old_l2s = np.array(
+                [int(nid) for cc in components for nid in graph_ids[cc]],
+                dtype=basetypes.NODE_ID,
+            )
+            all_ch = c.get_children_batch(all_old_l2s)
+            all_acx = c.get_acx_batch(all_old_l2s)
+            all_cx = c.get_cx_batch(all_old_l2s)
+
             cx_merge_stats = defaultdict(int)
             for cc in components:
                 old_ids = graph_ids[cc]
@@ -247,18 +233,18 @@ class LocalChunkedGraph:
                 for old_id in old_ids:
                     old_to_new[int(old_id)] = int(new_id)
 
-                merged_children = np.concatenate([c.children[int(l2id)] for l2id in old_ids]).astype(basetypes.NODE_ID)
+                merged_children = np.concatenate([all_ch[int(l2id)] for l2id in old_ids]).astype(basetypes.NODE_ID)
                 c.put_children(int(new_id), merged_children)
                 tree.update_parents_cache(c, merged_children, new_id)
 
                 merged_acx = defaultdict(list)
                 cx_merged = defaultdict(list)
                 for old_l2 in old_ids:
-                    for layer, acx_edges in c.acx.get(int(old_l2), {}).items():
+                    for layer, acx_edges in all_acx.get(int(old_l2), {}).items():
                         merged_acx[layer].append(acx_edges)
                     for layer, edge_list in c.l2_cx_edges.get(int(old_l2), {}).items():
                         merged_acx[layer].append(np.array(edge_list, dtype=basetypes.NODE_ID))
-                    for layer, edges in c.cx.get(int(old_l2), {}).items():
+                    for layer, edges in all_cx.get(int(old_l2), {}).items():
                         if len(edges) > 0:
                             cx_merged[layer].append(edges)
 
@@ -277,13 +263,6 @@ class LocalChunkedGraph:
                         cx_merge_stats[layer] += 1
                     c.put_cx(int(new_id), merged_cx)
             perf["merge_l2_cx_layers"] = dict(cx_merge_stats)
-
-        with timed(perf, "merge_l2_resolver"):
-            for new_id in new_l2_ids:
-                new_int = int(new_id)
-                sv_parent = {2: new_int}
-                for sv in c.children.get(new_id, []):
-                    c.resolver[int(sv)] = sv_parent
 
         c.old_to_new = {**self._cache.accumulated_replacements, **old_to_new}
         for old_l2, new_l2 in old_to_new.items():
@@ -330,39 +309,18 @@ class LocalChunkedGraph:
         with timed(perf, "siblings_partner_chains"):
             # Resolve partner SVs so dirty check can detect replaced L2 identities.
             # Unknown siblings first (few), then only known siblings with missing partners.
-            known_svs = set(c.resolver.keys())
-            for l2id in c.l2ids:
-                known_svs.update(c.children.get(int(l2id), []))
-            for l2id in unknown:
-                known_svs.update(sib_ch.get(l2id, []))
-            for l2id in known:
-                entry = c.get_sibling(int(l2id))
-                if entry is not None:
-                    known_svs.update(entry.resolver_entries.keys())
-            if len(sib_acx) > 0:
-                resolver.collect_and_resolve_partners(self, sib_acx, known_svs, c.resolver)
-            missing_acx = {}
-            resolver_keys = set(c.resolver.keys())
-            for sib_int in (int(s) for s in known):
-                sib_acx_d = c.acx.get(sib_int, {})
-                for layer_edges in sib_acx_d.values():
-                    for sv in layer_edges[:, 1]:
-                        if int(sv) not in resolver_keys:
-                            missing_acx[sib_int] = sib_acx_d
-                            break
-                    if sib_int in missing_acx:
-                        break
-            if missing_acx:
-                resolver.collect_and_resolve_partners(self, missing_acx, set(c.resolver.keys()), c.resolver)
+            all_acx = {**sib_acx}
+            if len(known) > 0:
+                known_acx = c.get_acx_batch(np.array(list(known), dtype=basetypes.NODE_ID))
+                all_acx.update(known_acx)
+            if all_acx:
+                resolver.ensure_partners_cached(c, all_acx)
 
         with timed(perf, "siblings_setup"):
             for l2id in unknown:
                 l2id_int = int(l2id)
                 c.put_children(l2id_int, sib_ch.get(l2id, np.array([], dtype=basetypes.NODE_ID)))
                 c.put_acx(l2id_int, sib_acx.get(l2id, {}))
-                sv_parent = {2: l2id_int}
-                for sv in sib_ch.get(l2id, []):
-                    c.resolver[int(sv)] = sv_parent
                 c.unresolved_acx[l2id_int] = resolver.acx_to_cx(sib_acx.get(l2id, {}), l2id)
 
             all_siblings = (
@@ -379,7 +337,6 @@ class LocalChunkedGraph:
 
     def build_hierarchy(self, perf: dict) -> tuple:
         c = self._cache
-        child_to_parent = {}
         deferred_roots = []
         layer_perf = {}
         get_layer = lambda nid: self.get_chunk_layer(np.uint64(nid))
@@ -395,24 +352,17 @@ class LocalChunkedGraph:
 
             if layer > 2:
                 with timed(lp, "prefetch_parents"):
-                    l2_targets = set()
+                    all_svs = []
                     for node in all_nodes:
                         edges = c.unresolved_acx.get(int(node), {}).get(layer)
                         if edges is not None and len(edges) > 0:
-                            for sv in edges[:, 1]:
-                                chain = c.resolver.get(int(sv), {})
-                                l2_id = chain.get(2, int(sv))
-                                if l2_id not in child_to_parent:
-                                    l2_targets.add(l2_id)
-                    if l2_targets:
-                        self._ensure_cached(list(l2_targets), f"l2_targets_l{layer}")
-                        for l2_id in l2_targets:
-                            parent = c.parents.get(int(l2_id))
-                            if parent is not None:
-                                child_to_parent[int(l2_id)] = int(parent)
+                            all_svs.append(edges[:, 1])
+                    if all_svs:
+                        svs = np.unique(np.concatenate(all_svs))
+                        c.get_parents(svs)
 
             with timed(lp, "resolve_cx"):
-                all_cx = resolver.resolve_cx_at_layer(all_nodes, layer, c, child_to_parent, get_layer)
+                all_cx = resolver.resolve_cx_at_layer(all_nodes, layer, c, get_layer)
 
             with timed(lp, "store_cx"):
                 resolver.store_cx_from_resolved(c, all_cx, layer)
@@ -426,10 +376,10 @@ class LocalChunkedGraph:
 
             counts_before = {pl: len(c.new_ids_d[pl]) for pl in range(layer + 1, self.meta.layer_count)}
             with timed(lp, "create_parents"):
-                self._create_parents(layer, ccs, graph_ids, child_to_parent, deferred_roots)
+                self._create_parents(layer, ccs, graph_ids, deferred_roots)
 
             with timed(lp, "update_counterparts"):
-                self._update_counterpart_cx(layer, child_to_parent)
+                self._update_counterpart_cx(layer)
 
             with timed(lp, "discover_siblings"):
                 for pl in range(layer + 1, self.meta.layer_count):
@@ -441,32 +391,42 @@ class LocalChunkedGraph:
             self._allocate_roots(deferred_roots)
             roots = np.array(c.new_ids_d[self.meta.layer_count], dtype=basetypes.NODE_ID)
             c.new_node_ids.update(roots.tolist())
-            resolver.resolve_remaining_cx(c, self, child_to_parent)
+            resolver.resolve_remaining_cx(c, self)
         return roots, layer_perf
 
     def build_rows(self) -> dict:
         c = self._cache
         rows = {}
 
+        new_arr = np.array(list(c.new_node_ids), dtype=basetypes.NODE_ID)
+        all_ch = c.get_children_batch(new_arr)
+        all_cx = c.get_cx_batch(new_arr)
+        all_acx = c.get_acx_batch(new_arr)
+
         for nid in c.new_node_ids:
-            children = c.children.get(nid)
-            if children is None:
+            assert int(nid) != 0, "Zero node ID in new_node_ids"
+            children = all_ch.get(int(nid))
+            if children is None or len(children) == 0:
                 continue
             rk = serializers.serialize_uint64(nid)
             vd = rows.setdefault(rk, {})
             vd[attributes.Hierarchy.Child] = children
-            for layer, cx in c.cx.get(nid, {}).items():
+            for layer, cx in all_cx.get(int(nid), {}).items():
                 vd[attributes.Connectivity.CrossChunkEdge[layer]] = cx
-            for layer, acx in c.acx.get(int(nid), {}).items():
+            for layer, acx in all_acx.get(int(nid), {}).items():
                 vd[attributes.Connectivity.AtomicCrossChunkEdge[layer]] = acx
             for child in children:
+                assert int(child) != 0, f"Zero child ID for parent {nid}"
                 crk = serializers.serialize_uint64(child)
                 rows.setdefault(crk, {})[attributes.Hierarchy.Parent] = nid
 
+        cp_arr = np.array(list(c.counterpart_ids), dtype=basetypes.NODE_ID)
+        cp_cx = c.get_cx_batch(cp_arr) if len(cp_arr) > 0 else {}
         for nid in c.counterpart_ids:
+            assert int(nid) != 0, "Zero counterpart ID"
             rk = serializers.serialize_uint64(np.uint64(nid))
             vd = rows.setdefault(rk, {})
-            for layer, cx_edges in c.cx.get(nid, {}).items():
+            for layer, cx_edges in cp_cx.get(int(nid), {}).items():
                 vd[attributes.Connectivity.CrossChunkEdge[layer]] = cx_edges
 
         return rows
@@ -514,22 +474,24 @@ class LocalChunkedGraph:
 
     def _build_raw_cx_from_children(self, node_ids: np.ndarray, parent_layer: int) -> None:
         c = self._cache
+        node_ch = c.get_children_batch(node_ids)
         all_children = []
         for nid in node_ids:
-            ch = c.children.get(int(nid))
+            ch = node_ch.get(int(nid))
             if ch is not None and len(ch) > 0:
                 all_children.extend(int(x) for x in ch)
         if not all_children:
             return
-        self._ensure_cached(all_children, f"children_l{parent_layer}")
+        all_children_arr = np.array(all_children, dtype=basetypes.NODE_ID)
+        all_child_acx = c.get_acx_batch(all_children_arr)
         child_to_node = {}
         for nid in node_ids:
-            ch = c.children.get(int(nid))
+            ch = node_ch.get(int(nid))
             if ch is not None:
                 for child in ch:
                     child_to_node[int(child)] = int(nid)
         for child_int, node_int in child_to_node.items():
-            child_acx = self._cache.acx.get(child_int, {})
+            child_acx = all_child_acx.get(child_int, {})
             for layer, edges in child_acx.items():
                 if layer >= parent_layer and len(edges) > 0:
                     working = edges.copy()
@@ -547,7 +509,7 @@ class LocalChunkedGraph:
                 if isinstance(val, list):
                     cx_d[layer] = np.unique(np.concatenate(val).astype(basetypes.NODE_ID), axis=0)
 
-    def _update_counterpart_cx(self, layer: int, child_to_parent: dict) -> None:
+    def _update_counterpart_cx(self, layer: int) -> None:
         c = self._cache
         new_nodes = c.new_ids_d.get(layer, [])
         if not new_nodes:
@@ -555,20 +517,33 @@ class LocalChunkedGraph:
 
         get_layer = lambda nid: self.get_chunk_layer(np.uint64(nid))
         in_scope = set(c.new_node_ids)
+
+        all_svs = set()
+        for nid in new_nodes:
+            raw = c.unresolved_acx.get(int(nid), {})
+            for lyr in range(layer, self.meta.layer_count):
+                edges = raw.get(lyr, types.empty_2d)
+                all_svs.update(int(sv) for sv in edges[:, 1])
+
+        if not all_svs:
+            return
+        sv_arr = np.array(list(all_svs), dtype=basetypes.NODE_ID)
+        sv_map = resolver.resolve_svs_to_layer(sv_arr, layer, c, get_layer)
+
         counterpart_layers = {}
         for nid in new_nodes:
             raw = c.unresolved_acx.get(int(nid), {})
             for lyr in range(layer, self.meta.layer_count):
                 edges = raw.get(lyr, types.empty_2d)
                 for sv in edges[:, 1]:
-                    resolved = resolver.resolve_sv_to_layer(
-                        int(sv), layer, c, child_to_parent, get_layer)
+                    resolved = sv_map.get(int(sv), int(sv))
                     if resolved not in in_scope:
                         counterpart_layers.setdefault(resolved, lyr)
         if not counterpart_layers:
             return
 
-        self._ensure_cached(list(counterpart_layers.keys()), f"counterparts_l{layer}")
+        cp_arr = np.array(list(counterpart_layers.keys()), dtype=basetypes.NODE_ID)
+        cp_cx_batch = c.get_cx_batch(cp_arr)
 
         node_map = {}
         for nid in (*c.new_node_ids, *new_nodes):
@@ -576,7 +551,7 @@ class LocalChunkedGraph:
                 node_map[old_id] = int(nid)
 
         for cp_int in counterpart_layers:
-            cp_cx = c.cx.get(cp_int, {})
+            cp_cx = cp_cx_batch.get(cp_int, {})
             remapped = {}
             for lyr in range(layer, self.meta.layer_count):
                 edges = cp_cx.get(lyr, types.empty_2d)
@@ -620,6 +595,9 @@ class LocalChunkedGraph:
         new_parent_set = set(int(x) for x in new_parents)
         siblings = all_children - old_ids - new_parent_set
         siblings = {c.old_to_new.get(s, s) for s in siblings}
+        if 258974570759850453 in all_children or 145382925116899612 in all_children:
+            print(f"DEBUG _dls L{parent_layer}: old_ids={old_ids} all_children={all_children} "
+                  f"siblings={siblings}", flush=True)
         perf[f"_dls_l{parent_layer}_siblings_pre_filter"] = len(siblings)
 
         sibs_arr = np.array(list(siblings), dtype=basetypes.NODE_ID)
@@ -643,8 +621,7 @@ class LocalChunkedGraph:
             if acx:
                 new_acx[int(sib)] = acx
         if new_acx:
-            known_svs = set(c.resolver.keys())
-            resolver.collect_and_resolve_partners(self, new_acx, known_svs, c.resolver)
+            resolver.ensure_partners_cached(c, new_acx)
 
         c.siblings_d.setdefault(parent_layer, []).extend(int(x) for x in sibs_arr)
         c.sibling_ids.update(int(x) for x in sibs_arr)
@@ -659,12 +636,17 @@ class LocalChunkedGraph:
                 old_ids_at_layer.add(entry.get(parent_layer, old_id) if entry else old_id)
         if old_ids_at_layer:
             c.new_to_old[parent] = old_ids_at_layer
+        # breakpoint: _update_lineage_debug
+        if 145382925116899612 in (int(x) for x in cc_ids):
+            print(f"DEBUG _update_lineage: parent={parent} L{(parent>>56)&0xFF} cc_ids={[int(x) for x in cc_ids]} "
+                  f"new_at_layer_in_cc={[int(x) for x in cc_ids if int(x) in new_at_layer]} "
+                  f"old_ids_at_layer={old_ids_at_layer}", flush=True)
 
     # -- Private --
 
     def _create_parents(
         self, layer: int, ccs: list, graph_ids: np.ndarray,
-        child_to_parent: dict, deferred_roots: list,
+        deferred_roots: list,
     ) -> None:
         c = self._cache
         size_map = defaultdict(int)
@@ -715,9 +697,6 @@ class LocalChunkedGraph:
                     merged_raw[l] = np.array(list(pairs), dtype=basetypes.NODE_ID)
             c.unresolved_acx[int(parent)] = merged_raw
 
-            for child in cc_ids:
-                child_to_parent[int(child)] = int(parent)
-
             c.put_children(int(parent), cc_ids)
             tree.update_parents_cache(c, cc_ids, parent)
             self._update_lineage(int(parent), cc_ids, new_at_layer, parent_layer)
@@ -749,7 +728,7 @@ class LocalChunkedGraph:
         higher = uncached[layers > 2]
         n = len(node_ids)
         if len(svs) > 0:
-            self._read_and_cache(svs, [attributes.Hierarchy.Parent], f"{label}_sv", n)
+            self._read_and_cache(svs, [attributes.Hierarchy.Parent], f"{label}_sv", n, filter_failed=False)
         if len(l2s) > 0:
             acx_props = [
                 attributes.Connectivity.AtomicCrossChunkEdge[l]
@@ -776,7 +755,7 @@ class LocalChunkedGraph:
 
     def _read_and_cache(
         self, node_ids: np.ndarray, props: list, label: str,
-        n_total: int,
+        n_total: int, filter_failed: bool = True,
     ) -> None:
         t0 = time.time()
         dupes = set(int(x) for x in node_ids) & self._read_row_keys
@@ -785,7 +764,24 @@ class LocalChunkedGraph:
         raw = self.cg.client.read_nodes(node_ids=node_ids, properties=props)
         self.rpc_log.append((label, n_total, len(node_ids), time.time() - t0))
         lc = self.cg.meta.layer_count
+
+        # Filter failed/orphaned nodes from prior incomplete edits.
+        # Only for L2+ nodes that have children (SVs don't need filtering).
+        failed = set()
+        if filter_failed and len(node_ids) > 0:
+            seg_ids = np.array([self.cg.get_segment_id(n) for n in node_ids])
+            max_ch = np.array([
+                int(np.max(raw.get(n, {}).get(attributes.Hierarchy.Child, [None])[0].value))
+                if raw.get(n, {}).get(attributes.Hierarchy.Child)
+                else 0
+                for n in node_ids
+            ])
+            valid = set(int(x) for x in filter_failed_node_ids(node_ids, seg_ids, max_ch))
+            failed = set(int(x) for x in node_ids) - valid
+
         for n in node_ids:
+            if int(n) in failed:
+                continue
             n_int = int(n)
             data = raw.get(n, {})
             parent_cells = data.get(attributes.Hierarchy.Parent, [])
@@ -808,3 +804,4 @@ class LocalChunkedGraph:
                     cx_d[layer] = cells[0].value
             if cx_d:
                 self._cache.put_cx(n_int, cx_d)
+

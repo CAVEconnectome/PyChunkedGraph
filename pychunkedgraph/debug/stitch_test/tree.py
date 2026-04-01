@@ -8,18 +8,16 @@ from pychunkedgraph.graph.utils.generic import filter_failed_node_ids
 
 
 def resolve_sv_to_layer(
-    sv: int, target_layer: int, cache, child_to_parent: dict, get_layer,
+    sv: int, target_layer: int, cache, get_layer,
 ) -> int:
-    chain = cache.resolver.get(sv, {})
-    identity, best = sv, -1
-    for l, ident in chain.items():
-        if l <= target_layer and l > best:
-            best, identity = l, ident
-    while identity in child_to_parent:
-        nxt = child_to_parent[identity]
-        if get_layer(nxt) > target_layer:
-            break
-        identity = nxt
+    """Single-SV resolve. Use resolve_svs_to_layer (resolver.py) for batch."""
+    identity = sv
+    parents = cache.get_parents(np.array([identity], dtype=basetypes.NODE_ID))
+    parent = int(parents[0])
+    while parent != 0 and get_layer(parent) <= target_layer:
+        identity = parent
+        parents = cache.get_parents(np.array([identity], dtype=basetypes.NODE_ID))
+        parent = int(parents[0])
     return identity
 
 
@@ -30,8 +28,17 @@ def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
     layer_map = {}
 
     while nodes.size > 0:
-        parents = lcg.get_parents(nodes)
+        parents = lcg._cache.get_parents(nodes)
         parent_layers = lcg.get_chunk_layers(parents)
+
+        # Filter out nodes with no parent (parent=0: root or build frontier)
+        has_parent = parents != 0
+        nodes_with_parent = nodes[has_parent]
+        parents = parents[has_parent]
+        parent_layers = parent_layers[has_parent]
+
+        if len(parents) == 0:
+            break
 
         remap = {}
         unique_parents = np.unique(parents)
@@ -51,7 +58,7 @@ def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
                 if int(p) not in valid:
                     remap[int(p)] = mcid_valid.get(mc, int(p))
 
-        for node, parent, layer in zip(nodes, parents, parent_layers):
+        for node, parent, layer in zip(nodes_with_parent, parents, parent_layers):
             resolved = remap.get(int(parent), int(parent))
             layer_map[resolved] = int(layer)
             child_parent[int(node)] = resolved
@@ -80,59 +87,14 @@ def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
 def filter_orphaned(lcg, node_ids: np.ndarray) -> np.ndarray:
     if len(node_ids) == 0:
         return node_ids
-    ch_view = lcg._cache.children
+    ch_d = lcg._cache.get_children_batch(node_ids)
     max_ch = np.array([
-        int(np.max(ch_view[int(n)])) if len(ch_view.get(int(n), [])) > 0 else 0
+        int(np.max(ch_d[int(n)])) if len(ch_d.get(int(n), [])) > 0 else 0
         for n in node_ids
     ])
     seg_ids = np.array([lcg.get_segment_id(n) for n in node_ids])
     return filter_failed_node_ids(node_ids, seg_ids, max_ch)
 
-
-def resolve_partner_sv_parents(lcg, unknown_svs: set) -> dict:
-    THRESHOLD = 25000
-    SAMPLE_SIZE = 2500
-    STOP = 10000
-
-    if not unknown_svs:
-        return {}
-    arr = np.array(list(unknown_svs), dtype=basetypes.NODE_ID)
-
-    if len(arr) <= THRESHOLD:
-        parents = lcg.get_parents(arr)
-        return {int(sv): int(l2) for sv, l2 in zip(arr, parents)}
-
-    rng = np.random.default_rng()
-    remaining = set(int(x) for x in arr)
-    resolved = {}
-    known_l2s = set()
-
-    while len(remaining) > STOP:
-        rem = np.array(list(remaining), dtype=basetypes.NODE_ID)
-        sample = rng.choice(rem, size=min(SAMPLE_SIZE, len(rem)), replace=False)
-        parents = lcg.get_parents(sample)
-        for sv, l2 in zip(sample, parents):
-            resolved[int(sv)] = int(l2)
-        remaining -= set(int(x) for x in sample)
-
-        new_l2s = set(int(x) for x in np.unique(parents)) - known_l2s
-        if new_l2s:
-            _, ch = lcg.bulk_read_parent_child(np.array(list(new_l2s), dtype=basetypes.NODE_ID))
-            for l2_int in new_l2s:
-                for sv in ch.get(np.uint64(l2_int), ch.get(l2_int, [])):
-                    sv_int = int(sv)
-                    if sv_int in remaining:
-                        resolved[sv_int] = l2_int
-                        remaining.discard(sv_int)
-            known_l2s.update(new_l2s)
-
-    if remaining:
-        rem = np.array(list(remaining), dtype=basetypes.NODE_ID)
-        parents = lcg.get_parents(rem)
-        for sv, l2 in zip(rem, parents):
-            resolved[int(sv)] = int(l2)
-
-    return resolved
 
 
 def update_parents_cache(cache, children: np.ndarray, parent) -> None:
@@ -143,13 +105,9 @@ def update_parents_cache(cache, children: np.ndarray, parent) -> None:
 def restore_known_siblings(lcg, cache, known: np.ndarray) -> None:
     if len(known) == 0:
         return
-    # Known siblings are guaranteed cached from prior waves (in preloaded).
-    # Access cache directly — skip _ensure_cached / has_batch overhead.
     for sib in known:
         sib_int = int(sib)
         entry = cache.get_sibling(sib_int)
         if entry is None:
             continue
         cache.unresolved_acx[sib_int] = entry.unresolved_acx
-        for sv_int, resolver_entry in entry.resolver_entries.items():
-            cache.resolver[sv_int] = resolver_entry

@@ -248,17 +248,22 @@ def _shard_roots(roots, n_workers):
     return [chunk for chunk in np.array_split(roots, n) if len(chunk) > 0]
 
 
-def batched_extract_structure(graph_id, roots, save_dir):
+def batched_extract_structure(graph_id, roots, save_dir, force: bool = False):
     """
     Extract structure in BATCH_SIZE batches.
     Each batch is sharded across cpu_count workers, each worker saves its own JSON.
     """
+    save_dir = Path(save_dir)
+    existing = list(save_dir.rglob("shard_*.pkl.gz"))
+    if existing and not force:
+        print(f"  extraction cached: {len(existing)} shards in {save_dir}")
+        return save_dir
+
     roots = np.asarray(roots, dtype=basetypes.NODE_ID)
     n_batches = max(1, (len(roots) + BATCH_SIZE - 1) // BATCH_SIZE)
     batches = np.array_split(roots, n_batches)
     n_workers = os.cpu_count()
 
-    # clear stale extraction shards
     for old_batch in save_dir.glob("batch_*"):
         shutil.rmtree(old_batch)
 
@@ -329,11 +334,8 @@ def batched_extract_and_compare(
     dir_b = save_dir / "proposed"
 
     set_autoscaling(min_nodes=5)
-    if not baseline_extract_dir:
-        print("extracting baseline...")
-        batched_extract_structure(graph_id_a, roots_a, save_dir=dir_a)
-    print("extracting proposed...")
-    batched_extract_structure(graph_id_b, roots_b, save_dir=dir_b)
+    batched_extract_structure(graph_id_a, roots_a, save_dir=dir_a, force=False)
+    batched_extract_structure(graph_id_b, roots_b, save_dir=dir_b, force=True)
     set_autoscaling(min_nodes=1)
 
     print("comparing per-node...")

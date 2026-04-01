@@ -16,6 +16,7 @@ import numpy as np
 from pychunkedgraph.graph import basetypes
 
 from . import resolver as topology
+from .test_helpers import noop_read, get_parent as _get_parent, get_cx as _get_cx
 from .wave_cache import SiblingEntry, WaveCache
 
 NODE_ID = basetypes.NODE_ID
@@ -46,7 +47,7 @@ class TestBatchLookupPerformance:
 
     def test_has_batch_200k(self) -> None:
         """200K has_batch lookups. Must be <50ms (was 134ms with ChainMap)."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         _prepopulate_cache(c, N_NODES)
         ids = np.array([_node(2, i) for i in range(N_NODES)], dtype=NODE_ID)
 
@@ -59,7 +60,7 @@ class TestBatchLookupPerformance:
 
     def test_has_batch_miss_200k(self) -> None:
         """200K has_batch on missing nodes. Must be fast (no false positives)."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         _prepopulate_cache(c, N_NODES)
         miss_ids = np.array([_node(2, N_NODES + i) for i in range(N_NODES)], dtype=NODE_ID)
 
@@ -71,14 +72,13 @@ class TestBatchLookupPerformance:
         print(f"\n  has_batch miss {N_NODES}: {elapsed*1000:.0f}ms")
 
     def test_get_parents_200k(self) -> None:
-        """200K parent lookups via _ColView. Must be <100ms."""
-        c = WaveCache()
+        """200K parent lookups via batch API. Must be <100ms."""
+        c = WaveCache(noop_read)
         _prepopulate_cache(c, N_NODES)
 
+        all_ids = np.array([_node(2, i) for i in range(N_NODES)], dtype=NODE_ID)
         t0 = time.time()
-        parents = np.array(
-            [c.parents[_node(2, i)] for i in range(N_NODES)], dtype=NODE_ID
-        )
+        parents = c.get_parents(all_ids)
         elapsed = time.time() - t0
 
         assert len(parents) == N_NODES
@@ -91,11 +91,11 @@ class TestPreloadedLookupPerformance:
 
     def test_preloaded_then_local_200k(self) -> None:
         """Preloaded data visible after creating WaveCache with preloaded dict."""
-        c1 = WaveCache()
+        c1 = WaveCache(noop_read)
         _prepopulate_cache(c1, N_NODES)
 
         preloaded = c1.preloaded()
-        c2 = WaveCache(preloaded=preloaded)
+        c2 = WaveCache(noop_read, preloaded=preloaded)
 
         ids = np.array([_node(2, i) for i in range(N_NODES)], dtype=NODE_ID)
 
@@ -108,15 +108,15 @@ class TestPreloadedLookupPerformance:
 
     def test_local_shadows_preloaded_200k(self) -> None:
         """Local writes shadow preloaded. Verify at scale."""
-        c1 = WaveCache()
+        c1 = WaveCache(noop_read)
         _prepopulate_cache(c1, N_NODES)
         preloaded = c1.preloaded()
 
-        c2 = WaveCache(preloaded=preloaded)
+        c2 = WaveCache(noop_read, preloaded=preloaded)
         c2.put_parent(_node(2, 0), 999)
 
-        assert c2.parents[_node(2, 0)] == 999, "Local shadows preloaded"
-        assert c2.parents[_node(2, 1)] == _node(3, 0), "Preloaded still accessible"
+        assert _get_parent(c2, _node(2, 0)) == 999, "Local shadows preloaded"
+        assert _get_parent(c2, _node(2, 1)) == _node(3, 0), "Preloaded still accessible"
 
 
 class TestMergePerformance:
@@ -124,13 +124,13 @@ class TestMergePerformance:
 
     def test_merge_4_workers_50k_each(self) -> None:
         """4 workers each with 50K rows. Merge into parent. All rows visible."""
-        parent = WaveCache()
+        parent = WaveCache(noop_read)
         n_per_worker = 50_000
         n_workers = 4
 
         snapshots = []
         for w in range(n_workers):
-            worker = WaveCache()
+            worker = WaveCache(noop_read)
             for i in range(n_per_worker):
                 nid = _node(2, w * n_per_worker + i)
                 worker.put_parent(nid, _node(3, i))
@@ -158,7 +158,7 @@ class TestResolveCxPerformance:
 
     def test_resolve_100k_siblings_layer2(self) -> None:
         """Resolve CX for 100K siblings at layer 2. Measures the hot path in build_hierarchy."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         nodes = []
@@ -166,12 +166,12 @@ class TestResolveCxPerformance:
             nid = _node(2, i)
             partner_sv = i * 100 + 50
             partner_l2 = _node(2, N_SIBLINGS + (i % 1000))
-            c.resolver[partner_sv] = {2: int(partner_l2)}
+            c.put_parent(partner_sv, int(partner_l2))
             c.unresolved_acx[int(nid)] = {2: np.array([[nid, partner_sv]], dtype=NODE_ID)}
             nodes.append(nid)
 
         t0 = time.time()
-        cx = topology.resolve_cx_at_layer(nodes, 2, c, {}, _get_layer)
+        cx = topology.resolve_cx_at_layer(nodes, 2, c, _get_layer)
         elapsed_resolve = time.time() - t0
 
         t0 = time.time()
@@ -184,7 +184,7 @@ class TestResolveCxPerformance:
 
     def test_resolve_remaining_batched(self) -> None:
         """resolve_remaining_cx for 100K siblings at layers 3-5. Measures batched path."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
         c.new_node_ids = set()
 
@@ -199,19 +199,21 @@ class TestResolveCxPerformance:
             partner_sv = i * 100 + 50
             partner_l2 = _node(2, N_SIBLINGS + (i % 1000))
             partner_l3 = _node(3, N_SIBLINGS + (i % 100))
-            c.resolver[partner_sv] = {2: int(partner_l2)}
+            c.put_parent(partner_sv, int(partner_l2))
             c.unresolved_acx[int(nid)] = {
                 3: np.array([[nid, partner_sv]], dtype=NODE_ID),
             }
         c.sibling_ids = sibs
 
-        child_to_parent = {_node(2, N_SIBLINGS + (i % 1000)): _node(3, i % 100) for i in range(1000)}
+        for i in range(1000):
+            c.put_parent(_node(2, N_SIBLINGS + (i % 1000)), _node(3, i % 100))
 
         t0 = time.time()
-        topology.resolve_remaining_cx(c, FakeLcg(), child_to_parent)
+        topology.resolve_remaining_cx(c, FakeLcg())
         elapsed = time.time() - t0
 
-        stored = sum(1 for s in sibs if c.cx.get(int(s)) is not None)
+        sib_cx = c.get_cx_batch(np.array(list(sibs), dtype=NODE_ID))
+        stored = sum(1 for s in sibs if sib_cx.get(int(s)))
         print(f"\n  resolve_remaining {N_SIBLINGS} siblings: {elapsed*1000:.0f}ms ({stored} stored)")
 
 
@@ -223,7 +225,7 @@ class TestBuildRowsPerformance:
         from kvdbclient import serializers
         from pychunkedgraph.graph import attributes
 
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         n_new = 10_000
@@ -234,15 +236,18 @@ class TestBuildRowsPerformance:
             c.put_cx(int(nid), {2: np.array([[nid, _node(2, i + n_new)]], dtype=NODE_ID)})
 
         t0 = time.time()
+        new_arr = np.array(list(c.new_node_ids), dtype=NODE_ID)
+        all_ch = c.get_children_batch(new_arr)
+        all_cx = c.get_cx_batch(new_arr)
         rows = {}
         for nid in c.new_node_ids:
-            ch = c.children.get(nid)
-            if ch is None:
+            ch = all_ch.get(int(nid))
+            if ch is None or len(ch) == 0:
                 continue
             rk = serializers.serialize_uint64(nid)
             vd = rows.setdefault(rk, {})
             vd[attributes.Hierarchy.Child] = ch
-            for layer, cx in c.cx.get(nid, {}).items():
+            for layer, cx in all_cx.get(int(nid), {}).items():
                 vd[attributes.Connectivity.CrossChunkEdge[layer]] = cx
             for child in ch:
                 crk = serializers.serialize_uint64(child)
@@ -258,7 +263,7 @@ class TestDirectWritePerformance:
 
     def test_write_10k_nodes(self) -> None:
         """Write 10K parents + children + ACX directly to RowCache."""
-        c = WaveCache()
+        c = WaveCache(noop_read)
         c.begin_stitch()
 
         n = 10_000
@@ -271,5 +276,5 @@ class TestDirectWritePerformance:
         elapsed = time.time() - t0
 
         assert c.has(_node(2, 0))
-        assert c.parents[_node(2, 0)] == _node(3, 0)
+        assert _get_parent(c, _node(2, 0)) == _node(3, 0)
         print(f"\n  write_10k: {elapsed*1000:.0f}ms")

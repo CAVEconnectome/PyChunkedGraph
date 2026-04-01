@@ -25,13 +25,13 @@ from .row_cache import CacheRow, RowCache
 @dataclass
 class SiblingEntry:
     unresolved_acx: dict
-    resolver_entries: dict  # {sv_int: {2: l2_int}}
-    partner_ids: dict = field(default_factory=dict)  # {sv: resolved_l2} for complete dirty detection
+    partner_ids: dict = field(default_factory=dict)
 
 
 class WaveCache:
 
-    def __init__(self, preloaded=None, incremental: tuple = None) -> None:
+    def __init__(self, read_fn, preloaded=None, incremental: tuple = None) -> None:
+        self._read_fn = read_fn
         if isinstance(preloaded, dict):
             self._rows = RowCache(preloaded=preloaded)
         elif preloaded is not None:
@@ -49,7 +49,6 @@ class WaveCache:
         self._init_stitch_state()
 
     def _init_stitch_state(self) -> None:
-        self.resolver: dict = {}
         self.unresolved_acx: dict = {}
         self.new_ids_d: dict = defaultdict(list)
         self.new_node_ids: set = set()
@@ -72,52 +71,46 @@ class WaveCache:
         affected_ids = set(self.old_to_new.keys()) | set(int(x) for x in self.new_ids_d.get(2, []))
         self.dirty_siblings = set()
 
-        # Build vectorized resolver lookup: sv → L2 identity
-        resolver_svs = np.array(list(self.resolver.keys()), dtype=np.int64) if self.resolver else np.array([], dtype=np.int64)
-        resolver_ids = np.array([self.resolver[k].get(2, k) for k in resolver_svs], dtype=np.int64) if len(resolver_svs) > 0 else np.array([], dtype=np.int64)
-        affected_arr = np.array(list(affected_ids), dtype=np.int64) if affected_ids else np.array([], dtype=np.int64)
-
-        if len(resolver_svs) > 0:
-            sort_idx = np.argsort(resolver_svs)
-            resolver_svs_sorted = resolver_svs[sort_idx]
-            resolver_ids_sorted = resolver_ids[sort_idx]
-        else:
-            resolver_svs_sorted = resolver_svs
-            resolver_ids_sorted = resolver_ids
-
-        affected_sorted = np.sort(affected_arr) if len(affected_arr) > 0 else affected_arr
-
+        # Collect all partner SVs across all siblings, batch get_parents once
+        all_partner_svs = set()
+        sib_partner_map = {}
         for sib in self.sibling_ids:
             sib_int = int(sib)
             if sib_int not in self._siblings:
                 self.dirty_siblings.add(sib_int)
                 continue
             raw = self.unresolved_acx.get(sib_int, {})
-            all_svs = []
+            svs = []
             for layer_edges in raw.values():
                 if len(layer_edges) > 0:
-                    all_svs.append(layer_edges[:, 1])
-            if not all_svs:
-                continue
-            partner_svs = np.concatenate(all_svs).astype(np.int64)
-            if len(resolver_svs_sorted) > 0:
-                idx = np.searchsorted(resolver_svs_sorted, partner_svs)
-                idx = np.clip(idx, 0, len(resolver_svs_sorted) - 1)
-                found = resolver_svs_sorted[idx] == partner_svs
-                identities = np.where(found, resolver_ids_sorted[idx], partner_svs)
-            else:
-                identities = partner_svs
+                    svs.append(layer_edges[:, 1])
+            if svs:
+                partner_svs = np.concatenate(svs).astype(np.int64)
+                sib_partner_map[sib_int] = partner_svs
+                all_partner_svs.update(int(sv) for sv in partner_svs)
+
+        # Batch resolve all partner SVs → L2 via cache
+        if all_partner_svs:
+            sv_arr = np.array(list(all_partner_svs), dtype=basetypes.NODE_ID)
+            parents = self.get_parents(sv_arr)
+            sv_to_l2 = {int(sv): int(p) for sv, p in zip(sv_arr, parents)}
+        else:
+            sv_to_l2 = {}
+
+        affected_sorted = np.sort(np.array(list(affected_ids), dtype=np.int64)) if affected_ids else np.array([], dtype=np.int64)
+
+        for sib_int, partner_svs in sib_partner_map.items():
+            identities = np.array([sv_to_l2.get(int(sv), int(sv)) for sv in partner_svs], dtype=np.int64)
             if len(affected_sorted) > 0:
                 aff_idx = np.searchsorted(affected_sorted, identities)
                 aff_idx = np.clip(aff_idx, 0, len(affected_sorted) - 1)
                 if np.any(affected_sorted[aff_idx] == identities):
                     self.dirty_siblings.add(sib_int)
                     continue
-            # Close the 0.4% gap: check if resolver entries changed from prior wave
             entry = self._siblings[sib_int]
             if entry.partner_ids:
                 for sv, old_id in entry.partner_ids.items():
-                    new_id = self.resolver.get(int(sv), {}).get(2, int(sv))
+                    new_id = sv_to_l2.get(int(sv), int(sv))
                     if new_id != old_id:
                         self.dirty_siblings.add(sib_int)
                         break
@@ -129,43 +122,26 @@ class WaveCache:
         self._rows.promote_local()
         self.accumulated_replacements = dict(old_to_new)
         self._new_node_ids = set(new_node_ids)
-        for sib_id in sibling_ids:
-            sib_int = int(sib_id)
-            ch = self.children.get(sib_int, np.array([], dtype=basetypes.NODE_ID))
-            cx = self.cx.get(sib_int, {})
-            raw = unresolved_acx.get(sib_int, {})
-            pids = {}
-            for layer_edges in raw.values():
-                if len(layer_edges) > 0:
-                    for sv in layer_edges[:, 1]:
-                        sv_int = int(sv)
-                        pids[sv_int] = self.resolver.get(sv_int, {}).get(2, sv_int)
+        pids_map = self._build_partner_ids(sibling_ids, unresolved_acx)
+        for sib_int in (int(s) for s in sibling_ids):
             self._siblings[sib_int] = SiblingEntry(
-                unresolved_acx=raw,
-                resolver_entries={int(sv): {2: sib_int} for sv in ch},
-                partner_ids=pids,
+                unresolved_acx=unresolved_acx.get(sib_int, {}),
+                partner_ids=pids_map.get(sib_int, {}),
             )
 
     def inc_snapshot_from(
         self, old_to_new: dict, new_node_ids: set,
         sibling_ids: set, unresolved_acx: dict,
     ) -> dict:
+        pids_map = self._build_partner_ids(sibling_ids, unresolved_acx)
         sibling_data = {}
-        for sid in sibling_ids:
-            sid_int = int(sid)
-            ch = self.children.get(sid_int, np.array([], dtype=basetypes.NODE_ID))
-            cx = self.cx.get(sid_int, {})
-            raw = unresolved_acx.get(sid_int, {})
-            pids = {}
-            for layer_edges in raw.values():
-                if len(layer_edges) > 0:
-                    for sv in layer_edges[:, 1]:
-                        sv_int = int(sv)
-                        pids[sv_int] = self.resolver.get(sv_int, {}).get(2, sv_int)
+        for sid_int in (int(s) for s in sibling_ids):
+            ch = self._rows.get_children(sid_int)
+            ch = ch if ch is not None else np.array([], dtype=basetypes.NODE_ID)
             sibling_data[sid_int] = {
                 "children": ch,
-                "raw_cx": raw,
-                "partner_ids": pids,
+                "raw_cx": unresolved_acx.get(sid_int, {}),
+                "partner_ids": pids_map.get(sid_int, {}),
             }
         return {
             "old_to_new": dict(old_to_new),
@@ -173,7 +149,77 @@ class WaveCache:
             "sibling_data": sibling_data,
         }
 
-    # -- Row access --
+    def _build_partner_ids(self, sibling_ids: set, unresolved_acx: dict) -> dict:
+        """Batch resolve all partner SVs → L2 for dirty detection."""
+        all_svs = set()
+        sib_svs = {}
+        for sib_int in (int(s) for s in sibling_ids):
+            raw = unresolved_acx.get(sib_int, {})
+            svs = []
+            for layer_edges in raw.values():
+                if len(layer_edges) > 0:
+                    svs.extend(int(sv) for sv in layer_edges[:, 1])
+            sib_svs[sib_int] = svs
+            all_svs.update(svs)
+        if not all_svs:
+            return {}
+        sv_arr = np.array(list(all_svs), dtype=basetypes.NODE_ID)
+        parents = self.get_parents(sv_arr)
+        sv_to_l2 = {int(sv): int(p) for sv, p in zip(sv_arr, parents)}
+        return {
+            sib_int: {sv: sv_to_l2.get(sv, sv) for sv in svs}
+            for sib_int, svs in sib_svs.items() if svs
+        }
+
+    # -- Read function for cache misses --
+
+    def _ensure_read(self, node_ids: np.ndarray) -> None:
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
+        if len(node_ids) == 0:
+            return
+        uncached = node_ids[~self._rows.has_batch(node_ids)]
+        if len(uncached) > 0:
+            self._read_fn(uncached)
+
+    # -- Batch read access (ensure cached, then return) --
+
+    def get_parents(self, node_ids: np.ndarray) -> np.ndarray:
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
+        self._ensure_read(node_ids)
+        return np.array(
+            [self._rows.get_parent(int(n)) or 0 for n in node_ids],
+            dtype=basetypes.NODE_ID,
+        )
+
+    def get_children_batch(self, node_ids: np.ndarray) -> dict:
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
+        self._ensure_read(node_ids)
+        empty = np.array([], dtype=basetypes.NODE_ID)
+        result = {}
+        for n in node_ids:
+            v = self._rows.get_children(int(n))
+            result[int(n)] = v if v is not None else empty
+        return result
+
+    def get_acx_batch(self, node_ids: np.ndarray) -> dict:
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
+        self._ensure_read(node_ids)
+        result = {}
+        for n in node_ids:
+            v = self._rows.get_acx(int(n))
+            result[int(n)] = v if v is not None else {}
+        return result
+
+    def get_cx_batch(self, node_ids: np.ndarray) -> dict:
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
+        self._ensure_read(node_ids)
+        result = {}
+        for n in node_ids:
+            v = self._rows.get_cx(int(n))
+            result[int(n)] = v if v is not None else {}
+        return result
+
+    # -- Single-node write access (unchanged) --
 
     def put_parent(self, node_id: int, parent: int) -> None:
         self._rows.set_parent(node_id, parent)
@@ -196,22 +242,6 @@ class WaveCache:
     def has_batch(self, node_ids: np.ndarray) -> np.ndarray:
         return self._rows.has_batch(node_ids)
 
-    @property
-    def parents(self):
-        return _ColView(self._rows, 'parent')
-
-    @property
-    def children(self):
-        return _ColView(self._rows, 'children')
-
-    @property
-    def acx(self):
-        return _ColView(self._rows, 'acx')
-
-    @property
-    def cx(self):
-        return _ColView(self._rows, 'cx')
-
     # -- Merge --
 
     def merge_reader(self, snapshot) -> None:
@@ -232,7 +262,6 @@ class WaveCache:
         for sib_int, sdata in inc_snap["sibling_data"].items():
             self._siblings[sib_int] = SiblingEntry(
                 unresolved_acx=sdata["raw_cx"],
-                resolver_entries={int(sv): {2: sib_int} for sv in sdata["children"]},
                 partner_ids=sdata.get("partner_ids", {}),
             )
 
@@ -266,41 +295,6 @@ class WaveCache:
     def stats(self) -> str:
         return f"{self._rows.stats()} {len(self._siblings)}s"
 
-
-class _ColView:
-    """Dict-like view over a single column in RowCache."""
-
-    def __init__(self, rows: RowCache, col: str) -> None:
-        self._rows = rows
-        self._col = col
-
-    def __getitem__(self, nid):
-        row = self._rows.get(int(nid))
-        if row is None:
-            raise KeyError(nid)
-        v = getattr(row, self._col)
-        if v is None:
-            raise KeyError(nid)
-        return v
-
-    def __contains__(self, nid) -> bool:
-        row = self._rows.get(int(nid))
-        return row is not None and getattr(row, self._col) is not None
-
-    def get(self, nid, default=None):
-        row = self._rows.get(int(nid))
-        if row is None:
-            return default
-        v = getattr(row, self._col)
-        return v if v is not None else default
-
-    def __len__(self) -> int:
-        count = 0
-        for nid in set(self._rows._local) | set(self._rows._preloaded):
-            row = self._rows.get(nid)
-            if row and getattr(row, self._col) is not None:
-                count += 1
-        return count
 
 
 def _tuple_to_rows(preloaded: tuple) -> dict:

@@ -1,25 +1,31 @@
 """
-One-time script to extract a sampled subgraph from real BigTable + edge files.
-Produces test_data/e2e_fixture.pkl for offline e2e tests.
+Extract sampled subgraph from real BigTable for offline e2e tests.
+Produces test_data/e2e_fixture.pkl.
 
-The fixture is a SELF-CONSISTENT mini-graph:
-- L2 children = only sampled SVs (not all real SVs)
-- ACX filtered to edges where both SVs are sampled
-- Higher-layer children = only nodes with sampled descendants
-- CX filtered to edges between nodes in the sampled graph
+Algorithm:
+1. Sample edges from wave files
+2. Edge SVs → roots via get_roots
+3. BFS from roots top-down: read ALL nodes with ALL data
+4. Filter L2 children: edge L2s keep edge SVs, sibling L2s keep ACX source SVs
+5. Filter ACX to edges with both SVs in graph
+6. Add SV parent rows for all SVs in graph (including ACX targets)
 
 Run:
     from pychunkedgraph.debug.stitch_test.sample_test_data import extract
-    extract(force=True)  # force=True to regenerate
+    extract(force=True)
 """
 
 import os
 import pickle
+import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import get_context
 
 import numpy as np
 from cloudvolume import CloudVolume
 from cloudfiles import CloudFiles
+from tqdm import tqdm
 from google.cloud.bigtable.backup import Backup
 
 os.environ.setdefault("BIGTABLE_PROJECT", "zetta-proofreading")
@@ -28,30 +34,40 @@ os.environ.setdefault("BIGTABLE_INSTANCE", "pychunkedgraph")
 from pychunkedgraph.graph import ChunkedGraph, attributes, basetypes
 from .tables import BACKUP_ID, CLUSTER_ID, EDGES_SRC, _get_instance
 
-FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "test_data", "e2e_fixture.pkl")
-SAMPLE_EDGES_PER_FILE = 5
+FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "test_data")
+
+
+def _fixture_path(n_edges: int) -> str:
+    return os.path.join(FIXTURE_DIR, f"e2e_fixture_{n_edges}e.pkl")
+SAMPLE_EDGES_PER_FILE = 2
 RNG_SEED = 42
+READ_BATCH = 1000
 
 
-def _list_wave_files():
+def _list_wave_files() -> dict:
     cf = CloudFiles(EDGES_SRC)
-    all_files = sorted([f for f in cf.list() if f.startswith("task_")])
+    all_files = sorted(f for f in cf.list() if f.startswith("task_") and f.endswith(".edges"))
     waves = defaultdict(list)
     for f in all_files:
-        wave = int(f.split("_")[1])
-        waves[wave].append(f)
+        waves[int(f.split("_")[1])].append(f)
     return dict(sorted(waves.items()))
 
 
-def _sample_edges(cf, filename: str, rng: np.random.Generator, n: int) -> np.ndarray:
+def _sample_edges(args: tuple) -> np.ndarray:
+    cf_url, filename, n, seed = args
+    cf = CloudFiles(cf_url)
     edges = pickle.loads(cf.get(filename))
     if len(edges) <= n:
         return edges
-    idx = rng.choice(len(edges), size=n, replace=False)
-    return edges[idx]
+    rng = np.random.default_rng(seed)
+    return edges[rng.choice(len(edges), size=n, replace=False)]
 
 
-def _read_node_data(cg: ChunkedGraph, node_ids: np.ndarray) -> dict:
+def _read_node_batch_worker(args: tuple) -> dict:
+    """Worker: create CG client, read batch of nodes."""
+    table_name, node_ids_list = args
+    cg = ChunkedGraph(graph_id=table_name)
+    node_ids = np.array(node_ids_list, dtype=basetypes.NODE_ID)
     lc = cg.meta.layer_count
     props = (
         [attributes.Hierarchy.Parent, attributes.Hierarchy.Child]
@@ -63,12 +79,12 @@ def _read_node_data(cg: ChunkedGraph, node_ids: np.ndarray) -> dict:
     for nid in node_ids:
         data = raw.get(nid, {})
         node = {}
-        parent_cells = data.get(attributes.Hierarchy.Parent, [])
-        if parent_cells:
-            node["parent"] = int(parent_cells[0].value)
-        child_cells = data.get(attributes.Hierarchy.Child, [])
-        if child_cells:
-            node["children"] = child_cells[0].value.copy()
+        p = data.get(attributes.Hierarchy.Parent, [])
+        if p:
+            node["parent"] = int(p[0].value)
+        ch = data.get(attributes.Hierarchy.Child, [])
+        if ch:
+            node["children"] = ch[0].value.copy()
         acx = {}
         for layer in range(2, lc):
             cells = data.get(attributes.Connectivity.AtomicCrossChunkEdge[layer], [])
@@ -87,106 +103,143 @@ def _read_node_data(cg: ChunkedGraph, node_ids: np.ndarray) -> dict:
     return result
 
 
-def _walk_to_root(cg: ChunkedGraph, node_ids: np.ndarray, node_store: dict) -> None:
-    """Walk parent chain from node_ids to root, reading and storing each level."""
-    root_layer = cg.meta.layer_count
-    current = node_ids
-    visited = set(int(n) for n in node_ids)
+def _bfs_from_roots(cg: ChunkedGraph, root_ids: np.ndarray) -> dict:
+    """BFS top-down from roots. Read ALL nodes at each level in parallel batches."""
+    store = {}
+    current = root_ids.copy()
+    level = 0
+    t0 = time.time()
+    table_name = cg.meta.graph_config.ID
+    n_workers = max(os.cpu_count(), 16)
+
     while len(current) > 0:
+        level += 1
+        batches = [
+            current[i:i + READ_BATCH].tolist()
+            for i in range(0, len(current), READ_BATCH)
+        ]
+        args = [(table_name, b) for b in batches]
+        with get_context("fork").Pool(min(n_workers, len(args))) as pool:
+            for batch_data in tqdm(pool.imap_unordered(_read_node_batch_worker, args), total=len(args), desc=f"  level {level}"):
+                store.update(batch_data)
+        elapsed = time.time() - t0
         layers = cg.get_chunk_layers(current)
-        non_root = current[layers < root_layer]
-        if len(non_root) == 0:
+        layer_counts = dict(zip(*np.unique(layers, return_counts=True)))
+        print(f"  level {level}: {len(current)} nodes {layer_counts} ({elapsed:.1f}s)", flush=True)
+
+        next_level = []
+        for nid in current:
+            data = store.get(int(nid), {})
+            children = data.get("children")
+            if children is not None:
+                layer = (int(nid) >> 56) & 0xFF
+                if layer > 2:
+                    next_level.extend(int(c) for c in children if int(c) not in store)
+
+        if not next_level:
             break
-        parents = cg.get_parents(non_root)
-        new_parents = []
-        for nid, parent in zip(non_root, parents):
-            if int(parent) != 0 and int(parent) not in visited:
-                new_parents.append(int(parent))
-                visited.add(int(parent))
-        if not new_parents:
-            break
-        parent_arr = np.array(new_parents, dtype=basetypes.NODE_ID)
-        parent_data = _read_node_data(cg, parent_arr)
-        node_store.update(parent_data)
-        current = parent_arr
+        current = np.array(list(set(next_level)), dtype=basetypes.NODE_ID)
+
+    print(f"  BFS complete: {len(store)} nodes in {time.time() - t0:.1f}s")
+    return store
 
 
-def _rewrite_graph(real_data: dict, sampled_svs: set, l2_of_sv: dict) -> dict:
-    """Build self-consistent mini-graph.
+def _build_fixture_store(
+    real_data: dict, edge_svs: set, edge_l2_of_sv: dict,
+) -> dict:
+    """Build self-consistent fixture from complete BFS data.
 
-    - L2 nodes with edge SVs: children = all edge SVs for this L2, ACX filtered
-    - Sibling L2 nodes (no edge SVs): children = 2 sampled real SVs
-    - L3+ nodes: as-is from real table
-    - SVs: parent row for each SV in the graph
+    - L3+ nodes: copied as-is
+    - L2 nodes: children filtered (edge SVs or ACX source SVs), CX preserved, ACX filtered
+    - SVs: parent row for every SV in the graph (including ACX targets)
     """
     rng = np.random.default_rng(99)
     store = {}
-    edge_l2s = set(l2_of_sv.values())
-    all_svs_in_graph = set(sampled_svs)
-    sv_to_l2 = dict(l2_of_sv)  # will add sibling SVs too
+    edge_l2s = set(edge_l2_of_sv.values())
 
-    # Edge L2 nodes: children = edge SVs, ACX filtered
-    for l2_int in edge_l2s:
-        real = real_data.get(l2_int, {})
-        my_svs = np.array(
-            sorted(sv for sv, l2 in l2_of_sv.items() if l2 == l2_int),
-            dtype=basetypes.NODE_ID,
-        )
-        node = {"children": my_svs}
-        if "parent" in real:
-            node["parent"] = real["parent"]
-        if "acx" in real:
-            sv_set = set(int(s) for s in my_svs)
-            filtered_acx = {}
-            for layer, edges in real["acx"].items():
-                mask = np.array([int(e[0]) in sv_set and int(e[1]) in sv_set for e in edges])
-                if mask.any():
-                    filtered_acx[layer] = edges[mask]
-            if filtered_acx:
-                node["acx"] = filtered_acx
-        store[l2_int] = node
+    # Build SV→L2 reverse map from all L2 children in real data
+    real_sv_to_l2 = {}
+    for nid, data in real_data.items():
+        if (nid >> 56) & 0xFF == 2 and "children" in data:
+            for sv in data["children"]:
+                real_sv_to_l2[int(sv)] = nid
 
-    # Sibling L2 nodes: sample 2 real SVs as children
-    for nid_int, data in real_data.items():
-        if nid_int in store:
-            continue
-        layer = (nid_int >> 56) & 0xFF
+    # L3+ nodes: as-is
+    for nid, data in real_data.items():
+        layer = (nid >> 56) & 0xFF
+        if layer > 2:
+            store[nid] = dict(data)
+
+    # L2 nodes: filter children, preserve CX, filter ACX
+    all_kept_svs = set()
+    for nid, data in real_data.items():
+        layer = (nid >> 56) & 0xFF
         if layer != 2:
             continue
         real_children = data.get("children")
         if real_children is None or len(real_children) == 0:
-            store[nid_int] = {k: v for k, v in data.items() if k != "children"}
+            store[nid] = {k: v for k, v in data.items() if k != "children"}
             continue
-        n_pick = min(1, len(real_children))
-        picked = rng.choice(len(real_children), size=n_pick, replace=False)
-        my_svs = real_children[picked].astype(basetypes.NODE_ID)
-        for sv in my_svs:
-            all_svs_in_graph.add(int(sv))
-            sv_to_l2[int(sv)] = nid_int
+
+        real_ch_set = set(int(sv) for sv in real_children)
+
+        if nid in edge_l2s:
+            keep_svs = set(sv for sv, l2 in edge_l2_of_sv.items() if l2 == nid)
+        else:
+            keep_svs = set()
+            if "acx" in data:
+                for edges in data["acx"].values():
+                    for e in edges:
+                        src, tgt = int(e[0]), int(e[1])
+                        if src in real_ch_set:
+                            keep_svs.add(src)
+                        if tgt in real_ch_set:
+                            keep_svs.add(tgt)
+            if not keep_svs:
+                keep_svs.add(int(real_children[rng.choice(len(real_children))]))
+
+        all_kept_svs.update(keep_svs)
+        my_svs = np.array(sorted(keep_svs), dtype=basetypes.NODE_ID)
+
         node = {"children": my_svs}
         if "parent" in data:
             node["parent"] = data["parent"]
+        if "cx" in data:
+            node["cx"] = data["cx"]
         if "acx" in data:
             sv_set = set(int(s) for s in my_svs)
             filtered_acx = {}
-            for layer_k, edges in data["acx"].items():
+            for lyr, edges in data["acx"].items():
                 mask = np.array([int(e[0]) in sv_set for e in edges])
                 if mask.any():
-                    filtered_acx[layer_k] = edges[mask]
+                    filtered_acx[lyr] = edges[mask]
             if filtered_acx:
                 node["acx"] = filtered_acx
-        store[nid_int] = node
+        store[nid] = node
 
-    # L3+ nodes: as-is
-    for nid_int, data in real_data.items():
-        if nid_int in store:
+    # ACX target SVs: add to their L2's children + parent rows
+    acx_target_svs = set()
+    for nid, data in store.items():
+        if "acx" not in data:
             continue
-        store[nid_int] = dict(data)
+        for edges in data["acx"].values():
+            for e in edges:
+                acx_target_svs.add(int(e[1]))
 
-    # SV rows: parent pointer for every SV in the graph
-    for sv_int in all_svs_in_graph:
+    for tgt_sv in acx_target_svs:
+        l2 = real_sv_to_l2.get(tgt_sv)
+        if l2 is None or l2 not in store:
+            continue
+        all_kept_svs.add(tgt_sv)
+        existing = set(int(s) for s in store[l2].get("children", []))
+        if tgt_sv not in existing:
+            existing.add(tgt_sv)
+            store[l2]["children"] = np.array(sorted(existing), dtype=basetypes.NODE_ID)
+
+    # SV parent rows
+    for sv_int in all_kept_svs:
         if sv_int not in store:
-            l2 = sv_to_l2.get(sv_int)
+            l2 = real_sv_to_l2.get(sv_int)
             if l2 is not None:
                 store[sv_int] = {"parent": l2}
 
@@ -194,99 +247,99 @@ def _rewrite_graph(real_data: dict, sampled_svs: set, l2_of_sv: dict) -> dict:
 
 
 def extract(
-    sample_edges_per_file: int = SAMPLE_EDGES_PER_FILE,
+    edges_range: tuple = (1, 4),
     seed: int = RNG_SEED,
     force: bool = False,
-) -> str:
-    if os.path.exists(FIXTURE_PATH) and not force:
-        print(f"Fixture exists: {FIXTURE_PATH} ({os.path.getsize(FIXTURE_PATH) / 1e6:.1f} MB)")
-        return FIXTURE_PATH
+) -> list:
+    """Extract fixtures for each edge count in range. Restores table once."""
+    start, end = edges_range
+    counts = list(range(start, end))
 
-    rng = np.random.default_rng(seed)
-    cf = CloudFiles(EDGES_SRC)
-    wave_files = _list_wave_files()
-    print(f"Waves: {list(wave_files.keys())}, files: {sum(len(v) for v in wave_files.values())}")
+    # Check which need extraction
+    to_extract = []
+    for n in counts:
+        path = _fixture_path(n)
+        if os.path.exists(path) and not force:
+            print(f"Fixture exists: {path} ({os.path.getsize(path) / 1e6:.1f} MB)")
+        else:
+            to_extract.append(n)
 
-    # Sample edges
-    edges_per_wave = {}
-    all_sampled_svs = set()
-    for wave, files in wave_files.items():
-        wave_edges = []
-        for f in files:
-            sampled = _sample_edges(cf, f, rng, sample_edges_per_file)
-            wave_edges.append(sampled)
-            all_sampled_svs.update(sampled.ravel().tolist())
-        edges_per_wave[wave] = wave_edges
-    print(f"Sampled {len(all_sampled_svs)} unique SVs")
+    if not to_extract:
+        return [_fixture_path(n) for n in counts]
 
-    # Restore table
+    # Restore table once
     table_name = "stitch_redesign_test_e2e_sample"
     instance = _get_instance()
     tab = instance.table(table_name)
-    if tab.exists():
-        tab.delete()
-    Backup(BACKUP_ID, instance, cluster_id=CLUSTER_ID).restore(table_name).result()
-    print(f"Restored {table_name}")
+    if not tab.exists():
+        Backup(BACKUP_ID, instance, cluster_id=CLUSTER_ID).restore(table_name).result()
+        print(f"Restored {table_name}")
+    else:
+        print(f"Reusing {table_name}")
+
+    cf = CloudFiles(EDGES_SRC)
+    wave_files = _list_wave_files()
+    print(f"Waves: {list(wave_files.keys())}, files: {sum(len(v) for v in wave_files.values())}")
 
     try:
         cg = ChunkedGraph(graph_id=table_name)
         meta_bytes = pickle.dumps(cg.meta)
         cv_info = CloudVolume(cg.meta.data_source.WATERSHED, mip=0).info
 
-        # SVs → L2 parents
-        sv_arr = np.array(list(all_sampled_svs), dtype=basetypes.NODE_ID)
-        sv_parents = cg.get_parents(sv_arr)
-        l2_of_sv = {int(sv): int(p) for sv, p in zip(sv_arr, sv_parents)}
-        l2_ids = np.unique(sv_parents)
-        print(f"L2 nodes: {len(l2_ids)}")
+        for n in to_extract:
+            print(f"\n--- Extracting {n} edges per file ---")
+            rng = np.random.default_rng(seed)
+            file_seeds = rng.integers(0, 2**31, size=sum(len(v) for v in wave_files.values()))
+            idx = 0
+            edges_per_wave = {}
+            for wave, files in wave_files.items():
+                wave_args = []
+                for f in files:
+                    wave_args.append((EDGES_SRC, f, n, int(file_seeds[idx])))
+                    idx += 1
+                edges_per_wave[wave] = wave_args
 
-        # Read L2 data
-        real_data = _read_node_data(cg, l2_ids)
-        print(f"L2 nodes read: {len(real_data)}")
+            all_sampled_svs = set()
+            sampled_edges = {}
+            for wave, wave_args in edges_per_wave.items():
+                with ThreadPoolExecutor(max_workers=16) as pool:
+                    results = list(pool.map(_sample_edges, wave_args))
+                sampled_edges[wave] = results
+                for e in results:
+                    all_sampled_svs.update(e.ravel().tolist())
+            print(f"Sampled {len(all_sampled_svs)} unique SVs")
 
-        # Walk full hierarchy to root
-        print("Walking to root...")
-        _walk_to_root(cg, l2_ids, real_data)
+            if not all_sampled_svs:
+                print("No SVs sampled, skipping")
+                continue
 
-        # Read ALL children at each level (siblings) so hierarchy is complete
-        rounds = 0
-        while True:
-            missing = set()
-            for nid_int, data in list(real_data.items()):
-                children = data.get("children")
-                if children is not None:
-                    for ch in children:
-                        if int(ch) not in real_data:
-                            missing.add(int(ch))
-            if not missing:
-                break
-            miss_arr = np.array(list(missing), dtype=basetypes.NODE_ID)
-            miss_data = _read_node_data(cg, miss_arr)
-            real_data.update(miss_data)
-            _walk_to_root(cg, miss_arr, real_data)
-            rounds += 1
-            print(f"  round {rounds}: {len(missing)} sibling nodes read")
+            sv_arr = np.array(list(all_sampled_svs), dtype=basetypes.NODE_ID)
+            sv_parents = cg.get_parents(sv_arr)
+            edge_l2_of_sv = {int(sv): int(p) for sv, p in zip(sv_arr, sv_parents)}
+            roots = cg.get_roots(sv_arr)
+            unique_roots = np.unique(roots)
+            print(f"Edge SVs: {len(sv_arr)}, L2s: {len(np.unique(sv_parents))}, roots: {len(unique_roots)}")
 
-        print(f"Total real data: {len(real_data)} nodes")
+            print("BFS from roots...")
+            real_data = _bfs_from_roots(cg, unique_roots)
 
-        # Build mini-graph
-        node_store = _rewrite_graph(real_data, all_sampled_svs, l2_of_sv)
-        print(f"Rewritten graph: {len(node_store)} nodes")
+            node_store = _build_fixture_store(real_data, all_sampled_svs, edge_l2_of_sv)
+            print(f"Fixture store: {len(node_store)} nodes")
 
-        # Save
-        fixture = {
-            "edges_per_wave": {w: [e.tolist() for e in el] for w, el in edges_per_wave.items()},
-            "node_store": node_store,
-            "meta_bytes": meta_bytes,
-            "cv_info": cv_info,
-            "sample_config": {"edges_per_file": sample_edges_per_file, "seed": seed},
-        }
-        with open(FIXTURE_PATH, "wb") as f:
-            pickle.dump(fixture, f)
-        print(f"Fixture saved: {FIXTURE_PATH} ({os.path.getsize(FIXTURE_PATH) / 1e6:.1f} MB)")
+            fixture_path = _fixture_path(n)
+            fixture = {
+                "edges_per_wave": {w: [e.tolist() for e in el] for w, el in sampled_edges.items()},
+                "node_store": node_store,
+                "meta_bytes": meta_bytes,
+                "cv_info": cv_info,
+                "sample_config": {"edges_per_file": n, "seed": seed},
+            }
+            with open(fixture_path, "wb") as f:
+                pickle.dump(fixture, f)
+            print(f"Fixture saved: {fixture_path} ({os.path.getsize(fixture_path) / 1e6:.1f} MB)")
 
     finally:
         instance.table(table_name).delete()
         print(f"Deleted {table_name}")
 
-    return FIXTURE_PATH
+    return [_fixture_path(n) for n in counts]

@@ -10,27 +10,37 @@ import numpy as np
 
 from pychunkedgraph.graph import basetypes, types
 
-from . import tree
 
+def resolve_svs_to_layer(
+    svs: np.ndarray, target_layer: int, cache, get_layer,
+) -> dict:
+    """Resolve multiple SVs to target layer in batch. Returns {sv: resolved_identity}."""
+    result = {}
+    active = {int(sv): int(sv) for sv in svs}
 
-def resolve_sv_to_layer(
-    sv: int, target_layer: int, cache, child_to_parent: dict, get_layer,
-) -> int:
-    chain = cache.resolver.get(sv, {})
-    identity, best = sv, -1
-    for l, ident in chain.items():
-        if l <= target_layer and l > best:
-            best, identity = l, ident
-    while identity in child_to_parent:
-        nxt = child_to_parent[identity]
-        if get_layer(nxt) > target_layer:
+    while active:
+        ids_to_check = np.array(list(set(active.values())), dtype=basetypes.NODE_ID)
+        parents = cache.get_parents(ids_to_check)
+        parent_map = {int(nid): int(p) for nid, p in zip(ids_to_check, parents)}
+
+        still_active = {}
+        for sv_int, identity in active.items():
+            parent = parent_map.get(identity, 0)
+            if parent == 0 or get_layer(parent) > target_layer:
+                result[sv_int] = identity
+            else:
+                still_active[sv_int] = parent
+        if not still_active or still_active == active:
+            for sv_int, identity in still_active.items():
+                result[sv_int] = identity
             break
-        identity = nxt
-    return identity
+        active = still_active
+
+    return result
 
 
 def resolve_cx_at_layer(
-    nodes: list, layer: int, cache, child_to_parent: dict, get_layer,
+    nodes: list, layer: int, cache, get_layer,
     resolve_layer: int = None,
 ) -> np.ndarray:
     if resolve_layer is None:
@@ -46,10 +56,7 @@ def resolve_cx_at_layer(
 
     all_edges = np.concatenate(edge_list).astype(basetypes.NODE_ID)
     unique_svs = np.unique(all_edges[:, 1])
-    sv_map = {
-        int(sv): resolve_sv_to_layer(int(sv), resolve_layer, cache, child_to_parent, get_layer)
-        for sv in unique_svs
-    }
+    sv_map = resolve_svs_to_layer(unique_svs, resolve_layer, cache, get_layer)
     col1 = np.array([sv_map[int(sv)] for sv in all_edges[:, 1]], dtype=basetypes.NODE_ID)
     result = np.column_stack([all_edges[:, 0], col1])
     result = np.unique(result, axis=0)
@@ -69,38 +76,38 @@ def store_cx_from_resolved(cache, cx_edges: np.ndarray, layer: int) -> None:
             cache.set_cx_layer(int(uid), layer, sorted_edges[s:e])
 
 
-def resolve_remaining_cx(cache, lcg, child_to_parent: dict) -> None:
+def resolve_remaining_cx(cache, lcg) -> None:
     get_layer = lambda nid: lcg.get_chunk_layer(np.uint64(nid))
     all_affected = set(cache.new_node_ids)
     groups = defaultdict(list)
+    nids_arr = np.array(list(all_affected), dtype=basetypes.NODE_ID)
+    if len(nids_arr) == 0:
+        return
+    cx_batch = cache.get_cx_batch(nids_arr)
     for nid in all_affected:
         nid_layer = get_layer(nid)
-        existing = cache.cx.get(int(nid), {})
+        existing = cx_batch.get(int(nid), {})
         raw = cache.unresolved_acx.get(int(nid), {})
         for lyr in raw:
             if lyr > 2 and lyr not in existing and len(raw[lyr]) > 0:
                 groups[(lyr, nid_layer)].append(nid)
     for (lyr, nid_layer) in sorted(groups):
         cx = resolve_cx_at_layer(
-            groups[(lyr, nid_layer)], lyr, cache, child_to_parent, get_layer,
+            groups[(lyr, nid_layer)], lyr, cache, get_layer,
             resolve_layer=nid_layer,
         )
         store_cx_from_resolved(cache, cx, lyr)
 
 
-def collect_and_resolve_partners(lcg, acx_source: dict, known_svs: set, resolver: dict) -> np.ndarray:
+def ensure_partners_cached(cache, acx_source: dict) -> None:
+    """Batch-ensure all partner SVs from ACX edges are in the cache."""
     partner_svs = set()
     for layer_d in acx_source.values():
         for edges in layer_d.values():
             if len(edges) > 0:
-                partner_svs.update(edges[:, 1])
-
-    unknown = np.array(list(partner_svs - known_svs), dtype=basetypes.NODE_ID)
-    if len(unknown) > 0:
-        chains = tree.get_all_parents_filtered(lcg, unknown)
-        for sv, chain in chains.items():
-            resolver[int(sv)] = {int(l): int(p) for l, p in chain.items()}
-    return unknown
+                partner_svs.update(int(sv) for sv in edges[:, 1])
+    if partner_svs:
+        cache.get_parents(np.array(list(partner_svs), dtype=basetypes.NODE_ID))
 
 
 def acx_to_cx(acx_dict: dict, node_id) -> dict:

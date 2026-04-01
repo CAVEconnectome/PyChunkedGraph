@@ -13,6 +13,9 @@ import os
 import pickle
 import signal
 import socket
+import warnings
+
+warnings.filterwarnings("ignore", message="Connecting to Bigtable emulator")
 import subprocess
 import time
 from collections import defaultdict
@@ -43,8 +46,12 @@ N_WORKERS = 2
 _shared_cache = None
 _shared_inc = None
 
-FIXTURE_PATH = Path(__file__).parent / "test_data" / "e2e_fixture.pkl"
-EMULATOR_PORT = 8540  # different from pcg tests to avoid conflict
+FIXTURE_DIR = Path(__file__).parent / "test_data"
+EMULATOR_PORT = 8540
+E2E_MODE = os.environ.get("E2E_MODE", "multiwave")
+E2E_EDGES = int(os.environ.get("E2E_EDGES", "1"))
+
+
 
 _emulator_proc = None
 _emulator_cleaned = False
@@ -165,6 +172,21 @@ def _create_graph(graph_id: str, meta, cv_info: dict) -> ChunkedGraph:
     return cg
 
 
+def _make_meta(base_meta, graph_id: str):
+    """Clone meta with a different graph_config.ID."""
+    m = pickle.loads(pickle.dumps(base_meta))
+    m.__dict__["_graph_config"] = base_meta.graph_config._replace(ID=graph_id)
+    return m
+
+
+def _setup_table(graph_id: str, base_meta, cv_info: dict, node_store: dict) -> ChunkedGraph:
+    """Create emulator table, populate with fixture data, return CG."""
+    meta = _make_meta(base_meta, graph_id)
+    cg = _create_graph(graph_id, meta, cv_info)
+    _populate_table(graph_id, meta, node_store)
+    return cg, meta
+
+
 def _populate_table(graph_id: str, meta, node_store: dict) -> None:
     """Batch write all nodes from fixture into emulator table. Creates own CG client."""
     os.environ.setdefault("BIGTABLE_EMULATOR_HOST", f"localhost:{EMULATOR_PORT}")
@@ -216,9 +238,23 @@ def _populate_table(graph_id: str, meta, node_store: dict) -> None:
 
 
 def _load_fixture() -> dict:
-    assert FIXTURE_PATH.exists(), f"Fixture not found: {FIXTURE_PATH}. Run sample_test_data.extract() first."
-    with open(FIXTURE_PATH, "rb") as f:
+    path = FIXTURE_DIR / f"e2e_fixture_{E2E_EDGES}e.pkl"
+    assert path.exists(), f"Fixture not found: {path}. Run sample_test_data.extract(sample_edges_per_file={E2E_EDGES}, force=True)"
+    with open(path, "rb") as f:
         return pickle.load(f)
+
+
+def _e2e_prod_worker(args):
+    graph_id, edges_list, meta_bytes = args
+    edges = np.array(edges_list, dtype=basetypes.NODE_ID)
+    try:
+        meta = pickle.loads(meta_bytes)
+        cg = _create_graph_client(graph_id, meta)
+        result = cg.add_edges("stitch", edges, stitch_mode=True)
+        return [int(r) for r in result.new_root_ids], None
+    except Exception:
+        import traceback
+        return [], traceback.format_exc()
 
 
 def _e2e_worker(args):
@@ -229,11 +265,11 @@ def _e2e_worker(args):
             graph_id, preloaded=_shared_cache, incremental=_shared_inc,
         )
         lcg.begin_stitch()
-        result = _stitch_mod.stitch(lcg, edges)
+        result = _stitch_mod.stitch(lcg, edges, sanity_check=True)
         lcg.mutate_rows(result.rows)
         snapshot = lcg.wave_snapshot()
         return [int(r) for r in result.new_roots], snapshot, None
-    except Exception as e:
+    except Exception:
         import traceback
         return [], None, traceback.format_exc()
 
@@ -250,57 +286,89 @@ def fixture():
     return _load_fixture()
 
 
-class TestE2EMultiwave:
-    """Full multiwave stitch: production vs ours on emulator, compared by SV components."""
+@pytest.fixture(scope="module")
+def tables(emulator, fixture):
+    """Create and populate prod + ours tables once for all tests."""
+    base_meta = pickle.loads(fixture["meta_bytes"])
+    node_store = fixture["node_store"]
+    cv_info = fixture["cv_info"]
 
-    def test_all_waves(self, emulator, fixture):
-        meta = pickle.loads(fixture["meta_bytes"])
+    meta_prod = _make_meta(base_meta, "e2e_prod")
+    meta_ours = _make_meta(base_meta, "e2e_ours")
+    cg_prod = _create_graph("e2e_prod", meta_prod, cv_info)
+    cg_ours = _create_graph("e2e_ours", meta_ours, cv_info)
+    print(f"Populating tables with {len(node_store)} nodes...")
+    with ProcessPoolExecutor(max_workers=2) as ppe:
+        f1 = ppe.submit(_populate_table, "e2e_prod", meta_prod, node_store)
+        f2 = ppe.submit(_populate_table, "e2e_ours", meta_ours, node_store)
+        populate_timeout = E2E_EDGES * 45
+        f1.result(timeout=populate_timeout)
+        f2.result(timeout=populate_timeout)
+
+    return {
+        "cg_prod": cg_prod,
+        "cg_ours": cg_ours,
+        "meta_prod": meta_prod,
+        "meta_ours": meta_ours,
+    }
+
+
+class TestE2E:
+    """Stitch comparison: production vs ours on emulator.
+    Mode controlled by --e2e-mode: multiwave (default), wave (wave 0 only), single (one file).
+    """
+
+    def _get_mode(self, request) -> str:
+        return os.environ.get("E2E_MODE", "multiwave")
+
+    def _get_waves(self, mode: str, edges_per_wave: dict) -> list:
+        all_waves = sorted(int(w) for w in edges_per_wave.keys())
+        if mode == "multiwave":
+            return all_waves
+        return [0]
+
+    def _get_wave_edges(self, mode: str, wave_edges: list) -> list:
+        if mode == "single":
+            return [max(wave_edges, key=len)]
+        return wave_edges
+
+    def test_stitch(self, tables, fixture):
+        mode = self._get_mode(None)
+        cg_prod = tables["cg_prod"]
+        cg_ours = tables["cg_ours"]
+        meta_ours = tables["meta_ours"]
         edges_per_wave = fixture["edges_per_wave"]
-        node_store = fixture["node_store"]
-        layer_count = meta.layer_count
-        waves = sorted(int(w) for w in edges_per_wave.keys())
+        layer_count = meta_ours.layer_count
+        waves = self._get_waves(mode, edges_per_wave)
+        print(f"mode={mode}, waves={waves}")
 
-        # Create and populate two tables
-        cv_info = fixture["cv_info"]
-        cg_prod = _create_graph("e2e_prod", meta, cv_info)
-        cg_ours = _create_graph("e2e_ours", meta, cv_info)
-        print(f"Populating tables with {len(node_store)} nodes...")
-        with ProcessPoolExecutor(max_workers=2) as ppe:
-            f1 = ppe.submit(_populate_table, "e2e_prod", meta, node_store)
-            f2 = ppe.submit(_populate_table, "e2e_ours", meta, node_store)
-            f1.result(timeout=60)
-            f2.result(timeout=60)
-
-        # Set up our stitch lcg — inject the emulator CG directly
-        lcg = _lcg_mod.LocalChunkedGraph.__new__(_lcg_mod.LocalChunkedGraph)
-        lcg.cg = cg_ours
-        lcg._cache = _lcg_mod.WaveCache()
-        lcg.rpc_log = []
-        lcg._read_row_keys = set()
+        lcg = _lcg_mod.LocalChunkedGraph("e2e_ours", meta=meta_ours)
         prod_all_roots = []
         ours_all_roots = []
+        all_edges_flat = []
 
         for wave in waves:
             wave_edges_list = edges_per_wave[wave]
-            # Convert from lists back to arrays
-            wave_edges = [np.array(e, dtype=basetypes.NODE_ID) for e in wave_edges_list if len(e) > 0]
+            all_wave_edges = [np.array(e, dtype=basetypes.NODE_ID) for e in wave_edges_list if len(e) > 0]
+            wave_edges = self._get_wave_edges(mode, all_wave_edges)
             if not wave_edges:
                 continue
 
-            # Production: add_edges for each file (independent within wave)
-            wave_prod_roots = []
+            # Pre-stitch: capture expected groups from edges (use cg_ours which is unmodified)
             for edges in wave_edges:
-                try:
-                    result = cg_prod.add_edges("stitch", edges, stitch_mode=True)
-                    wave_prod_roots.extend([int(r) for r in result.new_root_ids])
-                except Exception as e:
-                    import traceback
-                    if not hasattr(self, '_prod_err_printed'):
-                        traceback.print_exc()
-                        self._prod_err_printed = True
+                all_edges_flat.append(edges)
+
+            meta_bytes = pickle.dumps(tables["meta_prod"])
+            prod_args = [("e2e_prod", e.tolist(), meta_bytes) for e in wave_edges]
+            wave_prod_roots = []
+            nw = min(N_WORKERS, len(prod_args))
+            with Pool(nw) as pool:
+                for roots, error in pool.imap_unordered(_e2e_prod_worker, prod_args):
+                    if error:
+                        pytest.fail(f"Production failed wave {wave}:\n{error}")
+                    wave_prod_roots.extend(roots)
             prod_all_roots.extend(wave_prod_roots)
 
-            # Ours: stitch with Pool (2 workers)
             global _shared_cache, _shared_inc
             _shared_cache = lcg.preloaded()
             _shared_inc = lcg.incremental_state() if wave > 0 else None
@@ -323,27 +391,170 @@ class TestE2EMultiwave:
 
             print(f"wave {wave}: prod={len(wave_prod_roots)} ours={len(wave_ours_roots)} roots")
 
-        # Final comparison
         print(f"\nTotal: prod={len(prod_all_roots)} ours={len(ours_all_roots)}")
-        assert len(prod_all_roots) == len(ours_all_roots), \
-            f"Root count mismatch: {len(prod_all_roots)} vs {len(ours_all_roots)}"
 
-        # Component comparison at all layers
+        # Pre/post stitch SV verification
+        if all_edges_flat:
+            self._verify_merge(cg_prod, cg_ours, all_edges_flat, prod_all_roots, ours_all_roots)
+
         prod_roots_arr = [np.uint64(r) for r in prod_all_roots]
         ours_roots_arr = [np.uint64(r) for r in ours_all_roots]
 
         comp_prod = _get_components(cg_prod, prod_roots_arr, layer_count)
-        comp_ours = _get_components(
-            ChunkedGraph(graph_id="e2e_ours", meta=meta),
-            ours_roots_arr, layer_count,
-        )
+        comp_ours = _get_components(cg_ours, ours_roots_arr, layer_count)
         _print_component_comparison(comp_prod, comp_ours, layer_count)
 
+        mismatches = []
         for layer in range(2, layer_count + 1):
             p = comp_prod.get(layer, set())
             o = comp_ours.get(layer, set())
-            assert p == o, f"Component mismatch at L{layer}: +prod={len(p-o)} +ours={len(o-p)}"
+            if p != o:
+                mismatches.append(f"L{layer}: +prod={len(p-o)} +ours={len(o-p)}")
 
-        # Cleanup
-        cg_prod.client._admin_table.delete()
-        cg_ours.client._admin_table.delete()
+        if mismatches:
+            for layer in range(2, layer_count + 1):
+                p = comp_prod.get(layer, set())
+                o = comp_ours.get(layer, set())
+                only_prod = p - o
+                only_ours = o - p
+                if only_prod or only_ours:
+                    print(f"\n--- L{layer} diff ---")
+                    for i, comp in enumerate(sorted(only_prod, key=len)):
+                        print(f"  +prod[{i}]: {len(comp)} SVs: {sorted(comp)[:5]}...")
+                    for i, comp in enumerate(sorted(only_ours, key=len)):
+                        print(f"  +ours[{i}]: {len(comp)} SVs: {sorted(comp)[:5]}...")
+                    shared = p & o
+                    print(f"  shared: {len(shared)} components")
+                    if only_ours and shared:
+                        for oc in only_ours:
+                            for sc in shared:
+                                overlap = oc & sc
+                                if overlap:
+                                    print(f"  ours-only {len(oc)} SVs overlaps shared {len(sc)} SVs by {len(overlap)}")
+                    if only_ours and only_prod:
+                        for oc in only_ours:
+                            for pc in only_prod:
+                                if oc & pc:
+                                    print(f"  ours-only {len(oc)} overlaps prod-only {len(pc)} by {len(oc & pc)}")
+                    break
+
+        assert len(prod_all_roots) == len(ours_all_roots), \
+            f"Root count mismatch: {len(prod_all_roots)} vs {len(ours_all_roots)}"
+        assert not mismatches, f"Component mismatches: {mismatches}"
+
+    @staticmethod
+    def _verify_merge(
+        cg_prod: ChunkedGraph, cg_ours: ChunkedGraph,
+        all_edges: list, prod_roots: list, ours_roots: list,
+    ) -> None:
+        """Compare prod and ours against expected merge groups from edges."""
+        from .utils import batch_get_l2children
+
+        all_atomic = np.concatenate(all_edges).astype(basetypes.NODE_ID)
+        all_svs = np.unique(all_atomic.ravel())
+
+        # Pre-stitch roots from ours table (unmodified for SVs not in our stitch)
+        # Use prod table's pre-stitch state — but prod already ran add_edges.
+        # Both tables started identical. Use ours table for pre-stitch roots
+        # since ours was modified by Pool workers writing rows, but roots
+        # should still reflect pre-stitch state for SVs not yet processed.
+        # Actually: for single-file mode, ours table was modified too.
+        # Use the fixture node_store for ground truth pre-stitch parents.
+        # Simpler: build expected groups from edge connectivity alone.
+
+        # Build root-to-root graph from edges
+        # Each atomic edge (sv1, sv2) connects their pre-stitch L2 parents
+        # We don't need actual pre-stitch roots — just connectivity from edges
+        from pychunkedgraph.graph.utils import flatgraph
+
+        graph, _, _, graph_ids = flatgraph.build_gt_graph(all_atomic, make_directed=True)
+        ccs = flatgraph.connected_components(graph)
+        expected_groups = []
+        for cc in ccs:
+            expected_groups.append(frozenset(int(sv) for sv in graph_ids[cc]))
+        print(f"\nExpected merge groups from edges: {len(expected_groups)}")
+
+        # Post-stitch: collect SVs per root for both
+        def svs_per_root(cg, roots):
+            root_arr = np.array(roots, dtype=basetypes.NODE_ID)
+            l2_map = batch_get_l2children(cg, root_arr)
+            result = {}
+            for root, l2s in l2_map.items():
+                if not l2s:
+                    continue
+                l2_arr = np.array(list(l2s), dtype=basetypes.NODE_ID)
+                ch_d = cg.get_children(l2_arr)
+                svs = set()
+                for ch in ch_d.values():
+                    svs.update(int(s) for s in ch)
+                result[int(root)] = frozenset(svs)
+            return result
+
+        for cg, roots, label in [(cg_prod, prod_roots, "PROD"), (cg_ours, ours_roots, "OURS")]:
+            root_svs = svs_per_root(cg, roots)
+            print(f"\n{label}: {len(root_svs)} roots")
+
+            # Check each expected group: is it exactly one root?
+            for i, expected in enumerate(expected_groups):
+                matching_roots = []
+                for root, svs in root_svs.items():
+                    overlap = expected & svs
+                    if overlap:
+                        matching_roots.append((root, len(overlap), len(svs)))
+                if len(matching_roots) == 1:
+                    root, overlap_n, total = matching_roots[0]
+                    if overlap_n == total:
+                        continue
+                    extra = total - overlap_n
+                    print(f"  group[{i}] ({len(expected)} SVs): root has {extra} extra SVs (over-merge)")
+                elif len(matching_roots) > 1:
+                    print(f"  group[{i}] ({len(expected)} SVs): SPLIT across {len(matching_roots)} roots (under-merge)")
+                else:
+                    print(f"  group[{i}] ({len(expected)} SVs): NOT FOUND in any root")
+
+            all_edge_svs = set()
+            for grp in expected_groups:
+                all_edge_svs.update(grp)
+            sibling_only = []
+            for root, svs in root_svs.items():
+                if not (svs & all_edge_svs):
+                    sibling_only.append((root, len(svs)))
+            if sibling_only:
+                print(f"  {len(sibling_only)} sibling-only roots: {[(r, n) for r, n in sibling_only]}")
+
+
+    @staticmethod
+    def _dump_cx_diff(cg_prod, prod_roots, cg_ours, ours_roots, layer_count: int) -> None:
+        """Dump CX edge counts and node counts per layer for both tables."""
+        from .utils import batch_get_l2children
+
+        for cg, roots, label in [(cg_prod, prod_roots, "PROD"), (cg_ours, ours_roots, "OURS")]:
+            root_arr = np.array(roots, dtype=basetypes.NODE_ID)
+            l2_map = batch_get_l2children(cg, root_arr)
+            all_l2s = set()
+            for l2s in l2_map.values():
+                all_l2s.update(int(x) for x in l2s)
+
+            current_layer_nodes = all_l2s
+            for layer in range(2, layer_count + 1):
+                if not current_layer_nodes:
+                    break
+                arr = np.array(list(current_layer_nodes), dtype=basetypes.NODE_ID)
+                cx_props = [attributes.Connectivity.CrossChunkEdge[l] for l in range(2, layer_count)]
+                raw = cg.client.read_nodes(node_ids=arr, properties=cx_props)
+                n_cx = 0
+                for nid in arr:
+                    data = raw.get(nid, {})
+                    for l in range(layer, layer_count):
+                        cells = data.get(attributes.Connectivity.CrossChunkEdge[l], [])
+                        if cells and len(cells[0].value) > 0:
+                            n_cx += len(cells[0].value)
+                print(f"  {label} L{layer}: {len(current_layer_nodes)} nodes, {n_cx} CX edges at L{layer}+")
+
+                parents_raw = cg.client.read_nodes(node_ids=arr, properties=[attributes.Hierarchy.Parent])
+                next_nodes = set()
+                for nid in arr:
+                    p_cells = parents_raw.get(nid, {}).get(attributes.Hierarchy.Parent, [])
+                    if p_cells:
+                        next_nodes.add(int(p_cells[0].value))
+                current_layer_nodes = next_nodes
