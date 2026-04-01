@@ -56,11 +56,13 @@ Tests: test_stitch.py (26), test_wave_cache.py (28), test_local_cg.py (4), test_
 13. written_cx in CC graph fundamentally unsound (resolver/old_to_new/child_to_parent all change per wave)
 
 ## E2E Test (test_e2e.py)
-- Fixture: `test_data/e2e_fixture.pkl` (836K nodes, ~26 MB) from `sample_test_data.py`
-- BigTable emulator on port 8540, parallel populate (2 processes, 16K batch, ~49s)
+- Fixtures: `fixtures/e2e_fixture_{N}e.pkl.gz` from `sample_test_data.py`
+- Stats: `fixtures/STATS.md` (auto-updated on extraction)
+- BigTable emulator on port 8540, parallel populate (2 processes, 16K batch)
 - `set_max_node_id` per chunk after populate (skip root chunks)
 - Production `add_edges` on `e2e_prod` vs our stitch on `e2e_ours`, compare components at all layers
 - Pool(2 workers, spawn), `_e2e_worker` returns traceback strings for pickling
+- `_WaveChecker` context manager: pre-stitch CC count from root-level edge graph, post-stitch verifies root count matches CCs and all edge SVs share a root
 
 ### Refactors (2026-03-30)
 1. Eliminated `child_to_parent` dict — single source of truth is `cache.parents` (via batch API)
@@ -82,62 +84,37 @@ Tests: test_stitch.py (26), test_wave_cache.py (28), test_local_cg.py (4), test_
 - E2e emulator: prod 5222 vs ours 3401 (subset fixture, not full graph — separate issue)
 - Baseline cached at `runs/wave/baseline/` (roots.pkl, extract/, stitch_results.json)
 
-### E2E single file diagnostic (2026-03-31)
-Single file: prod=7 vs ours=5 roots.
-- L2: MATCH (9 components)
-- L3: MATCH (0 — skip connections)
-- L4: MATCH (4 components)
-- L5: MISMATCH — prod=4, ours=7 (+3 extra in ours)
-- L6: MISMATCH — prod=5, ours=3
-- L7: MISMATCH — prod=5, ours=2
-
-Divergence starts at L5. L2 and L4 are correct. Our stitch SPLITS components at L5 that production merges — 3 extra L5 components in ours. This propagates up: more L5 components → fewer merges at L6/L7 → fewer roots.
-
-Root cause: CX edges at L5 are different, or sibling discovery at L5 misses connections that production finds.
-
 ### Resolver elimination (2026-03-31)
 Root cause of e2e mismatch: resolver stored stale parent chains from BigTable. When build_hierarchy created new parents, resolver entries stayed old → resolve_svs_to_layer returned old_L5 instead of new_L5 → missing CX connections at L5+ → over-merging.
 
 Fix: eliminated resolver dict entirely. All resolution goes through cache.get_parents which has live hierarchy (including newly-created nodes from _create_parents). Also eliminated known_svs, resolver_entries in SiblingEntry, resolve_partner_sv_parents.
 
-Production code done. test_stitch.py (26) and test_cache_perf.py (10) updated and passing. test_wave_cache.py needs ~61 resolver references updated.
-
-### E2E single file debug (continued)
-L5 has 3 extra single-SV ours-only components. These SVs have L2 parents that are sibling stubs with NO CX/ACX above L2. Their old L3 parent skips L3→L7 (root).
-
-In production these SVs don't appear as separate L5 components — they go straight to root (skip). In ours, they end up at L5 because of ACX propagation through multi-node CCs at L3.
-
-### Fixture fix (2026-04-01)
-- CX dropped for L2 nodes → fixed
-- ACX source SVs not kept for sibling L2s → fixed
-- ACX target SVs missing parent rows → fixed
-- Rewrote `sample_test_data.py`: BFS from roots, parallel edge sampling
-
-### Duplicate L2 bug (2026-04-01)
-Wave 0: L2 `145382925116899612` under two roots. Traced to `_discover_layer_siblings` finding stale children.
-
-Production vs ours structural differences:
-- Production discovers siblings AT current layer (`_get_layer_node_ids`); ours discovers for FUTURE layers (`_discover_layer_siblings`)
-- Production replaces old IDs with new via bidirectional `old_new_id_d`/`flip_ids`; ours only subtracts `old_ids`
-- Production calls `_update_cross_edge_cache_batched` BEFORE CC; ours resolves from ACX
-
-### E2E wave 0 results (2026-04-01)
-- 1e fixture: wave 0 ROOT COUNT MATCH (606 prod, 606 ours). No duplicate L2s.
-- Component mismatch at L2-L6: prod has extra components ours doesn't. L7 MATCH.
-- Root cause of component diff: edge L2 with no ACX at L2 (only ACX at L3) → single-node CC at L2 → skips to L4+. No new L3 created → `_discover_layer_siblings(3)` never runs → L3 siblings never discovered → their subtrees missing from hierarchy.
-- Production discovers L3 siblings because `_get_layer_node_ids` runs at EACH layer during `_create_new_parents`, discovering siblings at the layer being processed.
-- Our code discovers siblings for FUTURE layers inside current layer iteration. If skip connection jumps past L3, L3 siblings are missed.
-
-### Fixture extraction fixes (2026-04-01)
-- CX preserved for L2 nodes
-- ACX source AND target SVs kept as L2 children
-- ACX target SVs added to their L2's children list
-- BFS from roots with multiprocessing Pool + tqdm
+### Fixture extraction rewrite (2026-04-01)
+- BFS from roots with multiprocessing Pool (fork) + tqdm
+- L2 children = ACX source SVs (all layers) + edge SVs from wave files
+- ACX target SVs added to their L2's children list + parent rows
+- CX preserved for ALL nodes including L2s
 - Table restored once, reused across edge counts
 - `extract(edges_range=(1,4))` generates 1e, 2e, 3e fixtures
+- Fixtures saved as gzip-compressed pickle (`.pkl.gz`)
+- `FIXTURE_DIR` defined once in `sample_test_data.py`, imported by test
+- Auto-generated `STATS.md` with per-fixture statistics
+- `README.md` documents generation algorithm and fixture contents
+
+### E2E results (2026-04-01)
+**All 3 fixtures pass wave mode with full hierarchy match + sanity checks:**
+- 1e: 1212 roots → 606 CCs, prod=606 ours=606 ✓ (90s)
+- 2e: 2423 roots → 1211 CCs, prod=1211 ours=1211 ✓ (128s)
+- 3e: 3633 roots → 1815 CCs, prod=1815 ours=1815 ✓ (162s)
+
+Components match at ALL layers (L2-L7) for all fixtures.
+
+Sanity checks per wave (`_WaveChecker`):
+1. Pre-stitch: root-level edge graph → expected CC count
+2. Post-stitch: root count == expected CCs
+3. Post-stitch: every edge's SVs share a root
 
 ### TODO
-- Fix L3 sibling discovery when skip connections bypass L3
-- Match production's per-layer sibling discovery pattern
-- Run e2e with component assertion at all layers
-- Re-run on real table
+- Run multiwave e2e
+- Re-run on real table to verify no regression
+- Fix L3 sibling discovery when skip connections bypass L3 (if needed — currently passing)
