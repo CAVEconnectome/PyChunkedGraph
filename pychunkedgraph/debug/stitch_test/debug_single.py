@@ -310,9 +310,11 @@ def _run_compare(filename: str, tbl_prod: str, tbl_ours: str) -> dict:
         ld = {"new_nodes": len(new_nodes)}
 
         # What CX do new nodes have?
+        new_nodes_arr = np.array(new_nodes, dtype=basetypes.NODE_ID)
+        new_cx_batch = c.get_cx_batch(new_nodes_arr)
         cx_layers_present = defaultdict(int)
         for nid in new_nodes:
-            for lyr in c.cx.get(int(nid), {}):
+            for lyr in new_cx_batch.get(int(nid), {}):
                 cx_layers_present[lyr] += 1
         ld["cx_layers"] = dict(cx_layers_present)
 
@@ -327,24 +329,26 @@ def _run_compare(filename: str, tbl_prod: str, tbl_ours: str) -> dict:
         in_scope = set(c.new_node_ids) | c.sibling_ids
         cp_from_cx = set()
         for nid in new_nodes:
-            for edges in c.cx.get(int(nid), {}).values():
+            for edges in new_cx_batch.get(int(nid), {}).values():
                 if len(edges) > 0:
                     cp_from_cx.update(int(x) for x in edges[:, 1])
         cp_from_cx -= in_scope
         ld["counterparts_from_cx"] = len(cp_from_cx)
 
         # Counterparts from unresolved_acx at ALL layers (new approach)
-        cp_from_acx = set()
         get_layer = lambda nid: lcg.get_chunk_layer(np.uint64(nid))
-        child_to_parent = {}  # empty — check if this is the problem
+        svs_by_layer = defaultdict(set)
         for nid in new_nodes:
             raw = c.unresolved_acx.get(int(nid), {})
             for lyr in range(layer, layer_count):
                 acx_edges = raw.get(lyr, types.empty_2d)
-                for sv in acx_edges[:, 1]:
-                    resolved = _res_mod.resolve_sv_to_layer(
-                        int(sv), lyr, c, child_to_parent, get_layer)
-                    cp_from_acx.add(resolved)
+                if len(acx_edges) > 0:
+                    svs_by_layer[lyr].update(int(sv) for sv in acx_edges[:, 1])
+        cp_from_acx = set()
+        for lyr, svs in svs_by_layer.items():
+            sv_arr = np.array(list(svs), dtype=basetypes.NODE_ID)
+            sv_map = _res_mod.resolve_svs_to_layer(sv_arr, lyr, c, get_layer)
+            cp_from_acx.update(sv_map.values())
         cp_from_acx -= in_scope
         ld["counterparts_from_acx_empty_c2p"] = len(cp_from_acx)
 
@@ -366,9 +370,11 @@ def _run_compare(filename: str, tbl_prod: str, tbl_ours: str) -> dict:
     diag["per_layer"] = layer_diag
 
     # CX written for counterparts in build_rows
+    cp_arr = np.array(list(c.counterpart_ids), dtype=basetypes.NODE_ID) if c.counterpart_ids else np.array([], dtype=basetypes.NODE_ID)
+    cp_cx_batch = c.get_cx_batch(cp_arr) if len(cp_arr) > 0 else {}
     cp_cx_written = {}
     for nid in c.counterpart_ids:
-        cx = c.cx.get(nid, {})
+        cx = cp_cx_batch.get(int(nid), {})
         cp_cx_written[nid] = {lyr: len(edges) for lyr, edges in cx.items()}
     diag["counterpart_cx_written"] = cp_cx_written
 
@@ -431,21 +437,26 @@ def _run_cx_comparison(filename: str, table_name: str) -> dict:
     # L2: min(children SVs). L3+: min across all L2 descendants.
     canonical = {}
 
-    # L2 nodes: children from RowCache
+    # L2 nodes: children from cache
     all_l2 = set(int(x) for x in c.new_ids_d.get(2, []))
     all_l2.update(c.sibling_ids)
+    l2_arr = np.array(list(all_l2), dtype=basetypes.NODE_ID) if all_l2 else np.array([], dtype=basetypes.NODE_ID)
+    l2_ch_batch = c.get_children_batch(l2_arr) if len(l2_arr) > 0 else {}
     for l2 in all_l2:
-        ch = c.children.get(l2)
-        if ch is not None and len(ch) > 0:
+        ch = l2_ch_batch.get(l2, np.array([], dtype=basetypes.NODE_ID))
+        if len(ch) > 0:
             canonical[l2] = int(np.min(ch))
 
     # L3+ nodes: descend to L2 children, use their canonical
     for layer in range(3, layer_count + 1):
-        for nid in list(c.new_ids_d.get(layer, [])) + list(c.siblings_d.get(layer, [])):
+        layer_nodes = list(c.new_ids_d.get(layer, [])) + list(c.siblings_d.get(layer, []))
+        if not layer_nodes:
+            continue
+        layer_arr = np.array(layer_nodes, dtype=basetypes.NODE_ID)
+        layer_ch_batch = c.get_children_batch(layer_arr)
+        for nid in layer_nodes:
             nid_int = int(nid)
-            ch = c.children.get(nid_int)
-            if ch is None:
-                ch = []
+            ch = layer_ch_batch.get(nid_int, np.array([], dtype=basetypes.NODE_ID))
             min_sv = None
             for child in ch:
                 child_can = canonical.get(int(child))
@@ -475,7 +486,7 @@ def _run_cx_comparison(filename: str, table_name: str) -> dict:
             continue
 
         # Our resolved CX
-        our_cx = _res_mod.resolve_cx_at_layer(all_nodes, layer, c, {}, get_layer)
+        our_cx = _res_mod.resolve_cx_at_layer(all_nodes, layer, c, get_layer)
         our_can = canonicalize_edges(our_cx)
 
         # BigTable CX for siblings + our resolved CX for new nodes
@@ -483,8 +494,9 @@ def _run_cx_comparison(filename: str, table_name: str) -> dict:
         sib_nodes = [n for n in all_nodes if n not in new_set]
         new_nodes = [n for n in all_nodes if n in new_set]
 
+        new_cx = c.get_cx_batch(np.array(new_nodes, dtype=basetypes.NODE_ID)) if new_nodes else {}
         for nid in new_nodes:
-            cx = c.cx.get(int(nid), {}).get(layer)
+            cx = new_cx.get(int(nid), {}).get(layer)
             if cx is not None and len(cx) > 0:
                 prod_parts.append(cx)
 

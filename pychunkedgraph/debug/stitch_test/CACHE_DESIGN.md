@@ -1,10 +1,10 @@
 # Cache Design
 
 ## Reference Data
-- **Pre-stitch backup**: `hsmith-mec-100gvx-exp16-0.26-backup` — READ ONLY, never edit. Use to explore pre-stitch trees.
+- **Pre-stitch backup**: `hsmith-mec-100gvx-exp16-0.26-backup` — READ ONLY, never edit.
 
 ## Core Principle
-Derive CX from ACX (not stale BigTable CX). Components must match production at every layer. CX on each node serves two purposes: (1) same-layer CX for CC computation, (2) all-layer CX as cache for parent CX derivation in future edits.
+Derive CX from ACX (not stale BigTable CX). Components must match production at every layer.
 
 ## Hard Requirements
 1. No row read more than once from BigTable (enforced by `_read_row_keys` assertion)
@@ -13,10 +13,17 @@ Derive CX from ACX (not stale BigTable CX). Components must match production at 
 4. No unnecessary writes — cx_hash comparison
 5. Single source of truth — cache is the ONLY source for all data. No separate dicts.
 6. No silent defaults — missing data must raise
-7. All columns for a node read in one RPC via `_ensure_read`
+7. All columns for a node read in one RPC via `_ensure_cached` (single batch, all node types)
 8. Never use stale CX from BigTable — always derive from ACX
 9. Never hardcode layer numbers — skip connections mean any layer can be skipped
-10. No individual reads/writes — always batch. Design for batch is top priority to reduce IO latency.
+10. No individual reads/writes — always batch.
+
+## Retry Safety
+- Timestamp-based: `acquire_stitch_timestamp` writes marker row, reads server timestamp T
+- All reads use `end_time=T`, all writes use `time_stamp=T`
+- On retry: same T, failed writes invisible
+- `release_stitch_timestamp` deletes marker on success
+- No filter_failed_node_ids needed — timestamp filtering replaces it
 
 ## Data Structures
 
@@ -27,106 +34,72 @@ RowCache: _local → _preloaded (COW on put)
 ```
 
 ### WaveCache (wave_cache.py)
-- Mandatory `read_fn` constructor arg — no None default
+- Mandatory `read_fn` constructor arg
 - Batch methods: `get_parents`, `get_children_batch`, `get_acx_batch`, `get_cx_batch`
 - `_ensure_read` handles cache misses via batch BigTable read through `read_fn`
-- `SiblingEntry`: `unresolved_acx`, `partner_ids` (no resolver_entries)
-- `compute_dirty_siblings` uses `cache.get_parents` for SV→L2 lookup
-- `_build_partner_ids` shared by `save_wave_state` and `inc_snapshot_from`
+- `SiblingEntry`: `unresolved_acx`, `partner_ids`
+- `_collect_partner_svs` shared by `compute_dirty_siblings` and `_build_partner_ids`
 
 ### Single Source of Truth
-- **All data**: through WaveCache batch APIs only. No separate dicts (resolver, child_to_parent, etc.)
+- **All data**: through WaveCache batch APIs only. No separate dicts.
 - **SV → L2**: `cache.get_parents(svs)` — walks parent chain from SV
 - **Node → parent**: `cache.get_parents(nodes)` — direct parent lookup
 - **Unresolved edges**: `unresolved_acx` — ACX with source remapped to node ID, target still raw SV
 - **Lineage**: `new_to_old` — for sibling discovery. `old_to_new` — L2 only, for dirty detection.
 
+### RpcEntry (utils.py)
+```
+@dataclass: label, n_requested, n_read, t_read, t_cache, t_total
+```
+
 ## Algorithm
 
 ### Phase 1: read_upfront
-
-| Step | BT read (batched) | Cache update |
-|------|-------------------|--------------|
-| Read SV parents | batch: all SVs → Parent | RowCache parent |
-| Read L2 nodes | batch: all L2s → Parent+Child+ACX[2..N] | RowCache parent, children, acx |
-| Walk parent chains | batch per level: parents → Parent+Child | RowCache |
+- Read SV parents (batch)
+- Read L2 nodes: Parent+Child+ACX+CX (single batch, all node types)
+- Walk partner chains: batch per level
 
 ### Phase 2: merge_l2
-
-| Step | BT read | Cache update |
-|------|---------|--------------|
-| Build CC graph | none | — |
-| Allocate IDs | batch: id_client | new_ids_d[2] |
-| Merge children+ACX | none | cache children, unresolved_acx |
-| Update cache parents | none | cache.get_parents returns new L2 for merged SVs |
-| Set lineage | none | old_to_new, new_to_old |
+- Build CC graph from L2 edges
+- Allocate IDs (batch)
+- Merge children+ACX+CX, set lineage
 
 ### Phase 2b: discover_siblings
-
-| Step | BT read (batched) | Cache update |
-|------|-------------------|--------------|
-| ensure_partners_cached | batch: unknown partner SVs → Parent+Child+ACX | RowCache |
-| Walk partner chains | batch per level → Parent+Child | RowCache |
-| Build unresolved_acx | none (from cached acx) | unresolved_acx[sib] |
-| Dirty detection | none | dirty_siblings set |
+- Get old parents' L2 children
+- Split known/unknown siblings
+- Read unknown siblings, ensure partners cached
+- Dirty detection via _collect_partner_svs + searchsorted
 
 ### Phase 3: build_hierarchy (per layer)
+- Prefetch partner SVs' parents
+- resolve_cx_at_layer → resolve_svs_to_layer (proper progress tracking)
+- Store resolved CX
+- Build CC graph, create parents (skip connections for single-node CCs)
+- Update counterpart CX
+- Discover layer siblings
 
-**3a. Resolve CX**
-
-| Step | BT read | Cache update |
-|------|---------|--------------|
-| acx_to_cx via resolve_svs_to_layer | none (all from cache.get_parents) | cx_cache |
-
-**3b. CCs + create parents**
-
-| Step | BT read | Cache update |
-|------|---------|--------------|
-| Build CC graph | none | — |
-| Allocate IDs | batch: id_client | new_ids_d[parent_layer] |
-| Set parent/children | none | cache parent, children |
-| Merge unresolved_acx | none | unresolved_acx[parent] |
-| Update lineage | none | new_to_old |
-
-**3c. Update counterpart CX (matching production _update_neighbor_cx_edges)**
-
-| Step | BT read (batched) | Cache update |
-|------|-------------------|--------------|
-| Collect ALL CX targets of new nodes | none (from cx_cache) | counterpart set |
-| Filter to out-of-scope targets | none | counterpart set (remove siblings + new nodes) |
-| Batch read counterparts' CX | batch: all counterparts → CX[all layers] | counterpart_cx dict |
-| Remap old→new in counterpart CX | none | counterpart_rows (for build_rows) |
-
-### Phase 4: build_rows (→ single batch BT write)
-
-| What | Columns written | Condition |
-|------|----------------|-----------|
-| New nodes | Child, CX[layers], ACX[layers] (L2 only) | Always |
-| Parent pointers | Parent (for children of new nodes) | Always |
-| Counterpart nodes | CX[layers] | Sibling/external found as counterpart |
-| Clean siblings | — | NOTHING |
-
-**CX format per node:** CX at layer L on a node at layer M has targets at layer M (node's own layer). This matches production's `_update_cross_edge_cache_batched` which remaps to `parent_layer`.
-
-**CX as cache for future edits:** Children's CX at all layers acts as pre-resolved cache. When a future edit creates a new parent at layer L, `_update_cross_edge_cache_batched` reads children's CX from BigTable/cache, aggregates, and remaps to L. Without correct children CX, the parent derivation fails or produces stale results.
-
-**Children write-back:** Production writes resolved CX back to children after stale edge resolution. Our ACX-based derivation achieves the same result — we always resolve from immutable ACX, so children's CX is fresh by construction.
+### Phase 4: build_rows → single batch BT write
+- New nodes: Child, CX, ACX (L2 only)
+- Parent pointers for children of new nodes
+- Counterpart nodes: CX only
+- Clean siblings: nothing written
 
 ### Phase 5: mutate_rows
+Single batch write with stitch_timestamp.
 
-Single batch write of ALL rows from Phase 4.
+## Sanity Checks (optional, SANITY_CHECK global)
+- Layer check: all_nodes at each layer must be correct layer
+- Parent reassignment: no child gets two new parents
+- Post-stitch: no duplicate L2s across roots, all edge SVs covered
+- Controlled by `run_proposed(sanity_check=True)`
 
-## Multiwave Optimizations
-- SiblingEntry: caches unresolved_acx, partner_ids across waves
+## Multiwave
+- SiblingEntry caches unresolved_acx, partner_ids across waves
 - Dirty detection: vectorized searchsorted + partner_ids comparison
-- accumulated_replacements: carries old_to_new across waves
+- accumulated_replacements carries old_to_new across waves
 - Known siblings restored from cache, unknown read from BigTable
 
-## Emulator Test Setup
-- After populating emulator table from fixture, must call `set_max_node_id(chunk_id, max_node_id)` per chunk to prevent `batch_create_ids` from allocating IDs that collide with pre-existing fixture nodes
-- Skip root chunks — root layer handles collision internally via its own counter scheme
-
 ## Autoscaling
-- Wave 0: min_nodes=5
-- After wave 1: min_nodes=1
-- Before extraction: min_nodes=5
+- Managed by `_autoscale(min_nodes)` context manager in StitchRun
+- `bt_min_nodes` param on `run_proposed`/`run_baseline` entry points
+- No-op when min_nodes=1

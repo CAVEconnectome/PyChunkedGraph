@@ -14,25 +14,37 @@ from pychunkedgraph.graph import basetypes, types
 def resolve_svs_to_layer(
     svs: np.ndarray, target_layer: int, cache, get_layer,
 ) -> dict:
-    """Resolve multiple SVs to target layer in batch. Returns {sv: resolved_identity}."""
+    """Walk SVs upward through the hierarchy to find their ancestor at target_layer.
+
+    Each SV starts at itself. At each step, batch-fetch parents for all current
+    positions (deduplicated — many SVs share ancestors). An SV is resolved when
+    its current node's parent is above target_layer or missing (root/frontier).
+    If no SVs make progress in a step, remaining are returned at current position.
+
+    Returns {sv: ancestor_at_target_layer}.
+    """
     result = {}
     active = {int(sv): int(sv) for sv in svs}
 
     while active:
-        ids_to_check = np.array(list(set(active.values())), dtype=basetypes.NODE_ID)
-        parents = cache.get_parents(ids_to_check)
-        parent_map = {int(nid): int(p) for nid, p in zip(ids_to_check, parents)}
+        current_nodes = np.array(list(set(active.values())), dtype=basetypes.NODE_ID)
+        parents = cache.get_parents(current_nodes)
+        parent_of = {int(nid): int(p) for nid, p in zip(current_nodes, parents)}
 
         still_active = {}
-        for sv_int, identity in active.items():
-            parent = parent_map.get(identity, 0)
+        progressed = False
+        for sv, current in active.items():
+            parent = parent_of.get(current, 0)
             if parent == 0 or get_layer(parent) > target_layer:
-                result[sv_int] = identity
+                result[sv] = current
+                progressed = True
+            elif parent != current:
+                still_active[sv] = parent
+                progressed = True
             else:
-                still_active[sv_int] = parent
-        if not still_active or still_active == active:
-            for sv_int, identity in still_active.items():
-                result[sv_int] = identity
+                still_active[sv] = current
+        if not still_active or not progressed:
+            result.update(still_active)
             break
         active = still_active
 

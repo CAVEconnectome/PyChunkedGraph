@@ -4,8 +4,7 @@ import numpy as np
 from pychunkedgraph.graph import basetypes, types
 
 from . import resolver as topology
-from . import tree
-from .test_helpers import get_cx as _get_cx, get_parent as _get_parent, make_cache as _cache
+from .test_helpers import get_cx as _get_cx, get_parent as _get_parent, make_cache as _cache, resolve_sv
 
 NODE_ID = basetypes.NODE_ID
 
@@ -31,27 +30,27 @@ class TestResolveSvToLayer:
         c.put_parent(sv, l2)
         c.put_parent(l2, l3)
         c.put_parent(l3, l4)
-        assert tree.resolve_sv_to_layer(sv, 3, c, _get_layer) == l3
+        assert resolve_sv(sv, 3, c, _get_layer) == l3
 
     def test_best_below_target(self) -> None:
         sv, l2, l4 = 100, _node(2, 1), _node(4, 1)
         c = _cache()
         c.put_parent(sv, l2)
         c.put_parent(l2, l4)
-        assert tree.resolve_sv_to_layer(sv, 3, c, _get_layer) == l2
+        assert resolve_sv(sv, 3, c, _get_layer) == l2
 
     def test_sv_to_l2(self) -> None:
         sv, l2 = 100, _node(2, 1)
         c = _cache()
         c.put_parent(sv, l2)
-        assert tree.resolve_sv_to_layer(sv, 2, c, _get_layer) == l2
+        assert resolve_sv(sv, 2, c, _get_layer) == l2
 
     def test_walks_cache_parents(self) -> None:
         l2, l3 = _node(2, 10), _node(3, 20)
         c = _cache()
         c.put_parent(100, l2)
         c.put_parent(l2, l3)
-        assert tree.resolve_sv_to_layer(100, 3, c, _get_layer) == l3
+        assert resolve_sv(100, 3, c, _get_layer) == l3
 
     def test_walk_stops_at_target_layer(self) -> None:
         l2, l3, l4 = _node(2, 10), _node(3, 20), _node(4, 30)
@@ -59,11 +58,11 @@ class TestResolveSvToLayer:
         c.put_parent(100, l2)
         c.put_parent(l2, l3)
         c.put_parent(l3, l4)
-        assert tree.resolve_sv_to_layer(100, 3, c, _get_layer) == l3
+        assert resolve_sv(100, 3, c, _get_layer) == l3
 
     def test_unknown_sv_returns_self(self) -> None:
         c = _cache()
-        assert tree.resolve_sv_to_layer(999, 2, c, _get_layer) == 999
+        assert resolve_sv(999, 2, c, _get_layer) == 999
 
 
 class TestResolveCxAtLayer:
@@ -260,7 +259,7 @@ class TestResolveSvToLayerEdgeCases:
         c = _cache()
         c.put_parent(100, l2_new)
         c.put_parent(l2_new, l3)
-        result = tree.resolve_sv_to_layer(100, 3, c, _get_layer)
+        result = resolve_sv(100, 3, c, _get_layer)
         assert result == l3
 
     def test_stops_at_highest_below_target(self) -> None:
@@ -269,7 +268,7 @@ class TestResolveSvToLayerEdgeCases:
         c.put_parent(sv, l2)
         c.put_parent(l2, l3)
         c.put_parent(l3, l5)
-        assert tree.resolve_sv_to_layer(sv, 4, c, _get_layer) == l3
+        assert resolve_sv(sv, 4, c, _get_layer) == l3
 
     def test_walk_chain_multiple_hops(self) -> None:
         l2, l3, l4 = _node(2, 1), _node(3, 1), _node(4, 1)
@@ -277,7 +276,7 @@ class TestResolveSvToLayerEdgeCases:
         c.put_parent(100, l2)
         c.put_parent(l2, l3)
         c.put_parent(l3, l4)
-        result = tree.resolve_sv_to_layer(100, 4, c, _get_layer)
+        result = resolve_sv(100, 4, c, _get_layer)
         assert result == l4
 
 

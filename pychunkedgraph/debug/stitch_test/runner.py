@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import pickle
+from contextlib import contextmanager
 import random
 import time
 import uuid
@@ -26,7 +27,7 @@ from tqdm import tqdm
 
 from pychunkedgraph.graph import ChunkedGraph, basetypes
 
-from .local_cg import LocalChunkedGraph
+from . import local_cg as _lcg_mod
 from .stitch import stitch
 from .tables import restore_test_table, set_autoscaling
 from .utils import _convert_for_json, batched_extract_and_compare, batched_extract_structure
@@ -125,7 +126,7 @@ def _check_roots(edge_file: str, roots_before: int, new_roots: int) -> None:
 
 def _worker_baseline(args):
     graph_id, edge_path, idx = args
-    bl = LocalChunkedGraph.create_worker(graph_id)
+    bl = _lcg_mod.LocalChunkedGraph.create_worker(graph_id)
     edges = _load_edges(edge_path)
     t0 = time.time()
     result = bl.cg.add_edges("stitch", edges, stitch_mode=True)
@@ -137,7 +138,8 @@ def _worker_baseline(args):
 def _worker_proposed(args: tuple) -> tuple:
     graph_id, edge_path, idx = args
     edges = _load_edges(edge_path)
-    lcg = LocalChunkedGraph.create_worker(graph_id, preloaded=_shared_cache, incremental=_shared_inc)
+    lcg = _lcg_mod.LocalChunkedGraph.create_worker(graph_id, preloaded=_shared_cache, incremental=_shared_inc)
+    lcg.acquire_stitch_timestamp(edge_path)
     lcg.begin_stitch()
 
     roots_before = len(np.unique(lcg.get_roots(edges.ravel())))
@@ -150,6 +152,7 @@ def _worker_proposed(args: tuple) -> tuple:
     lcg.mutate_rows(result.rows)
     t_write = time.time() - t0
 
+    lcg.release_stitch_timestamp(edge_path)
     _check_roots(edge_path, roots_before, len(result.new_roots))
 
     snapshot = lcg.wave_snapshot()
@@ -169,6 +172,8 @@ def _worker_proposed(args: tuple) -> tuple:
 
 class StitchRun:
 
+    SINGLE_FILE = "task_0_591.edges"
+
     def __init__(self, experiment: str, table_name: str, log_dir: Path) -> None:
         self.experiment = experiment
         self.table_name = table_name
@@ -176,6 +181,30 @@ class StitchRun:
         self.extract_dir = log_dir / "extract"
         self.json_path = log_dir / "stitch_results.json"
         self.roots_path = log_dir / "roots.pkl"
+
+    def get_waves(self) -> list[int]:
+        return _list_all_waves() if self.experiment == "multiwave" else [0]
+
+    def get_wave_files(self, wave: int) -> list[str]:
+        if self.experiment == "single":
+            return [self.SINGLE_FILE]
+        return _list_wave_files(wave)
+
+    @property
+    def use_pool(self) -> bool:
+        return self.experiment != "single"
+
+    @staticmethod
+    @contextmanager
+    def _autoscale(min_nodes: int):
+        """Scale up BigTable for heavy parallel reads, revert after. No-op if min_nodes=1."""
+        if min_nodes > 1:
+            set_autoscaling(target_cpu=25, min_nodes=min_nodes)
+        try:
+            yield
+        finally:
+            if min_nodes > 1:
+                set_autoscaling(target_cpu=60, min_nodes=1)
 
     @property
     def has_roots(self) -> bool:
@@ -209,8 +238,6 @@ class StitchRun:
         batched_extract_structure(self.table_name, roots, self.extract_dir, force=force)
 
     def compare_with(self, other: "StitchRun") -> bool:
-        self.extract(force=False)
-        other.extract(force=True)
         return batched_extract_and_compare(
             self.table_name, np.array(self.load_roots(), dtype=basetypes.NODE_ID),
             other.table_name, np.array(other.load_roots(), dtype=basetypes.NODE_ID),
@@ -228,7 +255,7 @@ class BaselineRun(StitchRun):
         log_dir = LOGS_ROOT / experiment / "baseline"
         super().__init__(experiment, table_name, log_dir)
 
-    def run(self, n_workers: int = None, force: bool = False) -> list:
+    def run(self, n_workers: int = None, force: bool = False, bt_min_nodes: int = 5) -> list:
         if self.is_complete and not force:
             roots = self.load_roots()
             print(f"baseline cached: {len(roots)} roots at {self.roots_path}")
@@ -238,21 +265,25 @@ class BaselineRun(StitchRun):
         print(f"[baseline] table={self.table_name}")
         restore_test_table(self.table_name)
 
-        lcg = LocalChunkedGraph(self.table_name)
+        lcg = _lcg_mod.LocalChunkedGraph(self.table_name)
         init = lcg.prepare_pool_init()
 
-        waves = [0] if self.experiment == "wave" else _list_all_waves()
         all_results = []
         total_wall = 0
 
-        for wave in waves:
-            files = _list_wave_files(wave)
-            nw = n_workers or _default_n_workers(len(files))
+        for wi, wave in enumerate(self.get_waves()):
+            files = self.get_wave_files(wave)
             args = [(self.table_name, f, i) for i, f in enumerate(files)]
-            random.shuffle(args)
             t0 = time.time()
-            with Pool(nw, initializer=LocalChunkedGraph.pool_init, initargs=init) as pool:
-                results = list(tqdm(pool.imap_unordered(_worker_baseline, args), total=len(files), desc=f"wave {wave}"))
+            if self.use_pool:
+                nw = n_workers or _default_n_workers(len(files))
+                random.shuffle(args)
+                scale = bt_min_nodes if wi == 0 else 1
+                with self._autoscale(scale):
+                    with Pool(nw, initializer=_lcg_mod.LocalChunkedGraph.pool_init, initargs=init) as pool:
+                        results = list(tqdm(pool.imap_unordered(_worker_baseline, args), total=len(files), desc=f"wave {wave}"))
+            else:
+                results = [self._run_baseline_inprocess(a) for a in args]
             elapsed = time.time() - t0
             total_wall += elapsed
             all_results.extend(results)
@@ -264,10 +295,22 @@ class BaselineRun(StitchRun):
 
         self.save_roots(all_roots)
         print(f"extracting baseline structure...")
-        self.extract(force=True)
+        with self._autoscale(bt_min_nodes):
+            self.extract(force=True)
         print(f"baseline cached: {len(all_roots)} roots")
 
         return all_roots
+
+    @staticmethod
+    def _run_baseline_inprocess(args: tuple) -> dict:
+        graph_id, edge_path, idx = args
+        cg = ChunkedGraph(graph_id=graph_id)
+        edges = _load_edges(edge_path)
+        t0 = time.time()
+        result = cg.add_edges("stitch", edges, stitch_mode=True)
+        elapsed = time.time() - t0
+        new_roots = [int(r) for r in result.new_root_ids]
+        return {"idx": idx, "edge_file": edge_path, "n_edges": len(edges), "new_roots": new_roots, "elapsed": elapsed}
 
 
 # -- Proposed --
@@ -283,6 +326,7 @@ class ProposedRun(StitchRun):
 
     def run(
         self, baseline: BaselineRun, n_workers: int = None, filename: str = None,
+        bt_min_nodes: int = 5,
     ) -> bool:
         global _shared_cache, _shared_inc
 
@@ -295,37 +339,34 @@ class ProposedRun(StitchRun):
         print(f"logs: {self.log_dir}")
 
         restore_test_table(self.table_name)
-        set_autoscaling(target_cpu=25, min_nodes=5)
 
-        if filename:
-            waves = [0]
-        elif self.experiment == "wave":
-            waves = [0]
-        else:
-            waves = _list_all_waves()
-
-        lcg = LocalChunkedGraph(self.table_name)
+        waves = self.get_waves()
+        lcg = _lcg_mod.LocalChunkedGraph(self.table_name)
         init = lcg.prepare_pool_init()
         all_results = []
         wave_walls = {}
         total_wall = 0
 
-        wave0_files = [filename] if filename else _list_wave_files(waves[0])
-        nw0 = n_workers or _default_n_workers(len(wave0_files))
+        wave0_files = [filename] if filename else self.get_wave_files(waves[0])
+        print(f"mode={self.experiment}, waves={waves}, files={len(wave0_files)}")
         _shared_cache = lcg.preloaded()
         _shared_inc = None
 
-        with Pool(nw0, initializer=LocalChunkedGraph.pool_init, initargs=init) as pool:
-            results, elapsed = self._run_wave_pool(pool, waves[0], lcg, edge_files=wave0_files)
+        if self.use_pool:
+            nw0 = n_workers or _default_n_workers(len(wave0_files))
+            with self._autoscale(bt_min_nodes):
+                with Pool(nw0, initializer=_lcg_mod.LocalChunkedGraph.pool_init, initargs=init) as pool:
+                    results, elapsed = self._run_wave_pool(pool, waves[0], lcg, edge_files=wave0_files)
+        else:
+            results, elapsed = self._run_wave_inprocess(waves[0], lcg, edge_files=wave0_files)
         all_results.extend(results)
         wave_walls[waves[0]] = elapsed
         total_wall += elapsed
         self._log_wave_stats(waves[0], results, elapsed, lcg)
         self.save_results(all_results, total_wall, wave_walls=wave_walls)
 
-        min_nodes_reset = False
         for wave in waves[1:]:
-            files = _list_wave_files(wave)
+            files = self.get_wave_files(wave)
             _shared_cache = lcg.preloaded()
             _shared_inc = lcg.incremental_state()
 
@@ -333,7 +374,7 @@ class ProposedRun(StitchRun):
                 results, elapsed = self._run_wave_inprocess(wave, lcg)
             else:
                 nw = n_workers or _default_n_workers(len(files))
-                with Pool(nw, initializer=LocalChunkedGraph.pool_init, initargs=init) as pool:
+                with Pool(nw, initializer=_lcg_mod.LocalChunkedGraph.pool_init, initargs=init) as pool:
                     results, elapsed = self._run_wave_pool(pool, wave, lcg)
 
             all_results.extend(results)
@@ -341,10 +382,6 @@ class ProposedRun(StitchRun):
             total_wall += elapsed
             self._log_wave_stats(wave, results, elapsed, lcg)
             self.save_results(all_results, total_wall, wave_walls=wave_walls)
-
-            if not min_nodes_reset:
-                set_autoscaling(min_nodes=1)
-                min_nodes_reset = True
 
             errors = [r for r in results if r.get("error")]
             if errors:
@@ -369,14 +406,13 @@ class ProposedRun(StitchRun):
         if len(baseline_roots) != len(all_roots):
             print(f"ROOT COUNT MISMATCH: {len(baseline_roots)} vs {len(all_roots)}")
 
-        set_autoscaling(min_nodes=5)
-        match = baseline.compare_with(self)
+        with self._autoscale(bt_min_nodes):
+            match = baseline.compare_with(self)
         print(f"\n{'MATCH' if match else 'MISMATCH'}")
-        set_autoscaling(target_cpu=60, min_nodes=1)
         return match
 
     def _run_wave_pool(
-        self, pool: Pool, wave: int, lcg: LocalChunkedGraph,
+        self, pool: Pool, wave: int, lcg: _lcg_mod.LocalChunkedGraph,
         edge_files: list = None,
     ) -> tuple:
         edge_files = edge_files or _list_wave_files(wave)
@@ -398,11 +434,12 @@ class ProposedRun(StitchRun):
         elapsed = time.time() - t0
         return file_results, elapsed
 
-    def _run_wave_inprocess(self, wave: int, lcg: LocalChunkedGraph) -> tuple:
-        edge_files = _list_wave_files(wave)
+    def _run_wave_inprocess(self, wave: int, lcg: _lcg_mod.LocalChunkedGraph, edge_files: list = None) -> tuple:
+        edge_files = edge_files or _list_wave_files(wave)
         assert len(edge_files) == 1
 
         edges = _load_edges(edge_files[0])
+        lcg.acquire_stitch_timestamp(edge_files[0])
         lcg.begin_stitch()
 
         roots_before = len(np.unique(lcg.get_roots(edges.ravel())))
@@ -415,7 +452,9 @@ class ProposedRun(StitchRun):
         lcg.mutate_rows(result.rows)
         t_write = time.time() - t0_w
 
+        lcg.release_stitch_timestamp(edge_files[0])
         _check_roots(edge_files[0], roots_before, len(result.new_roots))
+        cache_stats = lcg.stats()
         lcg.end_stitch()
         elapsed = time.time() - t0
 
@@ -426,13 +465,14 @@ class ProposedRun(StitchRun):
             "elapsed": t_stitch + t_write, "t_stitch": t_stitch, "t_write": t_write,
             "n_rows": len(result.rows),
             "perf": result.perf,
+            "cache_stats": cache_stats,
         }
         return [file_result], elapsed
 
     @staticmethod
-    def _log_wave_stats(wave: int, results: list, elapsed: float, lcg: LocalChunkedGraph) -> None:
-        total_req = sum(n for r in results for _, n, _, _ in r.get("perf", {}).get("rpc_log", []))
-        total_read = sum(n for r in results for _, _, n, _ in r.get("perf", {}).get("rpc_log", []))
+    def _log_wave_stats(wave: int, results: list, elapsed: float, lcg: _lcg_mod.LocalChunkedGraph) -> None:
+        total_req = sum(e.n_requested for r in results for e in r.get("perf", {}).get("rpc_log", []))
+        total_read = sum(e.n_read for r in results for e in r.get("perf", {}).get("rpc_log", []))
         hit_pct = (total_req - total_read) / total_req * 100 if total_req else 0
         n_roots = sum(len(r.get("new_roots", [])) for r in results)
         n_rows = sum(r.get("n_rows", 0) for r in results)
@@ -442,22 +482,23 @@ class ProposedRun(StitchRun):
             f"  wave {wave}: {elapsed:.0f}s {len(results)}f {_fmt(n_roots)} roots "
             f"stitch={t_stitch:.0f}s write={t_write:.0f}s {_fmt(n_rows)} rows "
             f"{_fmt(total_read)}/{_fmt(total_req)} reads({hit_pct:.0f}%) "
-            f"{_mem_str()} {lcg.stats()}"
+            f"{_mem_str()} {results[0].get('cache_stats') or lcg.stats()}"
         )
 
 
 # -- Backward-compatible entry points --
 
-def run_baseline(experiment: str = "wave", **kw) -> dict:
+def run_baseline(experiment: str = "wave", bt_min_nodes: int = 5, **kw) -> dict:
     bl = BaselineRun(experiment)
-    roots = bl.run(**kw)
+    roots = bl.run(bt_min_nodes=bt_min_nodes, **kw)
     return {"table_name": bl.table_name, "results": [], "elapsed": 0, "roots": roots}
 
 
-def run_proposed(experiment: str = "wave", **kw) -> tuple:
+def run_proposed(experiment: str = "wave", bt_min_nodes: int = 5, sanity_check: bool = False, **kw) -> tuple:
+    _lcg_mod.SANITY_CHECK = sanity_check
     bl = BaselineRun(experiment)
     pr = ProposedRun(experiment)
-    match = pr.run(baseline=bl, **kw)
+    match = pr.run(baseline=bl, bt_min_nodes=bt_min_nodes, **kw)
     return match, {"run_id": pr.run_id, "table": pr.table_name}
 
 

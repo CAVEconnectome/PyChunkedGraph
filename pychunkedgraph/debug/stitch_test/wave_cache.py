@@ -67,40 +67,41 @@ class WaveCache:
         self._rows.clear_local()
         self._init_stitch_state()
 
+    def _collect_partner_svs(self, sibling_ids: set, unresolved_acx: dict) -> tuple[dict, dict]:
+        """Collect partner SVs per sibling, batch resolve to L2. Returns (sib_svs, sv_to_l2)."""
+        all_svs = set()
+        sib_svs = {}
+        for sib_int in (int(s) for s in sibling_ids):
+            raw = unresolved_acx.get(sib_int, {})
+            svs = [sv for layer_edges in raw.values() if len(layer_edges) > 0 for sv in layer_edges[:, 1].tolist()]
+            if svs:
+                sib_svs[sib_int] = svs
+                all_svs.update(svs)
+        if not all_svs:
+            return sib_svs, {}
+        sv_arr = np.array(list(all_svs), dtype=basetypes.NODE_ID)
+        parents = self.get_parents(sv_arr)
+        sv_to_l2 = {int(sv): int(p) for sv, p in zip(sv_arr, parents)}
+        return sib_svs, sv_to_l2
+
     def compute_dirty_siblings(self) -> None:
         affected_ids = set(self.old_to_new.keys()) | set(int(x) for x in self.new_ids_d.get(2, []))
         self.dirty_siblings = set()
 
-        # Collect all partner SVs across all siblings, batch get_parents once
-        all_partner_svs = set()
-        sib_partner_map = {}
+        known_sibs = set()
         for sib in self.sibling_ids:
             sib_int = int(sib)
             if sib_int not in self._siblings:
                 self.dirty_siblings.add(sib_int)
-                continue
-            raw = self.unresolved_acx.get(sib_int, {})
-            svs = []
-            for layer_edges in raw.values():
-                if len(layer_edges) > 0:
-                    svs.append(layer_edges[:, 1])
-            if svs:
-                partner_svs = np.concatenate(svs).astype(np.int64)
-                sib_partner_map[sib_int] = partner_svs
-                all_partner_svs.update(int(sv) for sv in partner_svs)
+            else:
+                known_sibs.add(sib_int)
 
-        # Batch resolve all partner SVs → L2 via cache
-        if all_partner_svs:
-            sv_arr = np.array(list(all_partner_svs), dtype=basetypes.NODE_ID)
-            parents = self.get_parents(sv_arr)
-            sv_to_l2 = {int(sv): int(p) for sv, p in zip(sv_arr, parents)}
-        else:
-            sv_to_l2 = {}
+        sib_svs, sv_to_l2 = self._collect_partner_svs(known_sibs, self.unresolved_acx)
 
         affected_sorted = np.sort(np.array(list(affected_ids), dtype=np.int64)) if affected_ids else np.array([], dtype=np.int64)
 
-        for sib_int, partner_svs in sib_partner_map.items():
-            identities = np.array([sv_to_l2.get(int(sv), int(sv)) for sv in partner_svs], dtype=np.int64)
+        for sib_int, svs in sib_svs.items():
+            identities = np.array([sv_to_l2.get(sv, sv) for sv in svs], dtype=np.int64)
             if len(affected_sorted) > 0:
                 aff_idx = np.searchsorted(affected_sorted, identities)
                 aff_idx = np.clip(aff_idx, 0, len(affected_sorted) - 1)
@@ -151,21 +152,7 @@ class WaveCache:
 
     def _build_partner_ids(self, sibling_ids: set, unresolved_acx: dict) -> dict:
         """Batch resolve all partner SVs → L2 for dirty detection."""
-        all_svs = set()
-        sib_svs = {}
-        for sib_int in (int(s) for s in sibling_ids):
-            raw = unresolved_acx.get(sib_int, {})
-            svs = []
-            for layer_edges in raw.values():
-                if len(layer_edges) > 0:
-                    svs.extend(int(sv) for sv in layer_edges[:, 1])
-            sib_svs[sib_int] = svs
-            all_svs.update(svs)
-        if not all_svs:
-            return {}
-        sv_arr = np.array(list(all_svs), dtype=basetypes.NODE_ID)
-        parents = self.get_parents(sv_arr)
-        sv_to_l2 = {int(sv): int(p) for sv, p in zip(sv_arr, parents)}
+        sib_svs, sv_to_l2 = self._collect_partner_svs(sibling_ids, unresolved_acx)
         return {
             sib_int: {sv: sv_to_l2.get(sv, sv) for sv in svs}
             for sib_int, svs in sib_svs.items() if svs
@@ -293,7 +280,7 @@ class WaveCache:
         return self._siblings.get(sib_int)
 
     def stats(self) -> str:
-        return f"{self._rows.stats()} {len(self._siblings)}s"
+        return f"{self._rows.stats()} sibs={len(self._siblings)}"
 
 
 

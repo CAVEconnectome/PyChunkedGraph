@@ -6,6 +6,7 @@ Owns WaveCache. Delegates to stateless operation modules (hierarchy, topology).
 External code calls lcg methods — never touches cache directly.
 """
 
+import datetime
 import logging
 import os
 import pickle
@@ -21,13 +22,12 @@ from pychunkedgraph.graph import ChunkedGraph, attributes, basetypes, types
 from pychunkedgraph.graph.chunks import hierarchy as chunk_hierarchy
 from pychunkedgraph.graph.edges.utils import get_cross_chunk_edges_layer
 from pychunkedgraph.graph.utils import flatgraph
-from pychunkedgraph.graph.utils.generic import filter_failed_node_ids
 from kvdbclient import serializers
 
 from . import resolver
 from . import tree
 from .id_allocator import batch_create as batch_create_ids
-from .utils import batch_get_l2children, timed
+from .utils import RpcEntry, batch_get_l2children, stitch_sanity_check, timed
 from .wave_cache import WaveCache
 
 log = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ log = logging.getLogger(__name__)
 
 _worker_meta = None
 _worker_cv_info = None
+SANITY_CHECK = False
 
 
 
@@ -46,15 +47,44 @@ def _setup_env() -> None:
 
 class LocalChunkedGraph:
 
+    MARKER_PREFIX = b"stitch_marker:"
+
     def __init__(self, graph_id: str, preloaded: tuple = None, incremental: tuple = None, meta=None) -> None:
         _setup_env()
         self.cg = ChunkedGraph(graph_id=graph_id, meta=meta) if meta else ChunkedGraph(graph_id=graph_id)
+        self.cg.client._max_row_key_count = 16_000
         self._cache = WaveCache(
             lambda ids: self._ensure_cached(ids, "cache_miss"),
             preloaded, incremental=incremental,
         )
-        self.rpc_log: list[tuple] = []
+        self.rpc_log: list[RpcEntry] = []
         self._read_row_keys: set[int] = set()
+        self.stitch_timestamp: datetime.datetime | None = None
+
+    def acquire_stitch_timestamp(self, edge_file: str) -> datetime.datetime:
+        """Write or read marker row for this edge file. Returns stitch timestamp."""
+        marker_key = self.MARKER_PREFIX + edge_file.encode()
+        row = self.cg.client._table.read_row(marker_key)
+        if row is not None:
+            cell = row.cells[0]
+            ts = datetime.datetime.fromtimestamp(cell.timestamp_micros / 1e6, tz=datetime.timezone.utc)
+            self.stitch_timestamp = ts
+            return ts
+        from google.cloud.bigtable.data.mutations import SetCell
+        mutation = SetCell(family="0", qualifier=b"status", new_value=b"started")
+        self.cg.client._table.mutate_row(marker_key, mutation)
+        row = self.cg.client._table.read_row(marker_key)
+        cell = row.cells[0]
+        ts = datetime.datetime.fromtimestamp(cell.timestamp_micros / 1e6, tz=datetime.timezone.utc)
+        self.stitch_timestamp = ts
+        return ts
+
+    def release_stitch_timestamp(self, edge_file: str) -> None:
+        """Delete marker row after successful stitch."""
+        marker_key = self.MARKER_PREFIX + edge_file.encode()
+        from google.cloud.bigtable.data.mutations import DeleteAllFromRow
+        self.cg.client._table.mutate_row(marker_key, DeleteAllFromRow())
+        self.stitch_timestamp = None
 
     def prepare_pool_init(self) -> tuple:
         meta_bytes = pickle.dumps(self.cg.meta)
@@ -82,6 +112,10 @@ class LocalChunkedGraph:
     @property
     def meta(self):
         return self.cg.meta
+
+    def sanity_check(self, roots: np.ndarray, atomic_edges: np.ndarray) -> None:
+        if SANITY_CHECK:
+            stitch_sanity_check(self, roots, atomic_edges)
 
     # -- Lifecycle --
 
@@ -112,10 +146,11 @@ class LocalChunkedGraph:
         return self.cg.get_segment_id(node_id)
 
     def get_roots(self, node_ids: np.ndarray) -> np.ndarray:
-        return self.cg.get_roots(node_ids)
+        return self.cg.get_roots(node_ids, time_stamp=self.stitch_timestamp)
 
     def mutate_rows(self, rows: dict, time_stamp=None) -> None:
-        entries = [self.cg.client.mutate_row(rk, vd, time_stamp=time_stamp) for rk, vd in rows.items()]
+        ts = time_stamp or self.stitch_timestamp
+        entries = [self.cg.client.mutate_row(rk, vd, time_stamp=ts) for rk, vd in rows.items()]
         self.cg.client.write(entries)
 
     # -- Cached reads (delegate to cache batch API) --
@@ -172,8 +207,6 @@ class LocalChunkedGraph:
             c.put_children(int(l2id), ch)
         for l2id, acx in atomic_cx.items():
             c.put_acx(int(l2id), acx)
-
-        c.l2ids = tree.filter_orphaned(self, c.l2ids)
 
         with timed(perf, "read_partner_chains"):
             partner_svs = set()
@@ -302,7 +335,6 @@ class LocalChunkedGraph:
         with timed(perf, "siblings_reads"):
             if len(unknown) > 0:
                 sib_ch, sib_acx = self.read_l2(unknown)
-                unknown = tree.filter_orphaned(self, unknown)
             else:
                 sib_ch, sib_acx = {}, {}
 
@@ -347,6 +379,14 @@ class LocalChunkedGraph:
             all_nodes = list(new_nodes) + list(sib_nodes)
             if not all_nodes:
                 continue
+            if SANITY_CHECK and layer > 2:
+                for n in all_nodes:
+                    nl = self.get_chunk_layer(np.uint64(n))
+                    assert nl == layer, (
+                        f"node {n} is L{nl} but in all_nodes at layer={layer}, "
+                        f"in_new_ids={n in set(new_nodes)}, "
+                        f"in_siblings={n in set(sib_nodes)}"
+                    )
             c.new_node_ids.update(new_nodes)
             lp = {}
 
@@ -475,33 +515,36 @@ class LocalChunkedGraph:
     def _build_raw_cx_from_children(self, node_ids: np.ndarray, parent_layer: int) -> None:
         c = self._cache
         node_ch = c.get_children_batch(node_ids)
+        # Single pass: build child→node mapping and collect all children
+        child_to_node = {}
         all_children = []
         for nid in node_ids:
             ch = node_ch.get(int(nid))
             if ch is not None and len(ch) > 0:
+                nid_int = int(nid)
+                for child in ch:
+                    child_to_node[int(child)] = nid_int
                 all_children.extend(int(x) for x in ch)
         if not all_children:
             return
         all_children_arr = np.array(all_children, dtype=basetypes.NODE_ID)
         all_child_acx = c.get_acx_batch(all_children_arr)
-        child_to_node = {}
-        for nid in node_ids:
-            ch = node_ch.get(int(nid))
-            if ch is not None:
-                for child in ch:
-                    child_to_node[int(child)] = int(nid)
+        # Build unresolved_acx per node, collecting edges into lists
         for child_int, node_int in child_to_node.items():
             child_acx = all_child_acx.get(child_int, {})
             for layer, edges in child_acx.items():
                 if layer >= parent_layer and len(edges) > 0:
                     working = edges.copy()
                     working[:, 0] = node_int
-                    c.unresolved_acx.setdefault(node_int, {}).setdefault(layer, [])
-                    existing = c.unresolved_acx[node_int][layer]
-                    if isinstance(existing, list):
+                    node_acx = c.unresolved_acx.setdefault(node_int, {})
+                    existing = node_acx.get(layer)
+                    if existing is None:
+                        node_acx[layer] = [working]
+                    elif isinstance(existing, list):
                         existing.append(working)
                     else:
-                        c.unresolved_acx[node_int][layer] = [existing, working]
+                        node_acx[layer] = [existing, working]
+        # Deduplicate: concatenate lists into unique arrays
         for node_int in (int(n) for n in node_ids):
             cx_d = c.unresolved_acx.get(node_int, {})
             for layer in list(cx_d.keys()):
@@ -595,9 +638,6 @@ class LocalChunkedGraph:
         new_parent_set = set(int(x) for x in new_parents)
         siblings = all_children - old_ids - new_parent_set
         siblings = {c.old_to_new.get(s, s) for s in siblings}
-        if 258974570759850453 in all_children or 145382925116899612 in all_children:
-            print(f"DEBUG _dls L{parent_layer}: old_ids={old_ids} all_children={all_children} "
-                  f"siblings={siblings}", flush=True)
         perf[f"_dls_l{parent_layer}_siblings_pre_filter"] = len(siblings)
 
         sibs_arr = np.array(list(siblings), dtype=basetypes.NODE_ID)
@@ -636,11 +676,6 @@ class LocalChunkedGraph:
                 old_ids_at_layer.add(entry.get(parent_layer, old_id) if entry else old_id)
         if old_ids_at_layer:
             c.new_to_old[parent] = old_ids_at_layer
-        # breakpoint: _update_lineage_debug
-        if 145382925116899612 in (int(x) for x in cc_ids):
-            print(f"DEBUG _update_lineage: parent={parent} L{(parent>>56)&0xFF} cc_ids={[int(x) for x in cc_ids]} "
-                  f"new_at_layer_in_cc={[int(x) for x in cc_ids if int(x) in new_at_layer]} "
-                  f"old_ids_at_layer={old_ids_at_layer}", flush=True)
 
     # -- Private --
 
@@ -697,8 +732,21 @@ class LocalChunkedGraph:
                     merged_raw[l] = np.array(list(pairs), dtype=basetypes.NODE_ID)
             c.unresolved_acx[int(parent)] = merged_raw
 
-            c.put_children(int(parent), cc_ids)
+            if SANITY_CHECK:
+                for child in cc_ids:
+                    existing_parent = int(c.get_parents(np.array([int(child)], dtype=basetypes.NODE_ID))[0])
+                    assert existing_parent == 0 or existing_parent not in c.new_node_ids, (
+                        f"Child {int(child)} (L{self.get_chunk_layer(np.uint64(child))}) "
+                        f"already has new parent {existing_parent} "
+                        f"(L{self.get_chunk_layer(np.uint64(existing_parent))}), "
+                        f"being reassigned to {int(parent)} "
+                        f"(L{self.get_chunk_layer(np.uint64(parent))}) at layer={layer}, "
+                        f"parent_layer={parent_layer}, cc_size={len(cc_ids)}, "
+                        f"acx_layers={list(c.unresolved_acx.get(int(child), {}).keys())}, "
+                        f"old_hierarchy={c.old_hierarchy.get(int(child), 'NONE')}"
+                    )
             tree.update_parents_cache(c, cc_ids, parent)
+            c.put_children(int(parent), cc_ids)
             self._update_lineage(int(parent), cc_ids, new_at_layer, parent_layer)
 
     def _allocate_roots(self, deferred_roots: list) -> None:
@@ -722,86 +770,60 @@ class LocalChunkedGraph:
         uncached = node_ids[~self._cache.has_batch(node_ids)]
         if len(uncached) == 0:
             return
-        layers = self.cg.get_chunk_layers(uncached)
-        svs = uncached[layers <= 1]
-        l2s = uncached[layers == 2]
-        higher = uncached[layers > 2]
-        n = len(node_ids)
-        if len(svs) > 0:
-            self._read_and_cache(svs, [attributes.Hierarchy.Parent], f"{label}_sv", n, filter_failed=False)
-        if len(l2s) > 0:
-            acx_props = [
-                attributes.Connectivity.AtomicCrossChunkEdge[l]
-                for l in range(2, max(3, self.cg.meta.layer_count))
-            ]
-            cx_props_l2 = [
-                attributes.Connectivity.CrossChunkEdge[l]
-                for l in range(2, self.cg.meta.layer_count)
-            ]
-            self._read_and_cache(
-                l2s, [attributes.Hierarchy.Parent, attributes.Hierarchy.Child] + acx_props + cx_props_l2,
-                f"{label}_l2", n,
-            )
-        if len(higher) > 0:
-            cx_props = [
-                attributes.Connectivity.CrossChunkEdge[l]
-                for l in range(2, self.cg.meta.layer_count)
-            ]
-            self._read_and_cache(
-                higher,
-                [attributes.Hierarchy.Parent, attributes.Hierarchy.Child] + cx_props,
-                label, n,
-            )
+        lc = self.cg.meta.layer_count
+        props = (
+            [attributes.Hierarchy.Parent, attributes.Hierarchy.Child]
+            + [attributes.Connectivity.AtomicCrossChunkEdge[l] for l in range(2, lc)]
+            + [attributes.Connectivity.CrossChunkEdge[l] for l in range(2, lc)]
+        )
+        self._read_and_cache(uncached, props, label, len(node_ids))
 
     def _read_and_cache(
         self, node_ids: np.ndarray, props: list, label: str,
-        n_total: int, filter_failed: bool = True,
+        n_total: int,
     ) -> None:
-        t0 = time.time()
+        t0_total = time.time()
         dupes = set(int(x) for x in node_ids) & self._read_row_keys
         assert not dupes, f"DUPLICATE BIGTABLE READ: {len(dupes)} rows read twice in {label}: {list(dupes)[:5]}"
         self._read_row_keys.update(int(x) for x in node_ids)
-        raw = self.cg.client.read_nodes(node_ids=node_ids, properties=props)
-        self.rpc_log.append((label, n_total, len(node_ids), time.time() - t0))
+
+        t0 = time.time()
+        raw = self.cg.client.read_nodes(node_ids=node_ids, properties=props, end_time=self.stitch_timestamp)
+        t_read = time.time() - t0
+
         lc = self.cg.meta.layer_count
-
-        # Filter failed/orphaned nodes from prior incomplete edits.
-        # Only for L2+ nodes that have children (SVs don't need filtering).
-        failed = set()
-        if filter_failed and len(node_ids) > 0:
-            seg_ids = np.array([self.cg.get_segment_id(n) for n in node_ids])
-            max_ch = np.array([
-                int(np.max(raw.get(n, {}).get(attributes.Hierarchy.Child, [None])[0].value))
-                if raw.get(n, {}).get(attributes.Hierarchy.Child)
-                else 0
-                for n in node_ids
-            ])
-            valid = set(int(x) for x in filter_failed_node_ids(node_ids, seg_ids, max_ch))
-            failed = set(int(x) for x in node_ids) - valid
-
+        t0 = time.time()
         for n in node_ids:
-            if int(n) in failed:
-                continue
             n_int = int(n)
             data = raw.get(n, {})
             parent_cells = data.get(attributes.Hierarchy.Parent, [])
             if parent_cells:
                 self._cache.put_parent(n_int, int(parent_cells[0].value))
             child_cells = data.get(attributes.Hierarchy.Child, [])
-            if child_cells:
-                self._cache.put_children(n_int, child_cells[0].value)
-            acx_d = {}
-            for layer in range(2, lc):
-                cells = data.get(attributes.Connectivity.AtomicCrossChunkEdge[layer], [])
-                if cells:
-                    acx_d[layer] = cells[0].value.copy()
+            if not child_cells:
+                continue
+            self._cache.put_children(n_int, child_cells[0].value)
+            acx_d = {
+                layer: cells[0].value.copy()
+                for layer in range(2, lc)
+                if (cells := data.get(attributes.Connectivity.AtomicCrossChunkEdge[layer], []))
+            }
             if acx_d:
                 self._cache.put_acx(n_int, acx_d)
-            cx_d = {}
-            for layer in range(2, lc):
-                cells = data.get(attributes.Connectivity.CrossChunkEdge[layer], [])
-                if cells and len(cells[0].value) > 0:
-                    cx_d[layer] = cells[0].value
+            cx_d = {
+                layer: cells[0].value
+                for layer in range(2, lc)
+                if (cells := data.get(attributes.Connectivity.CrossChunkEdge[layer], []))
+                and len(cells[0].value) > 0
+            }
             if cx_d:
                 self._cache.put_cx(n_int, cx_d)
+        t_cache = time.time() - t0
+
+        self.rpc_log.append(RpcEntry(
+            label=label, n_requested=n_total, n_read=len(node_ids),
+            t_read=t_read, t_cache=t_cache,
+            t_total=time.time() - t0_total,
+        ))
+
 

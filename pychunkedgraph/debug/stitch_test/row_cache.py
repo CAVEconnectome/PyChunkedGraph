@@ -116,7 +116,7 @@ class RowCache:
         return {**self._preloaded, **self._local}
 
     def stats(self) -> str:
-        return f"{len(self._local)}+{len(self._preloaded)}rows"
+        return f"cache: {_fmt(len(self._local))} local, {_fmt(len(self._preloaded))} preloaded"
 
     def merge_local(self, other_local: dict[int, CacheRow]) -> None:
         for nid, row in other_local.items():
@@ -132,3 +132,11 @@ class RowCache:
                     existing.acx = row.acx
                 if row.cx is not None:
                     existing.cx = row.cx
+
+
+def _fmt(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.0f}K"
+    return str(n)

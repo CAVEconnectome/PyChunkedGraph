@@ -1,6 +1,7 @@
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import dataclass, asdict
 import gzip
 import json
 from multiprocessing import Pool
@@ -15,7 +16,17 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from pychunkedgraph.graph import ChunkedGraph, basetypes
-from .tables import setup_env, set_autoscaling
+from .tables import setup_env
+
+
+@dataclass
+class RpcEntry:
+    label: str
+    n_requested: int
+    n_read: int
+    t_read: float
+    t_cache: float = 0.0
+    t_total: float = 0.0
 
 
 @contextmanager
@@ -333,10 +344,9 @@ def batched_extract_and_compare(
     dir_a = Path(baseline_extract_dir) if baseline_extract_dir else save_dir / "baseline"
     dir_b = save_dir / "proposed"
 
-    set_autoscaling(min_nodes=5)
-    batched_extract_structure(graph_id_a, roots_a, save_dir=dir_a, force=False)
+    if not baseline_extract_dir:
+        batched_extract_structure(graph_id_a, roots_a, save_dir=dir_a, force=False)
     batched_extract_structure(graph_id_b, roots_b, save_dir=dir_b, force=True)
-    set_autoscaling(min_nodes=1)
 
     print("comparing per-node...")
     t0 = time.time()
@@ -411,6 +421,8 @@ def _collect_nodes_from_shards(save_dir):
 
 
 def _convert_for_json(obj):
+    if hasattr(obj, '__dataclass_fields__'):
+        return _convert_for_json(asdict(obj))
     if isinstance(obj, dict):
         return {_convert_for_json(k): _convert_for_json(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -470,3 +482,62 @@ def _load_structure_file(path):
     pkl_path = Path(str(path).replace(".json", ".pkl.gz").replace(".npz", ".pkl.gz"))
     with gzip.open(pkl_path, "rb") as f:
         return pickle.load(f)
+
+
+def stitch_sanity_check(lcg, roots: np.ndarray, atomic_edges: np.ndarray) -> None:
+    """Verify no duplicate L2s across roots and all edge SVs are covered."""
+    c = lcg._cache
+    all_l2s = []
+    root_l2_map = {}
+    for root in roots:
+        stack = [int(root)]
+        root_l2s = []
+        while stack:
+            nid = stack.pop()
+            layer = lcg.get_chunk_layer(np.uint64(nid))
+            if layer <= 2:
+                root_l2s.append(nid)
+                continue
+            ch = c.get_children_batch(np.array([nid], dtype=basetypes.NODE_ID))
+            for child in ch.get(nid, []):
+                stack.append(int(child))
+        n_unique = len(set(root_l2s))
+        assert n_unique == len(root_l2s), (
+            f"Root {root}: {len(root_l2s)} L2 children but only {n_unique} unique"
+        )
+        all_l2s.extend(root_l2s)
+        root_l2_map[int(root)] = set(root_l2s)
+    l2_counts = defaultdict(int)
+    for l2 in all_l2s:
+        l2_counts[l2] += 1
+    dupes = {l2: cnt for l2, cnt in l2_counts.items() if cnt > 1}
+    if dupes:
+        dupe_roots = {}
+        dupe_paths = {}
+        for l2 in dupes:
+            dupe_roots[l2] = [r for r, l2s in root_l2_map.items() if l2 in l2s]
+            for root in dupe_roots[l2]:
+                stack = [(int(root), [int(root)])]
+                while stack:
+                    nid, path = stack.pop()
+                    if nid == l2:
+                        dupe_paths.setdefault(l2, []).append(path)
+                        break
+                    layer = lcg.get_chunk_layer(np.uint64(nid))
+                    if layer <= 2:
+                        continue
+                    ch = c.get_children_batch(np.array([nid], dtype=basetypes.NODE_ID))
+                    for child in ch.get(nid, []):
+                        stack.append((int(child), path + [int(child)]))
+        assert False, (
+            f"Duplicate L2s across roots: {dupes}. "
+            f"L2→roots: {dupe_roots}\nPaths: {dupe_paths}"
+        )
+    edge_svs = np.unique(atomic_edges.ravel())
+    sv_parents = c.get_parents(edge_svs)
+    edge_l2s = set(int(p) for p in sv_parents if int(p) != 0)
+    all_l2_set = set(all_l2s)
+    missing = edge_l2s - all_l2_set
+    assert not missing, (
+        f"{len(missing)} edge L2s not under any new root. First 5: {sorted(missing)[:5]}"
+    )

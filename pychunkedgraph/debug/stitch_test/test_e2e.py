@@ -270,13 +270,16 @@ def _e2e_prod_worker(args):
 def _e2e_worker(args):
     graph_id, edges_list, idx = args
     edges = np.array(edges_list, dtype=basetypes.NODE_ID)
+    edge_name = f"e2e_edge_{idx}"
     try:
         lcg = _lcg_mod.LocalChunkedGraph.create_worker(
             graph_id, preloaded=_shared_cache, incremental=_shared_inc,
         )
+        lcg.acquire_stitch_timestamp(edge_name)
         lcg.begin_stitch()
-        result = _stitch_mod.stitch(lcg, edges, sanity_check=True)
+        result = _stitch_mod.stitch(lcg, edges)
         lcg.mutate_rows(result.rows)
+        lcg.release_stitch_timestamp(edge_name)
         snapshot = lcg.wave_snapshot()
         return [int(r) for r in result.new_roots], snapshot, None
     except Exception:

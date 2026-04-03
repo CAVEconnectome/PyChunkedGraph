@@ -847,14 +847,6 @@ class TestVectorizedDirtyCheck:
         assert c.dirty_siblings == {10, 30}, "Python dirty check: 10 and 30 dirty, 20 clean"
 
 
-def _node(layer: int, seg: int) -> int:
-    return (layer << 56) | seg
-
-
-def _get_layer(nid: int) -> int:
-    return (int(nid) >> 56) & 0xFF
-
-
 class TestCCCorrectness:
     """CC graph must include ALL siblings (dirty + clean) for correct connectivity."""
 
@@ -1064,74 +1056,6 @@ class TestEndToEndHierarchy:
         all_l2_cx = c.get_cx_batch(all_l2_arr)
         for n in all_l2:
             assert all_l2_cx.get(int(n)), f"Node {n} must have CX in cache"
-
-
-class TestFilterOrphaned:
-    """filter_orphaned uses RowCache children + segment IDs to detect failed nodes."""
-
-    def test_valid_nodes_kept(self) -> None:
-        """Nodes whose segment_id is the highest for their max_child are kept."""
-        c = WaveCache(noop_read)
-        # Node 100: children [1, 5] → max_child=5, seg_id=10
-        # Node 200: children [2, 8] → max_child=8, seg_id=20
-        c.put_children(100, np.array([1, 5], dtype=NODE_ID))
-        c.put_children(200, np.array([2, 8], dtype=NODE_ID))
-
-        class FakeLCG:
-            _cache = c
-            def get_segment_id(self, n):
-                return {100: 10, 200: 20}[int(n)]
-
-        node_ids = np.array([100, 200], dtype=NODE_ID)
-        result = tree.filter_orphaned(FakeLCG(), node_ids)
-        assert set(int(x) for x in result) == {100, 200}
-
-    def test_orphaned_filtered(self) -> None:
-        """Failed node (lower seg_id, same max_child) is filtered out."""
-        c = WaveCache(noop_read)
-        # Both nodes have max_child=5, but node 100 has higher seg_id → valid
-        # Node 200 has lower seg_id → orphaned (failed retry)
-        c.put_children(100, np.array([1, 5], dtype=NODE_ID))
-        c.put_children(200, np.array([3, 5], dtype=NODE_ID))
-
-        class FakeLCG:
-            _cache = c
-            def get_segment_id(self, n):
-                return {100: 10, 200: 5}[int(n)]
-
-        node_ids = np.array([100, 200], dtype=NODE_ID)
-        result = tree.filter_orphaned(FakeLCG(), node_ids)
-        result_set = set(int(x) for x in result)
-        assert 100 in result_set, "Node with highest seg_id for max_child=5 kept"
-        assert 200 not in result_set, "Node with lower seg_id for same max_child filtered"
-
-    def test_empty_input(self) -> None:
-        """Empty input returns empty array."""
-        c = WaveCache(noop_read)
-
-        class FakeLCG:
-            _cache = c
-            def get_segment_id(self, n):
-                return 0
-
-        node_ids = np.array([], dtype=NODE_ID)
-        result = tree.filter_orphaned(FakeLCG(), node_ids)
-        assert len(result) == 0
-
-    def test_no_children_uses_zero_max(self) -> None:
-        """Nodes with empty children get max_child=0."""
-        c = WaveCache(noop_read)
-        c.put_children(100, np.array([], dtype=NODE_ID))
-        c.put_children(200, np.array([3, 7], dtype=NODE_ID))
-
-        class FakeLCG:
-            _cache = c
-            def get_segment_id(self, n):
-                return {100: 10, 200: 20}[int(n)]
-
-        node_ids = np.array([100, 200], dtype=NODE_ID)
-        result = tree.filter_orphaned(FakeLCG(), node_ids)
-        assert set(int(x) for x in result) == {100, 200}
 
 
 class TestExternalNodesInCCGraph:

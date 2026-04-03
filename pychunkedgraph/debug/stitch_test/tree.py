@@ -1,27 +1,12 @@
-"""Tree operations: parent chain walks, resolver, orphan filtering, sibling restore."""
+"""Tree operations: parent chain walks, sibling restore."""
 
 import numpy as np
 
 from pychunkedgraph.graph import basetypes
-from pychunkedgraph.graph import cache as cache_utils
-from pychunkedgraph.graph.utils.generic import filter_failed_node_ids
-
-
-def resolve_sv_to_layer(
-    sv: int, target_layer: int, cache, get_layer,
-) -> int:
-    """Single-SV resolve. Use resolve_svs_to_layer (resolver.py) for batch."""
-    identity = sv
-    parents = cache.get_parents(np.array([identity], dtype=basetypes.NODE_ID))
-    parent = int(parents[0])
-    while parent != 0 and get_layer(parent) <= target_layer:
-        identity = parent
-        parents = cache.get_parents(np.array([identity], dtype=basetypes.NODE_ID))
-        parent = int(parents[0])
-    return identity
 
 
 def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
+    """Walk parent chains from node_ids to root. Returns {node: {layer: parent_at_layer}}."""
     result = {int(n): {} for n in node_ids}
     nodes = np.array(node_ids, dtype=basetypes.NODE_ID)
     child_parent = {}
@@ -31,7 +16,6 @@ def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
         parents = lcg._cache.get_parents(nodes)
         parent_layers = lcg.get_chunk_layers(parents)
 
-        # Filter out nodes with no parent (parent=0: root or build frontier)
         has_parent = parents != 0
         nodes_with_parent = nodes[has_parent]
         parents = parents[has_parent]
@@ -40,38 +24,16 @@ def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
         if len(parents) == 0:
             break
 
-        remap = {}
         unique_parents = np.unique(parents)
         if len(unique_parents) > 0:
-            _, ch_d = lcg.bulk_read_parent_child(unique_parents)
-            max_ch = [
-                int(np.max(ch_d[p])) if len(ch_d.get(p, [])) > 0 else 0
-                for p in unique_parents
-            ]
-            seg_ids = np.array([lcg.get_segment_id(p) for p in unique_parents])
-            valid = set(int(x) for x in filter_failed_node_ids(unique_parents, seg_ids, max_ch))
-            mcid_valid = {}
-            for p, mc in zip(unique_parents, max_ch):
-                if int(p) in valid:
-                    mcid_valid[mc] = int(p)
-            for p, mc in zip(unique_parents, max_ch):
-                if int(p) not in valid:
-                    remap[int(p)] = mcid_valid.get(mc, int(p))
+            lcg.bulk_read_parent_child(unique_parents)
 
         for node, parent, layer in zip(nodes_with_parent, parents, parent_layers):
-            resolved = remap.get(int(parent), int(parent))
-            layer_map[resolved] = int(layer)
-            child_parent[int(node)] = resolved
+            layer_map[int(parent)] = int(layer)
+            child_parent[int(node)] = int(parent)
 
-        nxt = []
-        for parent, layer in zip(parents, parent_layers):
-            resolved = remap.get(int(parent), int(parent))
-            if int(layer) < lcg.meta.layer_count:
-                nxt.append(resolved)
-        nodes = (
-            np.unique(np.array(nxt, dtype=basetypes.NODE_ID))
-            if nxt else np.array([], dtype=basetypes.NODE_ID)
-        )
+        nxt = [int(p) for p, layer in zip(parents, parent_layers) if int(layer) < lcg.meta.layer_count]
+        nodes = np.unique(np.array(nxt, dtype=basetypes.NODE_ID)) if nxt else np.array([], dtype=basetypes.NODE_ID)
 
     for n in node_ids:
         cur = int(n)
@@ -82,19 +44,6 @@ def get_all_parents_filtered(lcg, node_ids: np.ndarray) -> dict:
             cur = par
         result[int(n)] = chain
     return result
-
-
-def filter_orphaned(lcg, node_ids: np.ndarray) -> np.ndarray:
-    if len(node_ids) == 0:
-        return node_ids
-    ch_d = lcg._cache.get_children_batch(node_ids)
-    max_ch = np.array([
-        int(np.max(ch_d[int(n)])) if len(ch_d.get(int(n), [])) > 0 else 0
-        for n in node_ids
-    ])
-    seg_ids = np.array([lcg.get_segment_id(n) for n in node_ids])
-    return filter_failed_node_ids(node_ids, seg_ids, max_ch)
-
 
 
 def update_parents_cache(cache, children: np.ndarray, parent) -> None:
