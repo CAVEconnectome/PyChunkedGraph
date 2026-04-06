@@ -197,7 +197,7 @@ markupsafe==3.0.3
     #   flask
     #   jinja2
     #   werkzeug
-messagingclient==0.3.0
+messagingclient==0.4.0
     # via -r requirements.in
 microviewer==1.20.0
     # via cloud-volume
