@@ -2,9 +2,11 @@ from typing import Optional
 from typing import Iterable
 from datetime import datetime
 
+from kvdbclient import attributes, basetypes
+from kvdbclient.attributes import OperationLogs
+
 from .models import OperationLog
 from ..graph import ChunkedGraph
-from ..graph.attributes import OperationLogs
 
 
 def parse_attr(attr, val) -> str:
@@ -54,7 +56,8 @@ def get_logs_with_previous_roots(
     from numpy import concatenate
     from ..graph.types import empty_1d
     from ..graph.lineage import get_previous_root_ids
-    from ..graph.utils.basetypes import NODE_ID
+
+    NODE_ID = basetypes.NODE_ID
 
     print(f"getting olg roots for {len(parsed_logs)} logs.")
     roots = [empty_1d]

@@ -5,10 +5,7 @@ plugin to read agglomeration data provided by Ran Lu
 
 from collections import defaultdict
 from itertools import product
-from typing import Dict
-from typing import Iterable
-from typing import Tuple
-from typing import Union
+from typing import Dict, Iterable, Tuple, Union
 from binascii import crc32
 
 
@@ -22,9 +19,8 @@ from .manager import IngestionManager
 from .utils import postprocess_edge_data
 from ..io.edges import put_chunk_edges
 from ..io.components import put_chunk_components
-from ..graph.utils import basetypes
-from ..graph.edges import Edges
-from ..graph.edges import EDGE_TYPES
+from ..graph import basetypes
+from ..graph.edges import EDGE_TYPES, Edges
 from ..graph.types import empty_2d
 from ..graph.chunks.utils import get_chunk_id
 
@@ -318,7 +314,9 @@ def get_active_edges(edges_d, mapping):
         if edge_type == EDGE_TYPES.in_chunk:
             pseudo_isolated_ids.append(edges.node_ids2)
 
-    return chunk_edges_active, np.unique(np.concatenate(pseudo_isolated_ids))
+    return chunk_edges_active, np.unique(
+        np.concatenate(pseudo_isolated_ids).astype(basetypes.NODE_ID)
+    )
 
 
 def define_active_edges(edge_dict, mapping) -> Union[Dict, np.ndarray]:
@@ -384,7 +382,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
 
     edges_list = _read_agg_files(filenames, chunk_ids, path)
     G = nx.Graph()
-    G.add_edges_from(np.concatenate(edges_list))
+    G.add_edges_from(np.concatenate(edges_list).astype(basetypes.NODE_ID))
     mapping = {}
     components = list(nx.connected_components(G))
     for i_cc, cc in enumerate(components):

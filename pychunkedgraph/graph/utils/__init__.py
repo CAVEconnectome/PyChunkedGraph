@@ -1,0 +1,1 @@
+from .generic import get_local_segmentation

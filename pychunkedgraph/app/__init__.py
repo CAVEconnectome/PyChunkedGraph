@@ -14,6 +14,7 @@ from flask.logging import default_handler
 from flask_cors import CORS
 from rq import Queue
 
+from pychunkedgraph import NOTICE, configure_logging
 from pychunkedgraph.logging import jsonformatter
 
 from . import config
@@ -99,12 +100,28 @@ def configure_app(app):
     app.logger.setLevel(app.config["LOGGING_LEVEL"])
     app.logger.propagate = False
 
+    # Ensure pychunkedgraph logger always works at NOTICE level
+    # regardless of app config or environment log level
+    configure_logging(level=NOTICE)
+    # app.logger.propagate = False blocks children under pychunkedgraph.app
+    # from reaching the pychunkedgraph handler — attach it directly
+    pcg_logger = logging.getLogger("pychunkedgraph")
+    app_ns_logger = logging.getLogger("pychunkedgraph.app")
+    for h in pcg_logger.handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(
+            h, logging.NullHandler
+        ):
+            app_ns_logger.addHandler(h)
+            break
+
     if app.config["USE_REDIS_JOBS"]:
         app.redis = redis.Redis.from_url(app.config["REDIS_URL"])
         app.test_q = Queue("test", connection=app.redis)
         with app.app_context():
             from ..ingest.rq_cli import init_rq_cmds
             from ..ingest.cli import init_ingest_cmds
+            from ..ingest.cli_upgrade import init_upgrade_cmds
 
             init_rq_cmds(app)
             init_ingest_cmds(app)
+            init_upgrade_cmds(app)

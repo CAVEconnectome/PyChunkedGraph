@@ -2,19 +2,17 @@ import json
 from datetime import timedelta
 from typing import Dict
 from typing import List
-from typing import Tuple
 from typing import Sequence
 from collections import namedtuple
 
 import numpy as np
 from cloudvolume import CloudVolume
 
+from pychunkedgraph.graph.ocdbt import get_seg_source_and_destination_ocdbt
+
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
-from ..utils.redis import keys as r_keys
-from ..utils.redis import get_rq_queue
 from ..utils.redis import get_redis_connection
-
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
@@ -64,9 +62,20 @@ class ChunkedGraphMeta:
         self._custom_data = custom_data
 
         self._ws_cv = None
+        # Multi-scale OCDBT handles + per-scale resolutions, populated lazily
+        # from source's info JSON. ws_ocdbt returns scale 0 for backward
+        # compatibility; ws_ocdbt_scales exposes the full pyramid.
+        self._ws_ocdbt_scales = None
+        self._ws_ocdbt_resolutions = None
         self._layer_bounds_d = None
         self._layer_count = None
         self._bitmasks = None
+        self._ocdbt_seg = None
+
+    @property
+    def graph_id(self):
+        assert self._graph_config.ID is not None, "graph_id required"
+        return self._graph_config.ID_PREFIX + self._graph_config.ID
 
     @property
     def graph_config(self):
@@ -91,14 +100,50 @@ class ChunkedGraphMeta:
             # useful to avoid md5 errors on high gcs load
             redis = get_redis_connection()
             cached_info = json.loads(redis.get(cache_key))
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED, info=cached_info)
+            self._ws_cv = CloudVolume(
+                self._data_source.WATERSHED, info=cached_info, progress=False
+            )
         except Exception:
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED)
+            self._ws_cv = CloudVolume(self._data_source.WATERSHED, progress=False)
             try:
                 redis.set(cache_key, json.dumps(self._ws_cv.info))
             except Exception:
                 ...
         return self._ws_cv
+
+    @property
+    def ocdbt_seg(self) -> bool:
+        if self._ocdbt_seg is None:
+            self._ocdbt_seg = self._custom_data.get("seg", {}).get("ocdbt", False)
+        return self._ocdbt_seg
+
+    @property
+    def ws_ocdbt(self):
+        """Base scale (MIP 0) handle. Backward-compatible single-handle access."""
+        return self.ws_ocdbt_scales[0]
+
+    @property
+    def ws_ocdbt_scales(self):
+        """List of TensorStore handles, one per MIP level. Lazily initialized.
+
+        Opens the CG's delta OCDBT via the kvstack-layered fork spec — reads
+        merge the shared base + this CG's edits, writes go to the delta.
+        """
+        assert self.ocdbt_seg, "make sure this pcg has segmentation in ocdbt format"
+        if self._ws_ocdbt_scales is None:
+            _, self._ws_ocdbt_scales, self._ws_ocdbt_resolutions = (
+                get_seg_source_and_destination_ocdbt(
+                    self.data_source.WATERSHED, self.graph_id
+                )
+            )
+        return self._ws_ocdbt_scales
+
+    @property
+    def ws_ocdbt_resolutions(self):
+        """Per-scale [x,y,z] resolutions (used to derive downsample factors)."""
+        # Trigger lazy init via ws_ocdbt_scales — both are populated together.
+        _ = self.ws_ocdbt_scales
+        return self._ws_ocdbt_resolutions
 
     @property
     def resolution(self):
@@ -226,6 +271,10 @@ class ChunkedGraphMeta:
         return self.custom_data.get("READ_ONLY", False)
 
     @property
+    def sv_split_threshold(self) -> int:
+        return self._custom_data.get("seg", {}).get("sv_split_threshold", 10)
+
+    @property
     def split_bounding_offset(self):
         return self.custom_data.get(
             "split_bounding_offset",
@@ -235,7 +284,6 @@ class ChunkedGraphMeta:
     @property
     def dataset_info(self) -> Dict:
         info = self.ws_cv.info  # pylint: disable=no-member
-
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,
@@ -247,6 +295,14 @@ class ChunkedGraphMeta:
                     "cv_mip": self.data_source.CV_MIP,
                     "n_layers": self.layer_count,
                     "spatial_bit_masks": self.bitmasks,
+                    "ocdbt_seg": self.ocdbt_seg,
+                    # Per-CG delta OCDBT path. Neuroglancer must open this
+                    # via the kvstack spec from build_cg_ocdbt_spec() to see
+                    # both base + delta data. Opening it as plain OCDBT only
+                    # sees the delta.
+                    "ocdbt_path": (
+                        f"ocdbt/{self.graph_id}" if self._graph_config.ID else None
+                    ),
                 },
             }
         )

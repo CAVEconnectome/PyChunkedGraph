@@ -9,7 +9,8 @@ from datetime import datetime
 
 import numpy as np
 
-from . import basetypes
+from pychunkedgraph.graph import basetypes
+from .generic import get_local_segmentation, lookup_svs_from_seg
 from ..meta import ChunkedGraphMeta
 from ..chunks import utils as chunk_utils
 
@@ -20,7 +21,7 @@ def get_segment_id_limit(
     """Get maximum possible Segment ID for given Node ID or Chunk ID."""
     layer = chunk_utils.get_chunk_layer(meta, node_or_chunk_id)
     chunk_offset = 64 - meta.graph_config.LAYER_ID_BITS - 3 * meta.bitmasks[layer]
-    return np.uint64(2 ** chunk_offset - 1)
+    return np.uint64(2**chunk_offset - 1)
 
 
 def get_segment_id(
@@ -60,8 +61,8 @@ def get_atomic_id_from_coord(
     time_stamp: Optional[datetime] = None,
 ) -> np.uint64:
     """Determines atomic id given a coordinate."""
-    x = int(x / 2 ** meta.data_source.CV_MIP)
-    y = int(y / 2 ** meta.data_source.CV_MIP)
+    x = int(x / 2**meta.data_source.CV_MIP)
+    y = int(y / 2**meta.data_source.CV_MIP)
     z = int(z)
 
     checked = []
@@ -89,7 +90,7 @@ def get_atomic_id_from_coord(
         # sort by frequency and discard those ids that have been checked
         # previously
         sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]
-        sorted_atomic_ids = sorted_atomic_ids[~np.in1d(sorted_atomic_ids, checked)]
+        sorted_atomic_ids = sorted_atomic_ids[~np.isin(sorted_atomic_ids, checked)]
 
         # For each candidate id check whether its root id corresponds to the
         # given root id
@@ -127,7 +128,10 @@ def get_atomic_ids_from_coords(
     """
     import fastremap
 
-    if parent_id_layer == 1:
+    if parent_id_layer == 1 and meta.ocdbt_seg:
+        return lookup_svs_from_seg(meta, coordinates)
+
+    if parent_id_layer == 1 and not meta.ocdbt_seg:
         return np.array([parent_id] * len(coordinates), dtype=np.uint64)
 
     coordinates_nm = coordinates * np.array(meta.resolution)
@@ -140,10 +144,7 @@ def get_atomic_ids_from_coords(
         ]
     )
 
-    local_sv_seg = meta.cv[
-        bbox[0, 0] : bbox[1, 0], bbox[0, 1] : bbox[1, 1], bbox[0, 2] : bbox[1, 2]
-    ].squeeze()
-
+    local_sv_seg = get_local_segmentation(meta, bbox[0], bbox[1]).squeeze()
     # limit get_roots calls to the relevant areas of the data
     lower_bs = np.floor(
         (np.array(coordinates_nm) - max_dist_nm) / np.array(meta.resolution) - bbox[0]
@@ -161,7 +162,7 @@ def get_atomic_ids_from_coords(
         local_sv_ids,
         time_stamp=parent_ts,
         stop_layer=parent_id_layer,
-        fail_to_zero=True
+        fail_to_zero=True,
     )
 
     local_parent_seg = fastremap.remap(

@@ -10,7 +10,7 @@ import datetime
 import pytz
 from scipy import ndimage
 
-from multiwrapper import multiprocessing_utils as mu
+from concurrent.futures import ThreadPoolExecutor
 from cloudfiles import CloudFiles
 from cloudvolume import CloudVolume
 from cloudvolume.datasource.precomputed.sharding import ShardingSpecification
@@ -22,7 +22,6 @@ from pychunkedgraph.graph.chunkedgraph import ChunkedGraph  # noqa
 from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 from pychunkedgraph.meshing.manifest.cache import ManifestCache
-
 
 UTC = pytz.UTC
 
@@ -75,7 +74,7 @@ def remap_seg_using_unsafe_dict(seg, unsafe_dict):
             overlaps.extend(np.unique(seg[:, :, -2][bin_cc_seg[:, :, -1]]))
             overlaps = np.unique(overlaps)
 
-            linked_l2_ids = overlaps[np.in1d(overlaps, unsafe_dict[unsafe_root_id])]
+            linked_l2_ids = overlaps[np.isin(overlaps, unsafe_dict[unsafe_root_id])]
 
             if len(linked_l2_ids) == 0:
                 seg[bin_cc_seg] = 0
@@ -263,7 +262,12 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
     if n_jobs > 0:
-        mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
+        if n_threads == 1:
+            for args in multi_args:
+                _get_root_ids(args)
+        else:
+            with ThreadPoolExecutor(max_workers=n_threads) as executor:
+                list(executor.map(_get_root_ids, multi_args))
 
     return lx_ids, np.array(root_ids), lx_id_remap
 
@@ -317,7 +321,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     :return: multiples
     """
     if time_stamp is None:
-        time_stamp = datetime.datetime.utcnow()
+        time_stamp = datetime.datetime.now(datetime.timezone.utc)
     if time_stamp.tzinfo is None:
         time_stamp = UTC.localize(time_stamp)
 
@@ -357,7 +361,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
             )
 
             safe_lx_ids = lx_ids[u_idx[c_root_ids == 1]]
-            unsafe_lx_ids = lx_ids[~np.in1d(lx_ids, safe_lx_ids)]
+            unsafe_lx_ids = lx_ids[~np.isin(lx_ids, safe_lx_ids)]
             unsafe_root_ids = np.unique(root_ids[u_idx[c_root_ids != 1]])
 
     lx_root_dict = dict(zip(neigh_lx_ids, neigh_root_ids))
@@ -387,7 +391,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     unsafe_dict = collections.defaultdict(list)
     for root_id in unsafe_root_ids:
-        if np.sum(~np.in1d(root_lx_dict[root_id], unsafe_lx_ids)) == 0:
+        if np.sum(~np.isin(root_lx_dict[root_id], unsafe_lx_ids)) == 0:
             continue
 
         for neigh_lx_id in root_lx_dict[root_id]:
@@ -443,7 +447,12 @@ def get_root_remapping_for_nodes_and_svs(
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
     if n_jobs > 0:
-        mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
+        if n_threads == 1:
+            for args in multi_args:
+                _get_root_ids(args)
+        else:
+            with ThreadPoolExecutor(max_workers=n_threads) as executor:
+                list(executor.map(_get_root_ids, multi_args))
 
     sv_ids_index = len(node_ids)
     chunk_ids_index = len(node_ids) + len(sv_ids)
@@ -475,7 +484,7 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
     :return: multiples
     """
     if time_stamp is None:
-        time_stamp = datetime.datetime.utcnow()
+        time_stamp = datetime.datetime.now(datetime.timezone.utc)
     if time_stamp.tzinfo is None:
         time_stamp = UTC.localize(time_stamp)
 
@@ -1040,7 +1049,8 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             fragment.value
             for child_fragments_for_node in node_rows
             for fragment in child_fragments_for_node
-        ], dtype=object
+        ],
+        dtype=object,
     )
     # Filter out node ids that do not have roots (caused by failed ingest tasks)
     root_ids = cg.get_roots(node_ids, fail_to_zero=True)

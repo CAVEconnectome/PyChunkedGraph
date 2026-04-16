@@ -1,8 +1,11 @@
+# pylint: disable=invalid-name, missing-docstring, c-extension-no-member
+
+from itertools import combinations, chain
+
 import fastremap
 import numpy as np
-from itertools import combinations, chain
 from graph_tool import Graph, GraphView
-from graph_tool import topology, search
+from graph_tool import topology
 
 
 def build_gt_graph(
@@ -88,7 +91,10 @@ def team_paths_all_to_all(graph, capacity, team_vertex_ids):
 
 
 def neighboring_edges(graph, vertex_id):
-    """Returns vertex and edge lists of a seed vertex, in the same format as team_paths_all_to_all."""
+    """
+    Returns vertex and edge lists of a seed vertex,
+    in the same format as team_paths_all_to_all.
+    """
     add_v = []
     add_e = []
     v0 = graph.vertex(vertex_id)
@@ -106,7 +112,7 @@ def intersect_nodes(paths_v_s, paths_v_y):
 
 
 def harmonic_mean_paths(x):
-    return np.power(np.product(x), 1 / len(x))
+    return np.power(np.prod(x), 1 / len(x))
 
 
 def compute_filtered_paths(
@@ -124,7 +130,8 @@ def compute_filtered_paths(
         gfilt, capacity, team_vertex_ids
     )
 
-    # graph-tool will invalidate the vertex and edge properties if I don't rebase them on the main graph
+    # graph-tool will invalidate the vertex and
+    # edge properties if I don't rebase them on the main graph
     # before tearing down the GraphView
     new_paths_e = []
     for pth in paths_e:

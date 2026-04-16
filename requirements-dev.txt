@@ -1,8 +1,8 @@
 pylint
 black
+pre-commit
 pyopenssl
 jupyter
-codecov
 ipython
 pytest
 pytest-cov

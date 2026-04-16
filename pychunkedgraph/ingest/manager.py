@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring
+
 import pickle
 
 from . import IngestConfig
@@ -9,13 +11,26 @@ from ..utils.redis import get_redis_connection
 
 
 class IngestionManager:
-    def __init__(self, config: IngestConfig, chunkedgraph_meta: ChunkedGraphMeta):
+    def __init__(
+        self,
+        config: IngestConfig,
+        chunkedgraph_meta: ChunkedGraphMeta,
+        ocdbt_seg: bool = False,
+        ocdbt_populate_base: bool = False,
+        _from_pickle: bool = False,
+    ):
         self._config = config
         self._chunkedgraph_meta = chunkedgraph_meta
         self._cg = None
         self._redis = None
         self._task_queues = {}
-        self.redis  # initiate and cache info
+        self._from_pickle = _from_pickle
+        self.ocdbt_seg = ocdbt_seg
+        self.ocdbt_populate_base = ocdbt_populate_base
+
+        if not _from_pickle:
+            # initiate redis and store serialized state
+            self.redis  # pylint: disable=pointless-statement
 
     @property
     def config(self):
@@ -36,18 +51,24 @@ class IngestionManager:
         if self._redis is not None:
             return self._redis
         self._redis = get_redis_connection()
-        self._redis.set(r_keys.INGESTION_MANAGER, self.serialized(pickled=True))
+        if not self._from_pickle:
+            self._redis.set(r_keys.INGESTION_MANAGER, self.serialized(pickled=True))
         return self._redis
 
     def serialized(self, pickled=False):
-        params = {"config": self._config, "chunkedgraph_meta": self._chunkedgraph_meta}
+        params = {
+            "config": self._config,
+            "chunkedgraph_meta": self._chunkedgraph_meta,
+            "ocdbt_seg": self.ocdbt_seg,
+            "ocdbt_populate_base": self.ocdbt_populate_base,
+        }
         if pickled:
             return pickle.dumps(params)
         return params
 
     @classmethod
     def from_pickle(cls, serialized_info):
-        return cls(**pickle.loads(serialized_info))
+        return cls(**pickle.loads(serialized_info), _from_pickle=True)
 
     def get_task_queue(self, q_name):
         if q_name in self._task_queues:

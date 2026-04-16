@@ -14,9 +14,9 @@ from werkzeug.datastructures import ImmutableMultiDict
 
 from pychunkedgraph import __version__
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.graph.client import get_default_client_info
+from pychunkedgraph.graph import get_default_client_info
 from pychunkedgraph.graph import exceptions as cg_exceptions
-
+from pychunkedgraph.graph.utils.generic import lookup_svs_from_seg
 
 PCG_CACHE = {}
 
@@ -238,6 +238,10 @@ def handle_supervoxel_id_lookup(
             f"Could not determine supervoxel ID for coordinates "
             f"{coordinates} - Validation stage."
         )
+
+    # Fast path: all node_ids are L1 and OCDBT — single seg read for all coords
+    if cg.meta.ocdbt_seg and np.all(cg.get_chunk_layers(np.unique(node_ids)) == 1):
+        return lookup_svs_from_seg(cg.meta, coordinates)
 
     atomic_ids = np.zeros(len(coordinates), dtype=np.uint64)
     for node_id in np.unique(node_ids):

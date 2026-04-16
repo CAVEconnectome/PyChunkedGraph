@@ -1,23 +1,19 @@
-import collections
 import fastremap
 import numpy as np
 import itertools
-import logging
 import time
 import graph_tool
 import graph_tool.flow
 
-from typing import Dict
 from typing import Tuple
-from typing import Optional
 from typing import Sequence
 from typing import Iterable
 
 from .utils import flatgraph
-from .utils import basetypes
+from pychunkedgraph.graph import basetypes
 from .utils.generic import get_bounding_box
 from .edges import Edges
-from .exceptions import PreconditionError
+from .exceptions import PreconditionError, SupervoxelSplitRequiredError
 from .exceptions import PostconditionError
 
 DEBUG_MODE = False
@@ -62,7 +58,7 @@ def merge_cross_chunk_edges_graph_tool(
     if len(mapping) > 0:
         mapping = np.concatenate(mapping)
     u_nodes = np.unique(edges)
-    u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
+    u_unmapped_nodes = u_nodes[~np.isin(u_nodes, mapping)]
     unmapped_mapping = np.concatenate(
         [u_unmapped_nodes.reshape(-1, 1), u_unmapped_nodes.reshape(-1, 1)], axis=1
     )
@@ -95,6 +91,7 @@ class LocalMincutGraph:
         split_preview=False,
         path_augment=True,
         disallow_isolating_cut=True,
+        sv_split_supported=False,
         logger=None,
     ):
         self.cg_edges = cg_edges
@@ -102,6 +99,7 @@ class LocalMincutGraph:
         self.logger = logger
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
+        self.sv_split_supported = sv_split_supported
 
         time_start = time.time()
 
@@ -115,6 +113,10 @@ class LocalMincutGraph:
             complete_mapping,
             self.cross_chunk_edge_remapping,
         ) = merge_cross_chunk_edges_graph_tool(cg_edges, cg_affs)
+
+        # save this representative mapping for supervoxel splitting
+        # passed along with SupervoxelSplitRequiredError
+        self.sv_remapping = dict(complete_mapping)
 
         dt = time.time() - time_start
         if logger is not None:
@@ -140,6 +142,18 @@ class LocalMincutGraph:
             np.array(cg_sinks), complete_mapping[:, 0], complete_mapping[:, 1]
         )
 
+        # Detect source/sink overlap after cross-chunk remapping
+        # (both sides mapped to the same representative → need SV split)
+        overlap = np.intersect1d(self.sources, self.sinks)
+        if len(overlap) > 0:
+            msg = (
+                "Source and sink supervoxels share a cross-chunk edge representative. "
+                "A supervoxel split is required."
+            )
+            if self.sv_split_supported:
+                raise SupervoxelSplitRequiredError(msg, self.sv_remapping)
+            raise PreconditionError(msg)
+
         self._build_gt_graph(mapped_edges, mapped_affs)
 
         self.source_path_vertices = self.source_graph_ids
@@ -161,8 +175,17 @@ class LocalMincutGraph:
             self.weighted_graph_raw,
             self.capacities_raw,
             self.gt_edges_raw,
-            _,
+            self.unique_supervoxel_ids_raw,
         ) = flatgraph.build_gt_graph(edges, affs, make_directed=True)
+
+        # Compute vertex indices valid for the raw graph
+        # (these differ from source_graph_ids/sink_graph_ids which are for weighted_graph)
+        self.source_graph_ids_raw = np.where(
+            np.isin(self.unique_supervoxel_ids_raw, self.sources)
+        )[0]
+        self.sink_graph_ids_raw = np.where(
+            np.isin(self.unique_supervoxel_ids_raw, self.sinks)
+        )[0]
 
         self.source_edges = list(itertools.product(self.sources, self.sources))
         self.sink_edges = list(itertools.product(self.sinks, self.sinks))
@@ -189,9 +212,9 @@ class LocalMincutGraph:
         ) = flatgraph.build_gt_graph(comb_edges, comb_affs, make_directed=True)
 
         self.source_graph_ids = np.where(
-            np.in1d(self.unique_supervoxel_ids, self.sources)
+            np.isin(self.unique_supervoxel_ids, self.sources)
         )[0]
-        self.sink_graph_ids = np.where(np.in1d(self.unique_supervoxel_ids, self.sinks))[
+        self.sink_graph_ids = np.where(np.isin(self.unique_supervoxel_ids, self.sinks))[
             0
         ]
 
@@ -223,20 +246,23 @@ class LocalMincutGraph:
             paths_v_s, paths_e_s, invaff_s = flatgraph.compute_filtered_paths(
                 self.weighted_graph_raw,
                 self.capacities_raw,
-                self.source_graph_ids,
-                self.sink_graph_ids,
+                self.source_graph_ids_raw,
+                self.sink_graph_ids_raw,
             )
             paths_v_y, paths_e_y, invaff_y = flatgraph.compute_filtered_paths(
                 self.weighted_graph_raw,
                 self.capacities_raw,
-                self.sink_graph_ids,
-                self.source_graph_ids,
+                self.sink_graph_ids_raw,
+                self.source_graph_ids_raw,
             )
         except AssertionError:
-            raise PreconditionError(
+            msg = (
                 "Paths between source or sink points irreparably overlap other labels from other side. "
                 "Check that labels are correct and consider spreading points out farther."
             )
+            if self.sv_split_supported:
+                raise SupervoxelSplitRequiredError(msg, self.sv_remapping)
+            raise PreconditionError(msg)
 
         paths_e_s_no, paths_e_y_no, do_check = flatgraph.remove_overlapping_edges(
             paths_v_s, paths_e_s, paths_v_y, paths_e_y
@@ -294,7 +320,7 @@ class LocalMincutGraph:
                 _, paths_e_y_no, _ = flatgraph.compute_filtered_paths(
                     self.weighted_graph_raw,
                     self.capacities_raw,
-                    self.sink_graph_ids,
+                    self.sink_graph_ids_raw,
                     omit_verts,
                 )
 
@@ -303,7 +329,7 @@ class LocalMincutGraph:
                 _, paths_e_s_no, _ = flatgraph.compute_filtered_paths(
                     self.weighted_graph_raw,
                     self.capacities_raw,
-                    self.source_graph_ids,
+                    self.source_graph_ids_raw,
                     omit_verts,
                 )
                 paths_e_y_no = paths_e_y
@@ -329,8 +355,8 @@ class LocalMincutGraph:
         adj_capacity = self._augment_mincut_capacity()
 
         gr = self.weighted_graph_raw
-        src, tgt = gr.vertex(self.source_graph_ids[0]), gr.vertex(
-            self.sink_graph_ids[0]
+        src, tgt = gr.vertex(self.source_graph_ids_raw[0]), gr.vertex(
+            self.sink_graph_ids_raw[0]
         )
 
         residuals = graph_tool.flow.boykov_kolmogorov_max_flow(
@@ -347,7 +373,11 @@ class LocalMincutGraph:
 
         time_start = time.time()
 
-        if self.path_augment:
+        if (
+            self.path_augment
+            and len(self.source_graph_ids_raw) > 0
+            and len(self.sink_graph_ids_raw) > 0
+        ):
             partition = self._compute_mincut_path_augmented()
         else:
             partition = self._compute_mincut_direct()
@@ -398,7 +428,9 @@ class LocalMincutGraph:
         remapped_cutset_flattened_view = remapped_cutset.view(dtype="u8,u8")
         edges_flattened_view = self.cg_edges.view(dtype="u8,u8")
 
-        cutset_mask = np.in1d(remapped_cutset_flattened_view, edges_flattened_view)
+        cutset_mask = np.isin(
+            remapped_cutset_flattened_view, edges_flattened_view
+        ).ravel()
 
         return remapped_cutset[cutset_mask]
 
@@ -432,8 +464,8 @@ class LocalMincutGraph:
         max_sinks = 0
         i = 0
         for cc in ccs_test_post_cut:
-            num_sources = np.count_nonzero(np.in1d(self.source_graph_ids, cc))
-            num_sinks = np.count_nonzero(np.in1d(self.sink_graph_ids, cc))
+            num_sources = np.count_nonzero(np.isin(self.source_graph_ids, cc))
+            num_sinks = np.count_nonzero(np.isin(self.sink_graph_ids, cc))
             if num_sources > max_sources:
                 max_sources = num_sources
                 max_source_index = i
@@ -486,13 +518,15 @@ class LocalMincutGraph:
                 # If connected component contains no sources or no sinks,
                 # remove its nodes from the mincut computation
                 if not (
-                    np.any(np.in1d(self.source_graph_ids, cc))
-                    and np.any(np.in1d(self.sink_graph_ids, cc))
+                    np.any(np.isin(self.source_graph_ids, cc))
+                    and np.any(np.isin(self.sink_graph_ids, cc))
                 ):
                     for node_id in cc:
                         removed[node_id] = True
 
-        self.weighted_graph.set_vertex_filter(removed, inverted=True)
+        keep = self.weighted_graph.new_vertex_property("bool")
+        keep.a = ~removed.a.astype(bool)
+        self.weighted_graph.set_vertex_filter(keep)
         pruned_graph = graph_tool.Graph(self.weighted_graph, prune=True)
         # Test that there is only one connected component left
         ccs = flatgraph.connected_components(pruned_graph)
@@ -525,13 +559,13 @@ class LocalMincutGraph:
                 np.array(np.where(partition.a == i_cc)[0], dtype=int)
             ]
 
-            if np.any(np.in1d(self.sources, cc_list)):
-                assert np.all(np.in1d(self.sources, cc_list))
-                assert ~np.any(np.in1d(self.sinks, cc_list))
+            if np.any(np.isin(self.sources, cc_list)):
+                assert np.all(np.isin(self.sources, cc_list))
+                assert ~np.any(np.isin(self.sinks, cc_list))
 
-            if np.any(np.in1d(self.sinks, cc_list)):
-                assert np.all(np.in1d(self.sinks, cc_list))
-                assert ~np.any(np.in1d(self.sources, cc_list))
+            if np.any(np.isin(self.sinks, cc_list)):
+                assert np.all(np.isin(self.sinks, cc_list))
+                assert ~np.any(np.isin(self.sources, cc_list))
 
     def _sink_and_source_connectivity_sanity_check(self, cut_edge_set):
         """
@@ -547,7 +581,8 @@ class LocalMincutGraph:
             for edge_to_remove in parallel_edges:
                 self.edges_to_remove[edge_to_remove] = True
 
-        self.weighted_graph.set_edge_filter(self.edges_to_remove, True)
+        self.edges_to_remove.a = ~self.edges_to_remove.a.astype(bool)
+        self.weighted_graph.set_edge_filter(self.edges_to_remove)
         ccs_test_post_cut = flatgraph.connected_components(self.weighted_graph)
 
         # Make sure sinks and sources are among each other and not in different sets
@@ -555,9 +590,9 @@ class LocalMincutGraph:
         illegal_split = False
         try:
             for cc in ccs_test_post_cut:
-                if np.any(np.in1d(self.source_graph_ids, cc)):
-                    assert np.all(np.in1d(self.source_graph_ids, cc))
-                    assert ~np.any(np.in1d(self.sink_graph_ids, cc))
+                if np.any(np.isin(self.source_graph_ids, cc)):
+                    assert np.all(np.isin(self.source_graph_ids, cc))
+                    assert ~np.any(np.isin(self.sink_graph_ids, cc))
                     if (
                         len(self.source_path_vertices) == len(cc)
                         and self.disallow_isolating_cut
@@ -565,9 +600,9 @@ class LocalMincutGraph:
                         if not self.partition_edges_within_label(cc):
                             raise IsolatingCutException("Source")
 
-                if np.any(np.in1d(self.sink_graph_ids, cc)):
-                    assert np.all(np.in1d(self.sink_graph_ids, cc))
-                    assert ~np.any(np.in1d(self.source_graph_ids, cc))
+                if np.any(np.isin(self.sink_graph_ids, cc)):
+                    assert np.all(np.isin(self.sink_graph_ids, cc))
+                    assert ~np.any(np.isin(self.source_graph_ids, cc))
                     if (
                         len(self.sink_path_vertices) == len(cc)
                         and self.disallow_isolating_cut
@@ -581,12 +616,15 @@ class LocalMincutGraph:
                 # but return a flag to return a message to the user
                 illegal_split = True
             else:
-                raise PreconditionError(
+                msg = (
                     "Failed to find a cut that separated the sources from the sinks. "
                     "Please try another cut that partitions the sets cleanly if possible. "
                     "If there is a clear path between all the supervoxels in each set, "
                     "that helps the mincut algorithm."
                 )
+                if self.sv_split_supported:
+                    raise SupervoxelSplitRequiredError(msg, self.sv_remapping)
+                raise PreconditionError(msg)
         except IsolatingCutException as e:
             if self.split_preview:
                 illegal_split = True
@@ -601,18 +639,24 @@ class LocalMincutGraph:
         return ccs_test_post_cut, illegal_split
 
     def partition_edges_within_label(self, cc):
-        """Test is an isolated component has out-edges only within the original
-        labeled points of the cut
+        """Test if an isolated component has out-edges only within the original
+        labeled points of the cut. cc contains weighted_graph indices.
+        Use weighted_graph_raw to avoid fake infinite edges between sources/sinks.
         """
-        label_graph_ids = np.concatenate((self.source_graph_ids, self.sink_graph_ids))
-
+        label_svs = np.concatenate((self.sources, self.sinks))
         for vind in cc:
-            v = self.weighted_graph_raw.vertex(vind)
-            out_vinds = [int(x) for x in v.out_neighbors()]
-            if not np.all(np.isin(out_vinds, label_graph_ids)):
+            sv = self.unique_supervoxel_ids[vind]
+            raw_inds = np.where(self.unique_supervoxel_ids_raw == sv)[0]
+            if len(raw_inds) == 0:
+                # SV not in raw graph (only cross-chunk edges) — no local neighbors
+                continue
+            v = self.weighted_graph_raw.vertex(raw_inds[0])
+            neighbor_svs = self.unique_supervoxel_ids_raw[
+                [int(x) for x in v.out_neighbors()]
+            ]
+            if not np.all(np.isin(neighbor_svs, label_svs)):
                 return False
-        else:
-            return True
+        return True
 
 
 def run_multicut(
@@ -623,6 +667,7 @@ def run_multicut(
     split_preview: bool = False,
     path_augment: bool = True,
     disallow_isolating_cut: bool = True,
+    sv_split_supported: bool = False,
 ):
     local_mincut_graph = LocalMincutGraph(
         edges.get_pairs(),
@@ -632,6 +677,7 @@ def run_multicut(
         split_preview,
         path_augment,
         disallow_isolating_cut=disallow_isolating_cut,
+        sv_split_supported=sv_split_supported,
     )
     atomic_edges = local_mincut_graph.compute_mincut()
     if len(atomic_edges) == 0:
@@ -664,8 +710,8 @@ def run_split_preview(
     supervoxels = np.concatenate(
         [agg.supervoxels for agg in l2id_agglomeration_d.values()]
     )
-    mask0 = np.in1d(edges.node_ids1, supervoxels)
-    mask1 = np.in1d(edges.node_ids2, supervoxels)
+    mask0 = np.isin(edges.node_ids1, supervoxels)
+    mask1 = np.isin(edges.node_ids2, supervoxels)
     edges = edges[mask0 & mask1]
     edges_to_remove, illegal_split = run_multicut(
         edges,
@@ -674,6 +720,7 @@ def run_split_preview(
         split_preview=True,
         path_augment=path_augment,
         disallow_isolating_cut=disallow_isolating_cut,
+        sv_split_supported=cg.meta.ocdbt_seg,
     )
 
     if len(edges_to_remove) == 0:

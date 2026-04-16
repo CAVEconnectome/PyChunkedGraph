@@ -16,10 +16,10 @@ def compute_centroid_with_chunk_boundary(cg, vertices, l2_id, last_l2_id):
     a path, return the center point of the mesh on the chunk boundary separating the two
     ids, and the center point of the entire mesh.
     :param cg: ChunkedGraph object
-    :param vertices: [[np.float]]
+    :param vertices: [[np.float64]]
     :param l2_id: np.uint64
     :param last_l2_id: np.uint64 or None
-    :return: [np.float]
+    :return: [np.float64]
     """
     centroid_by_range = compute_centroid_by_range(vertices)
     if last_l2_id is None:

@@ -1,0 +1,429 @@
+"""OCDBT-backed neuroglancer_precomputed segmentation store.
+
+Architecture: one immutable base OCDBT per watershed + one delta OCDBT per
+ChunkedGraph. Reads merge base + delta via tensorstore's kvstack driver.
+Writes land in the delta via OCDBT's *_data_prefix options.
+
+Multi-scale (MIP pyramid) is supported: the source watershed's info JSON
+drives the scale layout. All scales share one OCDBT kvstore; the precomputed
+driver prefixes keys by scale key automatically.
+"""
+
+import json
+
+import numpy as np
+import tensorstore as ts
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
+
+OCDBT_SEG_COMPRESSION_LEVEL = 12
+
+OCDBT_CONFIG = {
+    "compression": {"id": "zstd", "level": OCDBT_SEG_COMPRESSION_LEVEL},
+    # Inline chunk values into B+tree leaves so they share the leaf's zstd
+    # compression context. Default (100 bytes) puts every chunk in its own
+    # out-of-line blob with independent zstd framing → ~7x bloat on GCS.
+    # 512 KiB captures every compressed_segmentation chunk we've measured.
+    "max_inline_value_bytes": 524288,
+}
+
+
+def _read_source_scales(ws_path):
+    """Read the source precomputed `info` JSON to get scale count and resolutions.
+
+    The leading '/' in '/info' is required for GCS — without it the read
+    returns empty.
+    """
+    kvs = ts.KvStore.open(ws_path).result()
+    info = json.loads(kvs.read("/info").result().value)
+    return info["scales"]
+
+
+def _open_precomputed_scale(kvstore, scale_index, create=False, **schema_kw):
+    """Open one neuroglancer_precomputed scale on top of a kvstore spec."""
+    spec = {
+        "driver": "neuroglancer_precomputed",
+        "kvstore": kvstore,
+        "scale_index": scale_index,
+    }
+    return ts.open(spec, create=create, **schema_kw).result()
+
+
+def _schema_from_src(src_handle):
+    """Extract the schema kwargs needed to open a matching destination."""
+    s = src_handle.schema
+    return dict(
+        rank=s.rank,
+        dtype=s.dtype,
+        codec=s.codec,
+        domain=s.domain,
+        shape=s.shape,
+        chunk_layout=s.chunk_layout,
+        dimension_units=s.dimension_units,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Base OCDBT (shared, immutable after ingest)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_trailing_slash(path):
+    """Ensure kvstore paths end with / so they're treated as directories."""
+    return path if path.endswith("/") else path + "/"
+
+
+def _base_ocdbt_path(ws_path):
+    return _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/base")
+
+
+def base_exists(ws_path: str) -> bool:
+    """Check if the base OCDBT has already been created for this watershed."""
+    base = _base_ocdbt_path(ws_path)
+    kvs = ts.KvStore.open(base).result()
+    result = kvs.read("manifest.ocdbt").result()
+    return result.value is not None and len(result.value) > 0
+
+
+def create_base_ocdbt(ws_path: str):
+    """One-time bootstrap: create the shared base OCDBT at <ws>/ocdbt/base/.
+
+    Wipes any existing base first, then opens each scale with create=True
+    so the info JSON is built from the source. Populating the base with
+    actual chunk data happens separately via copy_ws_chunk_multiscale
+    during the per-chunk ingest tasks.
+
+    Returns (src_list, dst_list, resolutions) for the caller to use with
+    copy_ws_chunk_multiscale.
+    """
+    base = _base_ocdbt_path(ws_path)
+    # Wipe existing base for a clean slate.
+    try:
+        kvs = ts.KvStore.open({"driver": "ocdbt", "base": base}).result()
+        kvs.delete_range(ts.KvStore.KeyRange()).result()
+    except Exception:
+        pass
+
+    scales = _read_source_scales(ws_path)
+    resolutions = [s["resolution"] for s in scales]
+    base_kvstore = {"driver": "ocdbt", "base": base, "config": dict(OCDBT_CONFIG)}
+
+    src_list, dst_list = [], []
+    for i in range(len(scales)):
+        src_i = ts.open(
+            {"driver": "neuroglancer_precomputed", "kvstore": ws_path, "scale_index": i}
+        ).result()
+        dst_i = _open_precomputed_scale(
+            base_kvstore, i, create=True, **_schema_from_src(src_i)
+        )
+        src_list.append(src_i)
+        dst_list.append(dst_i)
+    return src_list, dst_list, resolutions
+
+
+def wipe_base_ocdbt(ws_path: str):
+    """Wipe the base OCDBT entirely (for --reset-ocdbt)."""
+    base = _base_ocdbt_path(ws_path)
+    try:
+        kvs = ts.KvStore.open({"driver": "ocdbt", "base": base}).result()
+        kvs.delete_range(ts.KvStore.KeyRange()).result()
+    except Exception:
+        pass
+
+
+def open_base_ocdbt(ws_path: str):
+    """Open the existing base OCDBT (read/write) for populating during ingest.
+
+    Used by per-chunk ingest tasks that copy precomputed data into the shared
+    base. NOT used at runtime — runtime always goes through the per-CG fork
+    spec via get_seg_source_and_destination_ocdbt.
+
+    Returns (src_list, dst_list, resolutions).
+    """
+    base = _base_ocdbt_path(ws_path)
+    scales = _read_source_scales(ws_path)
+    resolutions = [s["resolution"] for s in scales]
+    base_kvstore = {"driver": "ocdbt", "base": base, "config": dict(OCDBT_CONFIG)}
+
+    src_list, dst_list = [], []
+    for i in range(len(scales)):
+        src_i = ts.open(
+            {"driver": "neuroglancer_precomputed", "kvstore": ws_path, "scale_index": i}
+        ).result()
+        dst_i = _open_precomputed_scale(base_kvstore, i, **_schema_from_src(src_i))
+        src_list.append(src_i)
+        dst_list.append(dst_i)
+    return src_list, dst_list, resolutions
+
+
+# ---------------------------------------------------------------------------
+# Per-CG delta (fork of the base)
+# ---------------------------------------------------------------------------
+
+
+def build_cg_ocdbt_spec(ws_path: str, graph_id: str) -> dict:
+    """Open-time kvstore spec for a CG's OCDBT, backed by a shared immutable base.
+
+    The fork directory and its manifest are created automatically by
+    `fork_base_manifest` as part of CG creation — no manual setup.
+
+    All three kvstack layers below AND all three `*_data_prefix` options
+    are load-bearing; removing any of them causes fork writes to leak
+    into the immutable base (verified empirically).
+    """
+    base = _base_ocdbt_path(ws_path)
+    fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
+    data_prefix = f"{graph_id}_d/"
+
+    # Catch-all. Lets the fork READ base's B+tree (manifest + d/<hash>
+    # data files) via fall-through. Must be first so later layers can
+    # override sub-ranges.
+    base_layer = {"base": base}
+
+    # Single-key override. Routes the fork's manifest file so new
+    # commits by this CG are visible only to this CG. Without this layer
+    # manifest writes silently clobber base's manifest.
+    fork_manifest_layer = {
+        "exact": "manifest.ocdbt",
+        "base": fork_dir + "manifest.ocdbt",
+    }
+
+    # Catches OCDBT's new data-file writes for the fork. Pairs with the
+    # *_data_prefix options: OCDBT would otherwise write under the
+    # default `d/` prefix — no later layer claims `d/`, so kvstack
+    # falls through to the base catch-all and the writes corrupt base.
+    fork_data_layer = {
+        "prefix": data_prefix,
+        "base": _ensure_trailing_slash(fork_dir + data_prefix),
+    }
+
+    return {
+        "driver": "ocdbt",
+        "base": {
+            "driver": "kvstack",
+            "layers": [base_layer, fork_manifest_layer, fork_data_layer],
+        },
+        "config": dict(OCDBT_CONFIG),
+        # Steer every kind of OCDBT write under `<graph_id>_d/` so the
+        # fork_data_layer catches them.
+        "value_data_prefix": data_prefix,
+        "btree_node_data_prefix": data_prefix,
+        "version_tree_node_data_prefix": data_prefix,
+    }
+
+
+def fork_base_manifest(ws_path: str, graph_id: str, wipe_existing: bool = False):
+    """Initialize a CG's delta directory by copying the base manifest.
+
+    If wipe_existing=True, deletes the existing fork directory first (for
+    --retry when a prior ingest failed and left partial delta state).
+    """
+    assert base_exists(ws_path), "base OCDBT must exist before forking"
+    base = _base_ocdbt_path(ws_path)
+    fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
+
+    if wipe_existing:
+        try:
+            kvs = ts.KvStore.open(fork_dir).result()
+            kvs.delete_range(ts.KvStore.KeyRange()).result()
+        except Exception:
+            pass
+
+    base_kvs = ts.KvStore.open(base).result()
+    fork_kvs = ts.KvStore.open(fork_dir).result()
+    manifest = base_kvs.read("manifest.ocdbt").result().value
+    fork_kvs.write("manifest.ocdbt", manifest).result()
+
+
+def get_seg_source_and_destination_ocdbt(ws_path: str, graph_id: str) -> tuple:
+    """Open source watershed + CG's delta OCDBT destination (all scales).
+
+    Always uses the fork-based kvstack spec. Requires the base to exist and
+    the fork's manifest to be present (set up at ingest time).
+
+    Returns:
+        (src_list, dst_list, resolutions): per-scale TensorStore handles
+        and [x,y,z] resolutions.
+    """
+    scales = _read_source_scales(ws_path)
+    resolutions = [s["resolution"] for s in scales]
+    cg_kvstore = build_cg_ocdbt_spec(ws_path, graph_id)
+
+    src_list, dst_list = [], []
+    for i in range(len(scales)):
+        src_i = ts.open(
+            {"driver": "neuroglancer_precomputed", "kvstore": ws_path, "scale_index": i}
+        ).result()
+        dst_i = _open_precomputed_scale(cg_kvstore, i, **_schema_from_src(src_i))
+        src_list.append(src_i)
+        dst_list.append(dst_i)
+    return src_list, dst_list, resolutions
+
+
+def copy_ws_chunk(
+    source,
+    destination,
+    chunk_size: tuple,
+    coords: list,
+    voxel_bounds: np.ndarray,
+):
+    """Copy one chunk from source watershed to OCDBT destination at the same scale.
+
+    Coordinates are interpreted at the source/destination's native scale —
+    callers must pre-scale them when copying coarser MIP levels.
+    """
+    coords = np.array(coords, dtype=int)
+    chunk_size = np.array(chunk_size, dtype=int)
+    vx_start = coords * chunk_size + voxel_bounds[:, 0]
+    vx_end = vx_start + chunk_size
+    xE, yE, zE = voxel_bounds[:, 1]
+
+    x0, y0, z0 = vx_start
+    x1, y1, z1 = vx_end
+    x1 = min(x1, xE)
+    y1 = min(y1, yE)
+    z1 = min(z1, zE)
+
+    data = source[x0:x1, y0:y1, z0:z1].read().result()
+    destination[x0:x1, y0:y1, z0:z1].write(data).result()
+
+
+def copy_ws_chunk_multiscale(
+    src_list,
+    dst_list,
+    resolutions,
+    chunk_size: tuple,
+    coords: list,
+    voxel_bounds: np.ndarray,
+):
+    """Copy a base-resolution chunk's physical region across all MIP scales.
+
+    The graph's chunk grid is defined at base resolution. For each coarser
+    scale we copy the SAME physical region — voxel coordinates are divided
+    by the cumulative downsample factor (derived from resolution ratios).
+    Source already has correct data at every scale, so this is a pure copy
+    with no recomputation.
+    """
+    assert len(src_list) == len(dst_list) == len(resolutions)
+    coords = np.array(coords, dtype=int)
+    chunk_size_arr = np.array(chunk_size, dtype=int)
+    base_res = np.array(resolutions[0])
+
+    # Physical region at base resolution.
+    vx_start_base = coords * chunk_size_arr + voxel_bounds[:, 0]
+    vx_end_base = np.minimum(vx_start_base + chunk_size_arr, voxel_bounds[:, 1])
+
+    for i, (src, dst) in enumerate(zip(src_list, dst_list)):
+        # Cumulative factor from base to this scale (e.g. [2,2,1] per level).
+        factor = (np.array(resolutions[i]) / base_res).astype(int)
+        x0, y0, z0 = vx_start_base // factor
+        x1, y1, z1 = vx_end_base // factor
+        if x1 <= x0 or y1 <= y0 or z1 <= z0:
+            logger.debug(f"skipping empty region at scale {i}")
+            continue
+        data = src[x0:x1, y0:y1, z0:z1].read().result()
+        dst[x0:x1, y0:y1, z0:z1].write(data).result()
+
+
+def _mode_downsample(data: np.ndarray, factors: tuple) -> np.ndarray:
+    """Mode downsample 4D segmentation array [X,Y,Z,C] by per-axis factors.
+
+    Mode (most-frequent label) is the correct downsampling for segmentation:
+    it preserves exact label IDs (no interpolation) and biases toward the
+    dominant label in each block.
+
+    Fast path for 2x2x1: uses a vectorized 4-element pairwise comparison.
+    Among 4 voxels {a,b,c,d}, if any value appears at least twice it is the
+    mode. Order of comparisons biases ties toward the top-left corner, which
+    is the standard convention for segmentation downsampling.
+    """
+    fx, fy, fz = factors
+    X, Y, Z, C = data.shape
+
+    # Pad with edge values so dimensions are divisible by the factor.
+    # Using 'edge' (not zeros) avoids introducing a phantom background label.
+    pad = [(0, (-X % fx) % fx), (0, (-Y % fy) % fy), (0, (-Z % fz) % fz), (0, 0)]
+    if any(p[1] > 0 for p in pad):
+        data = np.pad(data, pad, mode="edge")
+    X, Y, Z, C = data.shape
+
+    if fx == 2 and fy == 2 and fz == 1:
+        # Fast vectorized path for the common 2x2x1 case.
+        reshaped = data.reshape(X // 2, 2, Y // 2, 2, Z, C)
+        a = reshaped[:, 0, :, 0]
+        b = reshaped[:, 0, :, 1]
+        c = reshaped[:, 1, :, 0]
+        d = reshaped[:, 1, :, 1]
+        return np.where(
+            (a == b) | (a == c) | (a == d),
+            a,
+            np.where((b == c) | (b == d), b, np.where(c == d, c, a)),
+        )
+
+    if fx == 2 and fy == 2 and fz == 2:
+        # 2x2x2 (8-element mode) — strided subsample is fast and label-safe
+        # for typical segmentation where adjacent voxels share labels.
+        return data[::2, ::2, ::2]
+
+    # Generic factor: reshape into blocks, take strided first element.
+    # This is label-safe but loses the mode property; downsampling factor
+    # ratios in production are 2x2x1 or 2x2x2 so the fast paths cover them.
+    reshaped = data.reshape(X // fx, fx, Y // fy, fy, Z // fz, fz, C)
+    return reshaped[:, 0, :, 0, :, 0]
+
+
+def propagate_to_coarser_scales(dst_scales, resolutions, base_slices):
+    """Cascade-downsample data from base scale through all coarser scales.
+
+    Called after writing to the base scale (e.g. after an SV split). Each
+    coarser scale reads from the level below it (not from base directly),
+    so total downsample cost shrinks geometrically — each level processes
+    1/N the data of the previous one.
+
+    Args:
+        dst_scales: TensorStore handles, one per MIP level.
+        resolutions: [x,y,z] resolution arrays per scale, used to derive
+            per-axis downsample factors from consecutive resolution ratios.
+        base_slices: tuple of 3 slices (x, y, z) covering the region written
+            at base resolution.
+    """
+    prev_slices = base_slices
+    for i in range(1, len(dst_scales)):
+        # Per-axis downsample factor from actual resolution ratio.
+        # Never hardcoded — different datasets may have different ratios.
+        factor = (np.array(resolutions[i]) / np.array(resolutions[i - 1])).astype(int)
+
+        # Map prev-level slices to this level's coordinates.
+        # Ceil division on stop ensures we cover any partial block.
+        target_slices = tuple(
+            slice(s.start // f, -(-s.stop // f)) for s, f in zip(prev_slices, factor)
+        )
+
+        data = dst_scales[i - 1][prev_slices + (slice(None),)].read().result()
+        downsampled = _mode_downsample(data, tuple(int(f) for f in factor))
+        dst_scales[i][target_slices + (slice(None),)].write(downsampled).result()
+
+        prev_slices = target_slices
+
+
+def write_seg(meta, bbs, bbe, data):
+    """Write segmentation at base scale and propagate to coarser scales.
+
+    Single entry point for all SV-split-time segmentation writes. Builds
+    the tensorstore slices from the bounding box and adds the channel
+    dimension, so callers just pass the 3D bbox + 3D data.
+
+    Args:
+        meta: ChunkedGraphMeta with ws_ocdbt_scales and ws_ocdbt_resolutions.
+        bbs: (3,) array — start of the region in base-resolution voxels.
+        bbe: (3,) array — end of the region in base-resolution voxels.
+        data: 3D numpy array of new segmentation IDs.
+    """
+    slices = tuple(slice(int(s), int(e)) for s, e in zip(bbs, bbe))
+    meta.ws_ocdbt[slices + (slice(None),)] = data[..., np.newaxis]
+    if len(meta.ws_ocdbt_scales) > 1:
+        propagate_to_coarser_scales(
+            meta.ws_ocdbt_scales, meta.ws_ocdbt_resolutions, slices
+        )

@@ -10,7 +10,7 @@ steps:
     args:
       - "-c"
       - |
-        docker build -t $$USERNAME/pychunkedgraph:$TAG_NAME .
+        DOCKER_BUILDKIT=1 docker build -t $$USERNAME/pychunkedgraph:$TAG_NAME .
     timeout: 600s
     secretEnv: ["USERNAME"]
 

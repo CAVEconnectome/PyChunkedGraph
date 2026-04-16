@@ -115,6 +115,7 @@ venv.bak/
 
 
 # local dev stuff
+.claude/
 .devcontainer/
 *.ipynb
 *.rdb

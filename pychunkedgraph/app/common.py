@@ -4,7 +4,7 @@ import os
 import json
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cloudvolume import compression
 from google.api_core.exceptions import GoogleAPIError
@@ -50,7 +50,7 @@ def _log_request(response_time):
 
 def before_request():
     current_app.request_start_time = time.time()
-    current_app.request_start_date = datetime.utcnow()
+    current_app.request_start_date = datetime.now(timezone.utc)
     try:
         current_app.user_id = g.auth_user["id"]
     except (AttributeError, KeyError):

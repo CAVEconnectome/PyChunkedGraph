@@ -10,7 +10,7 @@ pip install -r requirements.txt
 
 ## Multiprocessing
 
-Check out [multiprocessing.md](https://github.com/seung-lab/PyChunkedGraph/blob/master/src/pychunkedgraph/multiprocessing.md) for how to use the multiprocessing tools implemented for the ChunkedGraph
+Check out [multiprocessing.md](https://github.com/CAVEconnectome/PyChunkedGraph/blob/master/src/pychunkedgraph/multiprocessing.md) for how to use the multiprocessing tools implemented for the ChunkedGraph
 
 
 ## Credentials
@@ -30,7 +30,7 @@ The current version of the ChunkedGraph contains supervoxels from `gs://nkem/bas
 
 ### Building the graph
 
-[buildgraph.md](https://github.com/seung-lab/PyChunkedGraph/blob/master/src/pychunkedgraph/buildgraph.md) explains how to build a graph from scratch.
+[buildgraph.md](https://github.com/CAVEconnectome/PyChunkedGraph/blob/master/src/pychunkedgraph/buildgraph.md) explains how to build a graph from scratch.
 
 
 ### Initialization
