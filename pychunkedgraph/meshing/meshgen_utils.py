@@ -167,5 +167,8 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
         cg.meta.cv.mip_voxel_offset(mip),
         cg.meta.cv.mip_voxel_offset(mip) + cg.meta.cv.mip_volume_size(mip),
     )
-    ws_seg = get_local_segmentation(cg.meta, chunk_start, chunk_end).squeeze()
+    # Pass mip so that with multi-scale OCDBT we read from the correct
+    # coarser scale (smaller data, faster reads). Coordinates above are
+    # already computed at the target MIP level.
+    ws_seg = get_local_segmentation(cg.meta, chunk_start, chunk_end, mip=mip).squeeze()
     return ws_seg

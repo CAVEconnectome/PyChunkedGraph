@@ -20,6 +20,7 @@ from pychunkedgraph.graph import (
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
 from pychunkedgraph.graph.cutting_sv import split_supervoxel_helper
 from pychunkedgraph.graph.edges_sv import update_edges, add_new_edges
+from pychunkedgraph.graph.ocdbt import write_seg
 from pychunkedgraph.graph.utils import get_local_segmentation
 from pychunkedgraph.io.edges import get_chunk_edges
 
@@ -112,6 +113,13 @@ def _voxel_crop(bbs, bbe, bbs_, bbe_):
 
 
 def _parse_results(results, seg, bbs, bbe):
+    """Merge per-chunk split results into a single segmentation volume.
+
+    Applies new SV IDs from each chunk's split result to `seg` (in-place)
+    and builds the old→new mapping + label→new-id mapping.
+
+    Returns (seg, old_new_map, new_id_label_map).
+    """
     old_new_map = defaultdict(set)
     new_id_label_map = {}
     for result in results:
@@ -124,8 +132,7 @@ def _parse_results(results, seg, bbs, bbe):
                 new_id_label_map[new_id] = label
 
     assert np.all(seg.shape == bbe - bbs), f"{seg.shape} != {bbe - bbs}"
-    slices = tuple(slice(start, end) for start, end in zip(bbs, bbe)) + (slice(None),)
-    return seg, old_new_map, slices, new_id_label_map
+    return seg, old_new_map, new_id_label_map
 
 
 def split_supervoxel(
@@ -200,7 +207,7 @@ def split_supervoxel(
     )
 
     seg_cropped = seg[voxel_overlap_crop].copy()
-    new_seg, old_new_map, slices, new_id_label_map = _parse_results(
+    new_seg, old_new_map, new_id_label_map = _parse_results(
         results, seg_cropped, bbs, bbe
     )
     logger.note(
@@ -236,7 +243,7 @@ def split_supervoxel(
     rows = rows0 + rows1
 
     t0 = time.time()
-    cg.meta.ws_ocdbt[slices] = new_seg[..., np.newaxis]
+    write_seg(cg.meta, bbs, bbe, new_seg)
     cg.client.write(rows)
     logger.note(f"write seg + {len(rows)} rows ({time.time() - t0:.2f}s)")
     return old_new_map, edges_tuple

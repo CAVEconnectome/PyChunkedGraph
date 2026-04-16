@@ -153,15 +153,22 @@ def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = F
     return list(parents), skipped_nodes
 
 
-def get_local_segmentation(meta, bbox_start, bbox_end) -> np.ndarray:
-    result = None
+def get_local_segmentation(meta, bbox_start, bbox_end, mip: int = 0) -> np.ndarray:
+    """Read a segmentation region from OCDBT (or CloudVolume).
+
+    `bbox_start` and `bbox_end` must already be in the requested MIP level's
+    coordinate space — this function does not rescale them. Meshing computes
+    chunk bounds at the target MIP and passes them through directly; SV split
+    and coordinate lookup always use base resolution (mip=0).
+    """
     xL, yL, zL = bbox_start
     xH, yH, zH = bbox_end
     if meta.ocdbt_seg:
-        result = meta.ws_ocdbt[xL:xH, yL:yH, zL:zH].read().result()
-    else:
-        result = meta.cv[xL:xH, yL:yH, zL:zH]
-    return result
+        # mip > 0 reads from a coarser scale; saves bandwidth and is what
+        # meshing wants when it operates at a non-base MIP.
+        store = meta.ws_ocdbt if mip == 0 else meta.ws_ocdbt_scales[mip]
+        return store[xL:xH, yL:yH, zL:zH].read().result()
+    return meta.cv[xL:xH, yL:yH, zL:zH]
 
 
 def lookup_svs_from_seg(meta, coordinates):

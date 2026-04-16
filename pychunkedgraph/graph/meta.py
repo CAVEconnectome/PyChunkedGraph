@@ -62,12 +62,20 @@ class ChunkedGraphMeta:
         self._custom_data = custom_data
 
         self._ws_cv = None
-        self._ws_ocdbt = None
+        # Multi-scale OCDBT handles + per-scale resolutions, populated lazily
+        # from source's info JSON. ws_ocdbt returns scale 0 for backward
+        # compatibility; ws_ocdbt_scales exposes the full pyramid.
+        self._ws_ocdbt_scales = None
+        self._ws_ocdbt_resolutions = None
         self._layer_bounds_d = None
         self._layer_count = None
         self._bitmasks = None
         self._ocdbt_seg = None
-        self._ocdbt_path = None
+
+    @property
+    def graph_id(self):
+        assert self._graph_config.ID is not None, "graph_id required"
+        return self._graph_config.ID_PREFIX + self._graph_config.ID
 
     @property
     def graph_config(self):
@@ -110,22 +118,32 @@ class ChunkedGraphMeta:
         return self._ocdbt_seg
 
     @property
-    def ocdbt_path(self) -> bool:
-        if self._ocdbt_path is None:
-            self._ocdbt_path = self._custom_data.get("seg", {}).get(
-                "ocdbt_path", "ocdbt/base"
-            )
-        return self._ocdbt_path
+    def ws_ocdbt(self):
+        """Base scale (MIP 0) handle. Backward-compatible single-handle access."""
+        return self.ws_ocdbt_scales[0]
 
     @property
-    def ws_ocdbt(self):
-        assert self.ocdbt_seg, "make sure this pcg has segmentation in ocdbt format"
-        if self._ws_ocdbt:
-            return self._ws_ocdbt
+    def ws_ocdbt_scales(self):
+        """List of TensorStore handles, one per MIP level. Lazily initialized.
 
-        _, _ocdbt_seg = get_seg_source_and_destination_ocdbt(self.data_source.WATERSHED)
-        self._ws_ocdbt = _ocdbt_seg
-        return self._ws_ocdbt
+        Opens the CG's delta OCDBT via the kvstack-layered fork spec — reads
+        merge the shared base + this CG's edits, writes go to the delta.
+        """
+        assert self.ocdbt_seg, "make sure this pcg has segmentation in ocdbt format"
+        if self._ws_ocdbt_scales is None:
+            _, self._ws_ocdbt_scales, self._ws_ocdbt_resolutions = (
+                get_seg_source_and_destination_ocdbt(
+                    self.data_source.WATERSHED, self.graph_id
+                )
+            )
+        return self._ws_ocdbt_scales
+
+    @property
+    def ws_ocdbt_resolutions(self):
+        """Per-scale [x,y,z] resolutions (used to derive downsample factors)."""
+        # Trigger lazy init via ws_ocdbt_scales — both are populated together.
+        _ = self.ws_ocdbt_scales
+        return self._ws_ocdbt_resolutions
 
     @property
     def resolution(self):
@@ -278,7 +296,13 @@ class ChunkedGraphMeta:
                     "n_layers": self.layer_count,
                     "spatial_bit_masks": self.bitmasks,
                     "ocdbt_seg": self.ocdbt_seg,
-                    "ocdbt_path": self.ocdbt_path,
+                    # Per-CG delta OCDBT path. Neuroglancer must open this
+                    # via the kvstack spec from build_cg_ocdbt_spec() to see
+                    # both base + delta data. Opening it as plain OCDBT only
+                    # sees the delta.
+                    "ocdbt_path": (
+                        f"ocdbt/{self.graph_id}" if self._graph_config.ID else None
+                    ),
                 },
             }
         )
