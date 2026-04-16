@@ -16,6 +16,7 @@ class IngestionManager:
         config: IngestConfig,
         chunkedgraph_meta: ChunkedGraphMeta,
         ocdbt_seg: bool = False,
+        ocdbt_populate_base: bool = False,
         _from_pickle: bool = False,
     ):
         self._config = config
@@ -25,6 +26,7 @@ class IngestionManager:
         self._task_queues = {}
         self._from_pickle = _from_pickle
         self.ocdbt_seg = ocdbt_seg
+        self.ocdbt_populate_base = ocdbt_populate_base
 
         if not _from_pickle:
             # initiate redis and store serialized state
@@ -54,7 +56,12 @@ class IngestionManager:
         return self._redis
 
     def serialized(self, pickled=False):
-        params = {"config": self._config, "chunkedgraph_meta": self._chunkedgraph_meta}
+        params = {
+            "config": self._config,
+            "chunkedgraph_meta": self._chunkedgraph_meta,
+            "ocdbt_seg": self.ocdbt_seg,
+            "ocdbt_populate_base": self.ocdbt_populate_base,
+        }
         if pickled:
             return pickle.dumps(params)
         return params

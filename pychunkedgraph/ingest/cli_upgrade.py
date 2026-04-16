@@ -33,7 +33,12 @@ from .utils import (
     job_type_guard,
 )
 from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
-from ..graph.ocdbt import get_seg_source_and_destination_ocdbt
+from ..graph.ocdbt import (
+    base_exists,
+    create_base_ocdbt,
+    fork_base_manifest,
+    wipe_base_ocdbt,
+)
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 
@@ -65,9 +70,19 @@ def flush_redis():
     default=10,
     help="Distance threshold for SV split edge matching.",
 )
+@click.option(
+    "--reset-ocdbt",
+    is_flag=True,
+    help="Wipe base AND this CG's delta OCDBT, then recreate from scratch.",
+)
 @job_type_guard(group_name)
 def upgrade_graph(
-    graph_id: str, test: bool, ocdbt: bool, ocdbt_edges: bool, sv_split_threshold: int
+    graph_id: str,
+    test: bool,
+    ocdbt: bool,
+    ocdbt_edges: bool,
+    sv_split_threshold: int,
+    reset_ocdbt: bool,
 ):
     """
     Main upgrade command. Queues atomic tasks.
@@ -88,13 +103,21 @@ def upgrade_graph(
         cg = ChunkedGraph(graph_id=graph_id)
 
     if ocdbt:
+        ws = cg.meta.data_source.WATERSHED
         cg.meta.custom_data["seg"] = {
             "ocdbt": True,
             "sv_split_threshold": sv_split_threshold,
         }
         cg.update_meta(cg.meta, overwrite=True)
         logger.note(f"enabled ocdbt seg with sv_split_threshold={sv_split_threshold}")
-        get_seg_source_and_destination_ocdbt(cg.meta.data_source.WATERSHED, create=True)
+
+        if reset_ocdbt:
+            wipe_base_ocdbt(ws)
+
+        if not base_exists(ws):
+            create_base_ocdbt(ws)
+
+        fork_base_manifest(ws, graph_id, wipe_existing=reset_ocdbt)
     try:
         cg.client.create_column_family("4")
     except Exception:

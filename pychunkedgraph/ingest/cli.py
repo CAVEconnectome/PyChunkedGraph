@@ -25,7 +25,12 @@ from .utils import (
 from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
-from ..graph.ocdbt import get_seg_source_and_destination_ocdbt
+from ..graph.ocdbt import (
+    base_exists,
+    create_base_ocdbt,
+    fork_base_manifest,
+    wipe_base_ocdbt,
+)
 from ..utils.redis import get_redis_connection, keys as r_keys
 
 group_name = "ingest"
@@ -57,6 +62,11 @@ def flush_redis():
 )
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
 @click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
+@click.option(
+    "--reset-ocdbt",
+    is_flag=True,
+    help="Wipe base AND this CG's delta OCDBT, then recreate from scratch.",
+)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @job_type_guard(group_name)
 def ingest_graph(
@@ -66,6 +76,7 @@ def ingest_graph(
     sv_split_threshold: int,
     raw: bool,
     retry: bool,
+    reset_ocdbt: bool,
     test: bool,
 ):
     """
@@ -85,14 +96,30 @@ def ingest_graph(
     if not retry:
         cg.create()
 
+    needs_base = False
     if ocdbt:
+        ws = cg.meta.data_source.WATERSHED
         cg.meta.custom_data["seg"] = {
             "ocdbt": True,
             "sv_split_threshold": sv_split_threshold,
         }
         cg.update_meta(cg.meta, overwrite=True)
-        get_seg_source_and_destination_ocdbt(cg.meta.data_source.WATERSHED, create=True)
-    imanager = IngestionManager(ingest_config, meta, ocdbt_seg=ocdbt)
+
+        if reset_ocdbt:
+            wipe_base_ocdbt(ws)
+
+        needs_base = not base_exists(ws)
+        if needs_base:
+            create_base_ocdbt(ws)
+
+        fork_base_manifest(ws, graph_id, wipe_existing=retry or reset_ocdbt)
+
+    imanager = IngestionManager(
+        ingest_config,
+        meta,
+        ocdbt_seg=ocdbt,
+        ocdbt_populate_base=needs_base,
+    )
     enqueue_l2_tasks(imanager, create_atomic_chunk)
     os._exit(0)
 
