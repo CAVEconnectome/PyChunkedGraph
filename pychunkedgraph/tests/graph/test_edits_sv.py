@@ -10,7 +10,7 @@ from pychunkedgraph.graph.edits_sv import (
     _parse_results,
     copy_parents_and_add_lineage,
 )
-from pychunkedgraph.graph import basetypes
+from pychunkedgraph.graph import attributes, basetypes
 
 
 # ============================================================
@@ -60,7 +60,7 @@ class TestParseResults:
         label_id_map = {1: np.uint64(300), 2: np.uint64(301)}
         results = [(indices, old_values, new_values, label_id_map)]
 
-        updated_seg, old_new_map, slices, new_id_label_map = _parse_results(
+        updated_seg, old_new_map, new_id_label_map = _parse_results(
             results, seg, bbs, bbe
         )
         assert updated_seg[0, 0, 0] == 300
@@ -75,7 +75,7 @@ class TestParseResults:
         bbs = np.array([0, 0, 0])
         bbe = np.array([1, 1, 1])
         results = [None]
-        updated_seg, old_new_map, slices, new_id_label_map = _parse_results(
+        updated_seg, old_new_map, new_id_label_map = _parse_results(
             results, seg, bbs, bbe
         )
         assert updated_seg[0, 0, 0] == 100
@@ -100,7 +100,7 @@ class TestParseResults:
         )
         results = [result1, result2]
 
-        updated_seg, old_new_map, slices, new_id_label_map = _parse_results(
+        updated_seg, old_new_map, new_id_label_map = _parse_results(
             results, seg, bbs, bbe
         )
         assert updated_seg[0, 0, 0] == 300
@@ -122,7 +122,6 @@ class _FakeCell:
 
 class TestCopyParentsAndAddLineage:
     def _make_cg(self, parent_cells_map, children_cells_map=None):
-        from pychunkedgraph.graph import attributes
 
         cg = MagicMock()
         cg.client.read_nodes.side_effect = lambda node_ids, properties: (
@@ -231,7 +230,6 @@ class TestCopyParentsAndAddLineage:
         # Check that mutate_row was called with OperationID=99
         calls = cg.client.mutate_row.call_args_list
         op_id_found = False
-        from pychunkedgraph.graph import attributes
 
         for call in calls:
             val_dict = call[0][1] if len(call[0]) > 1 else call[1].get("val_dict", {})

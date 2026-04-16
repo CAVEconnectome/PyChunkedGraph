@@ -583,27 +583,33 @@ class TestOcdbtSeg:
             _ = meta.ws_ocdbt
 
     @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
-    def test_ws_ocdbt_returns_destination(self, mock_get_ocdbt):
-        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+    def test_ws_ocdbt_returns_base_scale(self, mock_get_ocdbt):
+        gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
 
         mock_src = MagicMock()
-        mock_dst = MagicMock()
-        mock_get_ocdbt.return_value = (mock_src, mock_dst)
+        mock_dst_base = MagicMock()
+        mock_dst_mip1 = MagicMock()
+        mock_get_ocdbt.return_value = (
+            [mock_src, MagicMock()],
+            [mock_dst_base, mock_dst_mip1],
+            [[4, 4, 40], [8, 8, 40]],
+        )
 
-        result = meta.ws_ocdbt
-        assert result is mock_dst
-        mock_get_ocdbt.assert_called_once_with("gs://bucket/ws")
+        assert meta.ws_ocdbt is mock_dst_base
+        assert meta.ws_ocdbt_scales == [mock_dst_base, mock_dst_mip1]
+        assert meta.ws_ocdbt_resolutions == [[4, 4, 40], [8, 8, 40]]
+        mock_get_ocdbt.assert_called_once_with("gs://bucket/ws", "test_graph")
 
     @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
     def test_ws_ocdbt_cached(self, mock_get_ocdbt):
-        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
 
         mock_dst = MagicMock()
-        mock_get_ocdbt.return_value = (MagicMock(), mock_dst)
+        mock_get_ocdbt.return_value = ([MagicMock()], [mock_dst], [[4, 4, 40]])
 
         result1 = meta.ws_ocdbt
         result2 = meta.ws_ocdbt
