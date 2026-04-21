@@ -244,6 +244,7 @@ numpy==2.4.2
     #   task-queue
     #   tensorstore
     #   tifffile
+    #   tinybrain
     #   zmesh
 opentelemetry-api==1.39.1
     # via
@@ -397,6 +398,8 @@ tensorstore==0.1.81
     # via -r requirements.in
 tifffile==2026.3.3
     # via scikit-image
+tinybrain==1.7.0
+    # via -r requirements.in
 tqdm==4.67.3
     # via
     #   cloud-files
