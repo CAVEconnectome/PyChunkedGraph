@@ -1,6 +1,7 @@
+import hashlib
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Union
-from typing import Sequence
+from typing import Sequence, Union
 from collections import defaultdict
 
 import networkx as nx
@@ -181,3 +182,116 @@ class IndefiniteRootLock:
                         future.result()
                     except Exception as e:
                         logger.warning(f"Failed to unlock root: {e}")
+
+
+def _downsample_block_lock_row_key(block_coord) -> bytes:
+    """Row key for one pyramid_block's downsample lock cell.
+
+    Hash-prefixed so spatially-clustered block coords — common when a
+    team edits the same region — scatter across bigtable tablets instead
+    of piling up in one lexicographic range, which would hot-spot a
+    single tablet under concurrent load.
+
+    26 bytes total:
+      - 2-byte blake2b hash of the packed coord (tablet distribution).
+      - 24 bytes of packed coord (big-endian uint64 per axis).
+    uint64 per axis tracks the existing node-id width and puts no cap on
+    the block grid. The full coord in the key guarantees uniqueness even
+    if two coords share the 2-byte hash prefix.
+    """
+    bx, by, bz = (int(c) for c in block_coord)
+    packed = (
+        bx.to_bytes(8, "big", signed=False)
+        + by.to_bytes(8, "big", signed=False)
+        + bz.to_bytes(8, "big", signed=False)
+    )
+    return hashlib.blake2b(packed, digest_size=2).digest() + packed
+
+
+class DownsampleBlockLock:
+    """Lock a set of pyramid_blocks for the lifetime of a downsample task.
+
+    The downsample worker holds one across read → tinybrain → write for
+    every block it touches. All-or-nothing: on partial acquisition we
+    release what we got and retry with backoff; on repeated failure we
+    raise so the pubsub message ends up un-acked and redelivered.
+
+    Uses `cg.client.lock_by_row_key` with hash-prefixed row keys — the
+    generic row-key lock primitive in kvdbclient — so these rows never
+    collide with node-id-keyed root locks even though both use the same
+    `Concurrency.Lock` column.
+    """
+
+    __slots__ = ["cg", "block_coords", "operation_id", "acquired_keys"]
+
+    # Retry budget for partial-acquire failures. Each attempt releases
+    # anything it got in the previous pass, then re-acquires from scratch.
+    _MAX_ACQUIRE_ATTEMPTS = 7
+    _ACQUIRE_BACKOFF_BASE_SEC = 0.5
+
+    def __init__(
+        self,
+        cg,
+        block_coords: Sequence,
+        operation_id: np.uint64,
+    ) -> None:
+        self.cg = cg
+        # Sort so every `__enter__` uses a consistent acquisition order
+        # across workers — reduces contention between workers whose block
+        # sets overlap. Sort is on the coord tuple (not the hashed row
+        # key) so the order is stable and debuggable.
+        self.block_coords = sorted(
+            (int(bx), int(by), int(bz)) for bx, by, bz in block_coords
+        )
+        self.operation_id = np.uint64(operation_id)
+        self.acquired_keys: list = []
+
+    def __enter__(self):
+        for attempt in range(self._MAX_ACQUIRE_ATTEMPTS):
+            self.acquired_keys = []
+            all_ok = True
+            for coord in self.block_coords:
+                row_key = _downsample_block_lock_row_key(coord)
+                if self.cg.client.lock_by_row_key(row_key, self.operation_id):
+                    self.acquired_keys.append(row_key)
+                else:
+                    all_ok = False
+                    break
+            if all_ok:
+                return self
+            self._release_acquired()
+            time.sleep(self._ACQUIRE_BACKOFF_BASE_SEC * (2**attempt))
+        raise exceptions.LockingError(
+            f"Could not acquire downsample block locks for coords "
+            f"{self.block_coords} after {self._MAX_ACQUIRE_ATTEMPTS} attempts"
+        )
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        self._release_acquired()
+
+    def _release_acquired(self):
+        if not self.acquired_keys:
+            return
+        max_workers = min(8, max(1, len(self.acquired_keys)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    self.cg.client.unlock_by_row_key, key, self.operation_id
+                )
+                for key in self.acquired_keys
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.warning(f"Failed to unlock downsample block: {e}")
+        self.acquired_keys = []
+
+    def renew(self) -> bool:
+        """Extend expiry on every held lock. Returns False if any failed."""
+        ok = True
+        for key in self.acquired_keys:
+            if not self.cg.client.renew_lock_by_row_key(key, self.operation_id):
+                logger.warning(f"Failed to renew downsample block lock {key!r}")
+                ok = False
+        return ok
