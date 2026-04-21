@@ -246,7 +246,7 @@ def split_supervoxel(
     write_seg(cg.meta, bbs, bbe, new_seg)
     cg.client.write(rows)
     logger.note(f"write seg + {len(rows)} rows ({time.time() - t0:.2f}s)")
-    return old_new_map, edges_tuple
+    return old_new_map, edges_tuple, (bbs, bbe)
 
 
 def copy_parents_and_add_lineage(

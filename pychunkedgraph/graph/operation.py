@@ -50,7 +50,9 @@ class GraphEditOperation(ABC):
         "do_sanity_check",
     ]
     Result = namedtuple(
-        "Result", ["operation_id", "new_root_ids", "new_lvl2_ids", "old_root_ids"]
+        "Result",
+        ["operation_id", "new_root_ids", "new_lvl2_ids", "old_root_ids", "seg_bbox"],
+        defaults=(None,),
     )
 
     def __init__(

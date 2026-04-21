@@ -2,6 +2,7 @@
 
 import json
 import os
+import pickle
 import time
 from datetime import datetime, timezone
 from functools import reduce
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import fastremap
 from flask import current_app, g, jsonify, make_response, request
+from messagingclient import MessagingClient
 from pytz import UTC
 
 from pychunkedgraph import __version__, get_logger
@@ -322,15 +324,13 @@ def publish_edit(
     is_priority=True,
     remesh: bool = True,
 ):
-    import pickle
-
-    from messagingclient import MessagingClient
-
+    downsample = bool(result.seg_bbox)
     attributes = {
         "table_id": table_id,
         "user_id": user_id,
         "remesh_priority": "true" if is_priority else "false",
         "remesh": "true" if remesh else "false",
+        "downsample": "true" if downsample else "false",
     }
     payload = {
         "operation_id": int(result.operation_id),
@@ -338,6 +338,13 @@ def publish_edit(
         "new_root_ids": result.new_root_ids.tolist(),
         "old_root_ids": result.old_root_ids.tolist(),
     }
+    if downsample:
+        # Each entry is the base-resolution bbox of one supervoxel split's
+        # writes. Kept as a list (not merged) so the worker only rewrites
+        # tiles whose base footprint actually changed.
+        payload["seg_bboxes"] = [
+            [bbs.tolist(), bbe.tolist()] for bbs, bbe in result.seg_bbox
+        ]
 
     exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
     c = MessagingClient()
@@ -471,10 +478,17 @@ def split_with_sv_splits(cg, data, user_id="test", mincut=True):
         overlap_mask = np.isin(sources_remapped, sinks_remapped)
         logger.note(f"overlapping reps: {np.unique(sources_remapped[overlap_mask])}")
         t1 = time.time()
+        # Collect the base-resolution bbox for each SV split so the downsample
+        # worker only re-derives coarser mips for regions that actually changed.
+        # The list is kept as-is (not merged into a single envelope) because
+        # merging overlapping-but-disjoint bboxes would include corner regions
+        # that no split touched — the worker would then re-write unchanged
+        # tiles, inflating the OCDBT delta store.
+        seg_bboxes = []
         for rep in np.unique(sources_remapped[overlap_mask]):
             _mask0 = sources_remapped == rep
             _mask1 = sinks_remapped == rep
-            split_supervoxel(
+            _, _, seg_bbox = split_supervoxel(
                 cg,
                 sources[_mask0][0],
                 source_coords[_mask0],
@@ -482,6 +496,7 @@ def split_with_sv_splits(cg, data, user_id="test", mincut=True):
                 e.operation_id,
                 sv_remapping=e.sv_remapping,
             )
+            seg_bboxes.append(seg_bbox)
         logger.note(f"sv splits done ({time.time() - t1:.2f}s)")
 
         sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
@@ -509,6 +524,7 @@ def split_with_sv_splits(cg, data, user_id="test", mincut=True):
                 "Try placing source and sink points farther apart."
             ) from e2
         logger.note(f"remove_edges after sv split ({time.time() - t1:.2f}s)")
+        ret = ret._replace(seg_bbox=seg_bboxes)
     return ret
 
 
