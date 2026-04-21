@@ -65,11 +65,6 @@ def _schema_from_src(src_handle):
     )
 
 
-# ---------------------------------------------------------------------------
-# Base OCDBT (shared, immutable after ingest)
-# ---------------------------------------------------------------------------
-
-
 def _ensure_trailing_slash(path):
     """Ensure kvstore paths end with / so they're treated as directories."""
     return path if path.endswith("/") else path + "/"
@@ -156,11 +151,6 @@ def open_base_ocdbt(ws_path: str):
         src_list.append(src_i)
         dst_list.append(dst_i)
     return src_list, dst_list, resolutions
-
-
-# ---------------------------------------------------------------------------
-# Per-CG delta (fork of the base)
-# ---------------------------------------------------------------------------
 
 
 def build_cg_ocdbt_spec(ws_path: str, graph_id: str) -> dict:
@@ -409,21 +399,19 @@ def propagate_to_coarser_scales(dst_scales, resolutions, base_slices):
 
 
 def write_seg(meta, bbs, bbe, data):
-    """Write segmentation at base scale and propagate to coarser scales.
+    """Write segmentation at base scale only.
 
-    Single entry point for all SV-split-time segmentation writes. Builds
-    the tensorstore slices from the bounding box and adds the channel
-    dimension, so callers just pass the 3D bbox + 3D data.
+    Coarser MIP levels are produced asynchronously by the downsample worker,
+    which consumes a pubsub message published by `publish_edit` after this
+    call returns. PCG itself only reads the base scale; viewers
+    (Neuroglancer) consume the coarser scales, and don't need them
+    synchronously with the edit.
 
     Args:
-        meta: ChunkedGraphMeta with ws_ocdbt_scales and ws_ocdbt_resolutions.
+        meta: ChunkedGraphMeta with ws_ocdbt (base-scale handle).
         bbs: (3,) array — start of the region in base-resolution voxels.
         bbe: (3,) array — end of the region in base-resolution voxels.
         data: 3D numpy array of new segmentation IDs.
     """
     slices = tuple(slice(int(s), int(e)) for s, e in zip(bbs, bbe))
     meta.ws_ocdbt[slices + (slice(None),)] = data[..., np.newaxis]
-    if len(meta.ws_ocdbt_scales) > 1:
-        propagate_to_coarser_scales(
-            meta.ws_ocdbt_scales, meta.ws_ocdbt_resolutions, slices
-        )

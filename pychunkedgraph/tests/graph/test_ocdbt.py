@@ -399,8 +399,9 @@ class TestPropagateToCoarserScales:
 
 
 class TestWriteSeg:
-    def test_writes_base_and_propagates(self, local_ocdbt):
-        """`write_seg` writes to base scale AND propagates to all coarser scales."""
+    def test_writes_base_only(self, local_ocdbt):
+        """`write_seg` writes to base scale; coarser scales are untouched
+        (propagation is now the downsample worker's job)."""
         scales = local_ocdbt["scales"]
         res = local_ocdbt["resolutions"]
         meta = MagicMock()
@@ -413,12 +414,12 @@ class TestWriteSeg:
 
         # Base scale: written region has label 55.
         assert (scales[0][0:16, 0:16, 0:16, :].read().result() == 55).all()
-        # Coarser scales: propagated.
-        assert (scales[1][0:8, 0:8, 0:16, :].read().result() == 55).all()
-        assert (scales[2][0:4, 0:4, 0:16, :].read().result() == 55).all()
+        # Coarser scales: unchanged (still empty/zero — write_seg does not touch them).
+        assert (scales[1][0:8, 0:8, 0:16, :].read().result() == 0).all()
+        assert (scales[2][0:4, 0:4, 0:16, :].read().result() == 0).all()
 
-    def test_single_scale_skips_propagation(self, local_ocdbt):
-        """With only one scale in the list, propagation is a no-op (no IndexError)."""
+    def test_single_scale(self, local_ocdbt):
+        """Single-scale setup still works (write_seg only touches base)."""
         meta = MagicMock()
         meta.ws_ocdbt = local_ocdbt["scales"][0]
         meta.ws_ocdbt_scales = [local_ocdbt["scales"][0]]
