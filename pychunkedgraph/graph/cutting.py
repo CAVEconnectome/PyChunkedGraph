@@ -5,7 +5,8 @@ import time
 import graph_tool
 import graph_tool.flow
 
-from typing import Tuple
+from dataclasses import dataclass
+from typing import Tuple, Union
 from typing import Sequence
 from typing import Iterable
 
@@ -17,6 +18,40 @@ from .exceptions import PreconditionError, SupervoxelSplitRequiredError
 from .exceptions import PostconditionError
 
 DEBUG_MODE = False
+
+
+@dataclass
+class Cut:
+    """Multicut produced a clean partition — these SV-pair edges are to be cut."""
+
+    atomic_edges: np.ndarray  # shape (N, 2)
+
+
+@dataclass
+class PreviewCut:
+    """Multicut in preview mode — connected components after the proposed cut.
+
+    `illegal_split` flags cases where the cut isolates source or sink.
+    """
+
+    supervoxel_ccs: list
+    illegal_split: bool
+
+
+@dataclass
+class SvSplitRequired:
+    """Multicut could not partition without first splitting a supervoxel.
+
+    Carries the cross-chunk-representative remapping the caller needs to
+    run the actual SV split. Returned (not raised) from run_multicut; the
+    SupervoxelSplitRequiredError that surfaces this condition is caught
+    inside run_multicut and never escapes as control flow.
+    """
+
+    sv_remapping: dict  # old_sv_id -> rep_sv_id
+
+
+MulticutResult = Union[Cut, PreviewCut, SvSplitRequired]
 
 
 class IsolatingCutException(Exception):
@@ -668,21 +703,38 @@ def run_multicut(
     path_augment: bool = True,
     disallow_isolating_cut: bool = True,
     sv_split_supported: bool = False,
-):
-    local_mincut_graph = LocalMincutGraph(
-        edges.get_pairs(),
-        edges.affinities,
-        source_ids,
-        sink_ids,
-        split_preview,
-        path_augment,
-        disallow_isolating_cut=disallow_isolating_cut,
-        sv_split_supported=sv_split_supported,
-    )
-    atomic_edges = local_mincut_graph.compute_mincut()
-    if len(atomic_edges) == 0:
+) -> MulticutResult:
+    """Run the multicut and return either the cut edges or an SV-split request.
+
+    When `sv_split_supported=True`, the "source and sink share a cross-chunk
+    rep" condition is returned as `SvSplitRequired` rather than raised —
+    `SupervoxelSplitRequiredError` is an implementation detail of
+    `LocalMincutGraph` unwinding, caught at this boundary so it never
+    drives control flow in callers.
+    """
+    try:
+        local_mincut_graph = LocalMincutGraph(
+            edges.get_pairs(),
+            edges.affinities,
+            source_ids,
+            sink_ids,
+            split_preview,
+            path_augment,
+            disallow_isolating_cut=disallow_isolating_cut,
+            sv_split_supported=sv_split_supported,
+        )
+        mincut_output = local_mincut_graph.compute_mincut()
+    except SupervoxelSplitRequiredError as err:
+        return SvSplitRequired(err.sv_remapping)
+
+    if split_preview:
+        # compute_mincut returns (ccs, illegal_split) in preview mode.
+        supervoxel_ccs, illegal_split = mincut_output
+        return PreviewCut(supervoxel_ccs, illegal_split)
+
+    if len(mincut_output) == 0:
         raise PostconditionError(f"Mincut failed. Try with a different set of points.")
-    return atomic_edges
+    return Cut(mincut_output)
 
 
 def run_split_preview(
@@ -713,7 +765,7 @@ def run_split_preview(
     mask0 = np.isin(edges.node_ids1, supervoxels)
     mask1 = np.isin(edges.node_ids2, supervoxels)
     edges = edges[mask0 & mask1]
-    edges_to_remove, illegal_split = run_multicut(
+    result = run_multicut(
         edges,
         source_ids,
         sink_ids,
@@ -722,8 +774,14 @@ def run_split_preview(
         disallow_isolating_cut=disallow_isolating_cut,
         sv_split_supported=cg.meta.ocdbt_seg,
     )
+    if isinstance(result, SvSplitRequired):
+        # Preview callers can't perform an SV split; surface as a precondition.
+        raise PreconditionError(
+            "Supervoxel split required to cut these source/sink points; "
+            "preview is not available until an edit is applied."
+        )
 
-    if len(edges_to_remove) == 0:
+    assert isinstance(result, PreviewCut), f"unexpected preview result type: {result!r}"
+    if len(result.supervoxel_ccs) == 0:
         raise PostconditionError("Mincut could not find any edges to remove.")
-
-    return edges_to_remove, illegal_split
+    return result.supervoxel_ccs, result.illegal_split

@@ -2,8 +2,7 @@ import numpy as np
 import pytest
 
 from ...graph.edges import Edges
-from ...graph import exceptions
-from ...graph.cutting import run_multicut
+from ...graph.cutting import Cut, SvSplitRequired, run_multicut
 
 
 class TestGraphMultiCut:
@@ -25,13 +24,15 @@ class TestGraphMultiCut:
         source_ids = np.array([1, 2], dtype=np.uint64)
         sink_ids = np.array([5, 6], dtype=np.uint64)
 
-        cut_edges = run_multicut(
+        result = run_multicut(
             edges,
             source_ids,
             sink_ids,
             path_augment=False,
             disallow_isolating_cut=False,
         )
+        assert isinstance(result, Cut)
+        cut_edges = result.atomic_edges
         assert cut_edges.shape[0] > 0
 
         # Verify the cut actually separates sources from sinks
@@ -64,14 +65,19 @@ class TestGraphMultiCut:
         edges = Edges(
             sv_edges[:, 0], sv_edges[:, 1], affinities=sv_affinity, areas=sv_area
         )
-        cut_edges_aug = run_multicut(edges, sv_sources, sv_sinks, path_augment=True)
-        assert cut_edges_aug.shape[0] == 350
+        result = run_multicut(edges, sv_sources, sv_sinks, path_augment=True)
+        assert isinstance(result, Cut)
+        assert result.atomic_edges.shape[0] == 350
 
-        with pytest.raises(exceptions.SupervoxelSplitRequiredError):
-            run_multicut(
-                edges,
-                sv_sources,
-                sv_sinks,
-                path_augment=False,
-                sv_split_supported=True,
-            )
+        # Without path augmentation on this fixture, source/sink share a
+        # cross-chunk representative — returned as SvSplitRequired when
+        # sv_split_supported=True (no exception escapes run_multicut).
+        sv_result = run_multicut(
+            edges,
+            sv_sources,
+            sv_sinks,
+            path_augment=False,
+            sv_split_supported=True,
+        )
+        assert isinstance(sv_result, SvSplitRequired)
+        assert sv_result.sv_remapping  # non-empty mapping
