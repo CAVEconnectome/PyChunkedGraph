@@ -1,4 +1,6 @@
+import threading
 from functools import reduce
+from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -109,3 +111,44 @@ def get_layer_chunk_bounds(
         layer_bounds = atomic_chunk_bounds / (2 ** (layer - 2))
         layer_bounds_d[layer] = np.ceil(layer_bounds).astype(int)
     return layer_bounds_d
+
+
+class RowKeyLockRegistry:
+    """Thread-safe in-memory stand-in for kvdbclient's row-key lock API.
+
+    Matches the `cg.client.lock_by_row_key` / `unlock_by_row_key` /
+    `renew_lock_by_row_key` surface so row-key-based lock primitives
+    (DownsampleBlockLock, L2ChunkLock, …) can be exercised in unit
+    tests without running a bigtable emulator.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._held = {}
+
+    def lock_by_row_key(self, row_key, operation_id):
+        with self._lock:
+            if row_key in self._held:
+                return False
+            self._held[row_key] = operation_id
+            return True
+
+    def unlock_by_row_key(self, row_key, operation_id):
+        with self._lock:
+            if self._held.get(row_key) == operation_id:
+                del self._held[row_key]
+                return True
+            return False
+
+    def renew_lock_by_row_key(self, row_key, operation_id):
+        with self._lock:
+            return self._held.get(row_key) == operation_id
+
+
+def make_cg_with_row_key_lock_registry(registry: RowKeyLockRegistry):
+    """Attach a `RowKeyLockRegistry` to a `MagicMock` cg.client."""
+    cg = MagicMock()
+    cg.client.lock_by_row_key = registry.lock_by_row_key
+    cg.client.unlock_by_row_key = registry.unlock_by_row_key
+    cg.client.renew_lock_by_row_key = registry.renew_lock_by_row_key
+    return cg

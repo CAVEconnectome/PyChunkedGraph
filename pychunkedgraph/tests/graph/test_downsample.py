@@ -5,7 +5,6 @@ import tempfile
 import threading
 import time
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -17,6 +16,10 @@ from pychunkedgraph.graph.locks import (
     _downsample_block_lock_row_key,
 )
 from pychunkedgraph.graph import exceptions
+from pychunkedgraph.tests.helpers import (
+    RowKeyLockRegistry,
+    make_cg_with_row_key_lock_registry,
+)
 
 
 @pytest.fixture
@@ -229,56 +232,18 @@ class TestDownsampleBlockRowKey:
         assert len(prefixes) > 32
 
 
-class _LockRegistry:
-    """In-memory replacement for the kvdbclient row-key lock primitives.
-
-    Tracks which row keys are held by which operation_id so tests can
-    exercise contention without touching bigtable.
-    """
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._held = {}  # row_key -> operation_id
-
-    def lock_by_row_key(self, row_key, operation_id):
-        with self._lock:
-            if row_key in self._held:
-                return False
-            self._held[row_key] = operation_id
-            return True
-
-    def unlock_by_row_key(self, row_key, operation_id):
-        with self._lock:
-            if self._held.get(row_key) == operation_id:
-                del self._held[row_key]
-                return True
-            return False
-
-    def renew_lock_by_row_key(self, row_key, operation_id):
-        with self._lock:
-            return self._held.get(row_key) == operation_id
-
-
-def _make_cg_with_registry(registry):
-    cg = MagicMock()
-    cg.client.lock_by_row_key = registry.lock_by_row_key
-    cg.client.unlock_by_row_key = registry.unlock_by_row_key
-    cg.client.renew_lock_by_row_key = registry.renew_lock_by_row_key
-    return cg
-
-
 class TestDownsampleBlockLock:
     def test_acquire_and_release(self):
-        registry = _LockRegistry()
-        cg = _make_cg_with_registry(registry)
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
         with DownsampleBlockLock(cg, [(0, 0, 0), (1, 0, 0)], np.uint64(42)):
             assert len(registry._held) == 2
         assert registry._held == {}
 
     def test_non_overlapping_concurrent(self):
         """Two locks on disjoint block sets can coexist."""
-        registry = _LockRegistry()
-        cg = _make_cg_with_registry(registry)
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
         l1 = DownsampleBlockLock(cg, [(0, 0, 0)], np.uint64(1))
         l2 = DownsampleBlockLock(cg, [(5, 5, 5)], np.uint64(2))
         l1.__enter__()
@@ -293,8 +258,8 @@ class TestDownsampleBlockLock:
         # Short backoff so the waiting thread retries quickly after release.
         monkeypatch.setattr(DownsampleBlockLock, "_ACQUIRE_BACKOFF_BASE_SEC", 0.05)
 
-        registry = _LockRegistry()
-        cg = _make_cg_with_registry(registry)
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
 
         l1 = DownsampleBlockLock(cg, [(0, 0, 0)], np.uint64(1))
         l1.__enter__()
@@ -328,13 +293,13 @@ class TestDownsampleBlockLock:
         monkeypatch.setattr(DownsampleBlockLock, "_MAX_ACQUIRE_ATTEMPTS", 2)
         monkeypatch.setattr(DownsampleBlockLock, "_ACQUIRE_BACKOFF_BASE_SEC", 0.01)
 
-        registry = _LockRegistry()
+        registry = RowKeyLockRegistry()
         # Pre-hold (1,0,0) so the second coord always fails.
         registry.lock_by_row_key(
             _downsample_block_lock_row_key((1, 0, 0)), np.uint64(99)
         )
 
-        cg = _make_cg_with_registry(registry)
+        cg = make_cg_with_row_key_lock_registry(registry)
         lock = DownsampleBlockLock(cg, [(0, 0, 0), (1, 0, 0)], np.uint64(1))
         with pytest.raises(exceptions.LockingError):
             lock.__enter__()

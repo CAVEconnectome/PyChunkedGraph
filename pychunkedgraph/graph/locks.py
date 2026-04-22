@@ -295,3 +295,110 @@ class DownsampleBlockLock:
                 logger.warning(f"Failed to renew downsample block lock {key!r}")
                 ok = False
         return ok
+
+
+def _l2_chunk_lock_row_key(chunk_id) -> bytes:
+    """Row key for one L2 chunk's spatial lock cell.
+
+    Hash-prefixed so spatially-clustered chunk IDs scatter across
+    bigtable tablets instead of piling up in one lexicographic range,
+    which would hot-spot a single tablet under concurrent load.
+
+    10 bytes total:
+      - 2-byte blake2b hash of the chunk_id (tablet distribution).
+      - 8 bytes of big-endian uint64 chunk_id.
+    chunk_id already encodes layer+xyz in its bits, so the full key is
+    unique per L2 chunk.
+    """
+    packed = int(chunk_id).to_bytes(8, "big", signed=False)
+    return hashlib.blake2b(packed, digest_size=2).digest() + packed
+
+
+class L2ChunkLock:
+    """Lock a set of L2 chunks to serialize SV splits that touch them.
+
+    Closes the cross-root spatial race: two SV splits on overlapping L2
+    chunks but distinct roots acquire disjoint root-lock sets and would
+    otherwise race on seg state. This lock is held across the
+    `split_supervoxel` loop (seg write + SV-level hierarchy row write)
+    so the pair commits atomically.
+
+    All-or-nothing: on partial acquisition we release what we got and
+    retry with backoff; on repeated failure we raise `LockingError`.
+
+    Uses `cg.client.lock_by_row_key` — the generic row-key lock in
+    kvdbclient — with a row-key namespace distinct from root and
+    downsample block locks (all three share `attributes.Concurrency.Lock`
+    under the hood; the row key disambiguates).
+    """
+
+    __slots__ = ["cg", "chunk_ids", "operation_id", "acquired_keys"]
+
+    # Retry budget for partial-acquire failures. Each attempt releases
+    # anything it got in the previous pass, then re-acquires from scratch.
+    _MAX_ACQUIRE_ATTEMPTS = 7
+    _ACQUIRE_BACKOFF_BASE_SEC = 0.5
+
+    def __init__(
+        self,
+        cg,
+        chunk_ids: Sequence[np.uint64],
+        operation_id: np.uint64,
+    ) -> None:
+        self.cg = cg
+        # Sort so every `__enter__` uses a consistent acquisition order
+        # across workers — reduces contention when overlapping lock sets
+        # would otherwise race AB/BA.
+        self.chunk_ids = sorted(int(c) for c in chunk_ids)
+        self.operation_id = np.uint64(operation_id)
+        self.acquired_keys: list = []
+
+    def __enter__(self):
+        for attempt in range(self._MAX_ACQUIRE_ATTEMPTS):
+            self.acquired_keys = []
+            all_ok = True
+            for chunk_id in self.chunk_ids:
+                row_key = _l2_chunk_lock_row_key(chunk_id)
+                if self.cg.client.lock_by_row_key(row_key, self.operation_id):
+                    self.acquired_keys.append(row_key)
+                else:
+                    all_ok = False
+                    break
+            if all_ok:
+                return self
+            self._release_acquired()
+            time.sleep(self._ACQUIRE_BACKOFF_BASE_SEC * (2**attempt))
+        raise exceptions.LockingError(
+            f"Could not acquire L2 chunk locks for chunks {self.chunk_ids} "
+            f"after {self._MAX_ACQUIRE_ATTEMPTS} attempts"
+        )
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        self._release_acquired()
+
+    def _release_acquired(self):
+        if not self.acquired_keys:
+            return
+        max_workers = min(8, max(1, len(self.acquired_keys)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    self.cg.client.unlock_by_row_key, key, self.operation_id
+                )
+                for key in self.acquired_keys
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.warning(f"Failed to unlock L2 chunk: {e}")
+        self.acquired_keys = []
+
+    def renew(self) -> bool:
+        """Extend expiry on every held lock. Returns False if any failed."""
+        ok = True
+        for key in self.acquired_keys:
+            if not self.cg.client.renew_lock_by_row_key(key, self.operation_id):
+                logger.warning(f"Failed to renew L2 chunk lock {key!r}")
+                ok = False
+        return ok

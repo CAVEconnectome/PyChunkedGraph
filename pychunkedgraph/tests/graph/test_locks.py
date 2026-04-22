@@ -1,10 +1,19 @@
+import threading
+import time
 from time import sleep
 from datetime import datetime, timedelta, UTC
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import (
+    RowKeyLockRegistry,
+    create_chunk,
+    make_cg_with_row_key_lock_registry,
+    to_label,
+)
+from ...graph import exceptions
+from ...graph.locks import L2ChunkLock, _l2_chunk_lock_row_key
 from ...graph.lineage import get_future_root_ids
 from ...ingest.create.parent_layer import add_parent_chunk
 
@@ -750,3 +759,91 @@ class TestRootLockContextManager:
                 assert lock.lock_acquired is True
 
         cg.client.unlock_root.assert_called_once()
+
+
+class TestL2ChunkLockRowKey:
+    def test_length(self):
+        assert len(_l2_chunk_lock_row_key(0)) == 10
+
+    def test_deterministic(self):
+        assert _l2_chunk_lock_row_key(0xDEADBEEF) == _l2_chunk_lock_row_key(0xDEADBEEF)
+
+    def test_distinct_chunks_distinct_keys(self):
+        assert _l2_chunk_lock_row_key(42) != _l2_chunk_lock_row_key(43)
+
+    def test_hash_prefix_scatters(self):
+        """Adjacent chunk IDs should not cluster in one first-byte prefix —
+        that's the whole point of the hash prefix."""
+        prefixes = {_l2_chunk_lock_row_key(i)[0] for i in range(256)}
+        # blake2b over 8 bytes of changing input distributes uniformly.
+        assert len(prefixes) > 128
+
+
+class TestL2ChunkLock:
+    def test_acquire_and_release(self):
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
+        with L2ChunkLock(cg, [np.uint64(1), np.uint64(2)], np.uint64(42)):
+            assert len(registry._held) == 2
+        assert registry._held == {}
+
+    def test_non_overlapping_concurrent(self):
+        """Disjoint chunk sets can coexist — no shared row keys."""
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
+        l1 = L2ChunkLock(cg, [np.uint64(1)], np.uint64(1))
+        l2 = L2ChunkLock(cg, [np.uint64(5)], np.uint64(2))
+        l1.__enter__()
+        l2.__enter__()
+        assert len(registry._held) == 2
+        l1.__exit__(None, None, None)
+        l2.__exit__(None, None, None)
+        assert registry._held == {}
+
+    def test_overlapping_contends(self, monkeypatch):
+        """Two overlapping acquisitions serialize: second blocks until first releases."""
+        monkeypatch.setattr(L2ChunkLock, "_ACQUIRE_BACKOFF_BASE_SEC", 0.05)
+
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
+
+        l1 = L2ChunkLock(cg, [np.uint64(7)], np.uint64(1))
+        l1.__enter__()
+
+        second_entered = threading.Event()
+        second_failed = threading.Event()
+
+        def second():
+            lock = L2ChunkLock(cg, [np.uint64(7)], np.uint64(2))
+            try:
+                lock.__enter__()
+                second_entered.set()
+                lock.__exit__(None, None, None)
+            except exceptions.LockingError:
+                second_failed.set()
+
+        t = threading.Thread(target=second)
+        t.start()
+        time.sleep(0.2)
+        assert not second_entered.is_set()
+        l1.__exit__(None, None, None)
+        t.join(timeout=2.0)
+        assert second_entered.is_set()
+        assert not second_failed.is_set()
+        assert registry._held == {}
+
+    def test_partial_acquire_released_on_failure(self, monkeypatch):
+        """If any chunk in the set fails to lock, prior ones are released."""
+        monkeypatch.setattr(L2ChunkLock, "_MAX_ACQUIRE_ATTEMPTS", 2)
+        monkeypatch.setattr(L2ChunkLock, "_ACQUIRE_BACKOFF_BASE_SEC", 0.01)
+
+        registry = RowKeyLockRegistry()
+        registry.lock_by_row_key(_l2_chunk_lock_row_key(np.uint64(2)), np.uint64(99))
+
+        cg = make_cg_with_row_key_lock_registry(registry)
+        lock = L2ChunkLock(cg, [np.uint64(1), np.uint64(2)], np.uint64(1))
+        with pytest.raises(exceptions.LockingError):
+            lock.__enter__()
+        # Only chunk 2 remains held, by the pre-existing holder.
+        assert len(registry._held) == 1
+        assert next(iter(registry._held)) == _l2_chunk_lock_row_key(np.uint64(2))
