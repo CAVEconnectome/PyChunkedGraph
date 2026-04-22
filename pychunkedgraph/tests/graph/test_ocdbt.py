@@ -398,10 +398,11 @@ class TestPropagateToCoarserScales:
         assert (scales[2][0:4, 0:4, 0:16, :].read().result() == 2).all()
 
 
-class TestWriteSeg:
-    def test_writes_base_only(self, local_ocdbt):
-        """`write_seg` writes to base scale; coarser scales are untouched
-        (propagation is now the downsample worker's job)."""
+class TestWriteSegChunks:
+    def test_writes_only_change_chunks(self, local_ocdbt):
+        """Only chunks listed in `change_chunks` receive writes; sibling
+        chunks in the same envelope stay untouched (OCDBT delta stays
+        proportional to the actual SV change, not the envelope)."""
         scales = local_ocdbt["scales"]
         res = local_ocdbt["resolutions"]
         meta = MagicMock()
@@ -409,25 +410,54 @@ class TestWriteSeg:
         meta.ws_ocdbt_scales = scales
         meta.ws_ocdbt_resolutions = res
 
-        data = np.full((16, 16, 16), 55, dtype=np.uint64)
-        ocdbt_mod.write_seg(meta, [0, 0, 0], [16, 16, 16], data)
+        # new_seg covers a two-chunk envelope [0..32] along x at base scale
+        # (chunk_size = 32). Only the first chunk [0..32, 0..32, 0..32] is
+        # listed as a change chunk; the second chunk should stay zero.
+        new_seg = np.zeros((64, 32, 32), dtype=np.uint64)
+        new_seg[0:32, 0:32, 0:32] = 55
+        # second chunk gets some filler data in-memory, but it's NOT in
+        # change_chunks so it should never hit storage.
+        new_seg[32:64, 0:32, 0:32] = 77
 
-        # Base scale: written region has label 55.
-        assert (scales[0][0:16, 0:16, 0:16, :].read().result() == 55).all()
-        # Coarser scales: unchanged (still empty/zero — write_seg does not touch them).
-        assert (scales[1][0:8, 0:8, 0:16, :].read().result() == 0).all()
-        assert (scales[2][0:4, 0:4, 0:16, :].read().result() == 0).all()
+        change_chunks = [
+            (
+                (0, 0, 0),
+                np.array([[0, 0, 0], [32, 32, 32]], dtype=int),
+            )
+        ]
+        ocdbt_mod.write_seg_chunks(meta, change_chunks, new_seg, np.array([0, 0, 0]))
 
-    def test_single_scale(self, local_ocdbt):
-        """Single-scale setup still works (write_seg only touches base)."""
+        # Written chunk has label 55.
+        assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 55).all()
+        # Non-change chunk stays zero (skipped).
+        assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 0).all()
+        # Coarser scales untouched — downsample worker's job.
+        assert (scales[1][0:16, 0:16, 0:32, :].read().result() == 0).all()
+        assert (scales[2][0:8, 0:8, 0:32, :].read().result() == 0).all()
+
+    def test_new_seg_origin_offset(self, local_ocdbt):
+        """`new_seg_origin` correctly slices the right region of new_seg
+        when the envelope doesn't start at (0, 0, 0)."""
+        scales = local_ocdbt["scales"]
+        res = local_ocdbt["resolutions"]
         meta = MagicMock()
-        meta.ws_ocdbt = local_ocdbt["scales"][0]
-        meta.ws_ocdbt_scales = [local_ocdbt["scales"][0]]
-        meta.ws_ocdbt_resolutions = [local_ocdbt["resolutions"][0]]
+        meta.ws_ocdbt = scales[0]
+        meta.ws_ocdbt_scales = scales
+        meta.ws_ocdbt_resolutions = res
 
-        data = np.full((8, 8, 8), 99, dtype=np.uint64)
-        ocdbt_mod.write_seg(meta, [0, 0, 0], [8, 8, 8], data)
-        assert (meta.ws_ocdbt[0:8, 0:8, 0:8, :].read().result() == 99).all()
+        # Envelope [32..64] along x, new_seg shape (32, 32, 32).
+        new_seg = np.full((32, 32, 32), 99, dtype=np.uint64)
+        change_chunks = [
+            (
+                (1, 0, 0),
+                np.array([[32, 0, 0], [64, 32, 32]], dtype=int),
+            )
+        ]
+        ocdbt_mod.write_seg_chunks(meta, change_chunks, new_seg, np.array([32, 0, 0]))
+
+        assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 99).all()
+        # First chunk (outside the envelope) stays zero.
+        assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 0).all()
 
 
 class TestMetaToForkEndToEnd:

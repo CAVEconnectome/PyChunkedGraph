@@ -398,20 +398,47 @@ def propagate_to_coarser_scales(dst_scales, resolutions, base_slices):
         prev_slices = target_slices
 
 
-def write_seg(meta, bbs, bbe, data):
-    """Write segmentation at base scale only.
+def write_seg_chunks(meta, change_chunks, new_seg, new_seg_origin):
+    """Write only the L2 chunks that actually received new SV IDs.
 
-    Coarser MIP levels are produced asynchronously by the downsample worker,
-    which consumes a pubsub message published by `publish_edit` after this
-    call returns. PCG itself only reads the base scale; viewers
-    (Neuroglancer) consume the coarser scales, and don't need them
-    synchronously with the edit.
+    An SV split produces `new_seg` (shape `bbe - bbs`) covering the full
+    rep envelope — but only some of its chunks contain split fragments.
+    The rest (gap chunks between cross-chunk-connected pieces, and the
+    neighbor chunks the overlap read touches) are identical to what's on
+    disk. Writing those would bloat OCDBT's append-only delta with
+    unchanged bytes.
+
+    Each per-chunk write is fired as an async tensorstore future and
+    awaited in aggregate — wall-time is comparable to a single slab
+    write (tensorstore parallelizes internal OCDBT-chunk writes anyway),
+    but gap and neighbor chunks are never touched.
+
+    Coarser MIP levels stay the downsample worker's job — it picks up
+    the pubsub message `publish_edit` sends after this returns.
 
     Args:
-        meta: ChunkedGraphMeta with ws_ocdbt (base-scale handle).
-        bbs: (3,) array — start of the region in base-resolution voxels.
-        bbe: (3,) array — end of the region in base-resolution voxels.
-        data: 3D numpy array of new segmentation IDs.
+        meta: ChunkedGraphMeta with `ws_ocdbt` (base-scale handle).
+        change_chunks: iterable of `(chunk_coord, chunk_bbox)` pairs;
+            `chunk_bbox` is a (2, 3) array of voxel-coord lo/hi for that
+            L2 chunk (what `_update_chunks` returns).
+        new_seg: 3D array shaped `(bbe - bbs)` with the split's labels
+            applied.
+        new_seg_origin: the rep's `bbs` — used to slice `new_seg` at the
+            right offset for each chunk's write.
     """
-    slices = tuple(slice(int(s), int(e)) for s, e in zip(bbs, bbe))
-    meta.ws_ocdbt[slices + (slice(None),)] = data[..., np.newaxis]
+    futures = []
+    for _, chunk_bbox in change_chunks:
+        lo, hi = chunk_bbox[0], chunk_bbox[1]
+        local_lo = lo - new_seg_origin
+        local_hi = hi - new_seg_origin
+        data = new_seg[
+            local_lo[0] : local_hi[0],
+            local_lo[1] : local_hi[1],
+            local_lo[2] : local_hi[2],
+        ]
+        slices = tuple(slice(int(s), int(e)) for s, e in zip(lo, hi))
+        futures.append(
+            meta.ws_ocdbt[slices + (slice(None),)].write(data[..., np.newaxis])
+        )
+    for f in futures:
+        f.result()

@@ -308,9 +308,12 @@ def process_block(
 
     Atomic within the block: caller must hold the block lock. Picks the
     in-memory path when the base read fits the memory budget, falls
-    back to the per-mip path otherwise. Both paths only touch tiles
-    whose footprint intersects `seg_bboxes` — unchanged tiles are
-    skipped to keep OCDBT delta growth proportional to the actual edit.
+    back to the per-mip path otherwise.
+
+    Reads and writes only the aligned region covering `seg_bboxes`
+    inside the block; the rest of the block is untouched. Region
+    alignment rounds outward to the coarsest mip's grid so the aligned
+    region is always tinybrain-valid and chunk-aligned at every mip.
 
     Args:
         meta: ChunkedGraphMeta with `ws_ocdbt_scales` / `ws_ocdbt_resolutions`.

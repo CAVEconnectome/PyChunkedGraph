@@ -23,8 +23,8 @@ Edge classification:
 Distance computation:
     For partners within the segmentation bbox, distances are precomputed via
     kdtree pairwise distances. For active partners outside the bbox (e.g.
-    cross-chunk fragments excluded by _get_whole_sv's bbox clipping), distances
-    are computed from each new fragment's kdtree to the partner's chunk boundary.
+    cross-chunk fragments not in the rep's CC member set), distances are
+    computed from each new fragment's kdtree to the partner's chunk boundary.
 """
 
 from __future__ import annotations

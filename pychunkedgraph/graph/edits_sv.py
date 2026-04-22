@@ -4,7 +4,7 @@ Manage new supervoxels after a supervoxel split.
 
 import time
 from datetime import datetime
-from collections import defaultdict, deque
+from collections import defaultdict
 from typing import TYPE_CHECKING
 
 import fastremap
@@ -21,9 +21,8 @@ from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
 from pychunkedgraph.graph.cutting_sv import split_supervoxel_helper
 from pychunkedgraph.graph.edges_sv import update_edges, add_new_edges
 from pychunkedgraph.graph.locks import L2ChunkLock
-from pychunkedgraph.graph.ocdbt import write_seg
+from pychunkedgraph.graph.ocdbt import write_seg_chunks
 from pychunkedgraph.graph.utils import get_local_segmentation
-from pychunkedgraph.io.edges import get_chunk_edges
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
@@ -31,47 +30,81 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _split_bbox(meta, source_coords, sink_coords):
-    """Chunk-aligned base-resolution bbox covering source + sink coords.
+def _rep_bbox(cg: "ChunkedGraph", sv_remapping: dict, sv_id) -> tuple:
+    """Base-voxel bbox covering every CC member of `sv_id`'s cross-chunk rep.
 
-    Same formula `split_supervoxel` uses internally — factored out so
-    `_l2_chunks_for_split` and any other caller agree on the envelope.
-    Returns `(bbs, bbe, chunk_min, chunk_max)` in base voxels, clipped to
-    volume bounds and expanded to the L2 chunk grid.
+    The multicut produced `sv_remapping` — every SV in the local subgraph
+    mapped to its cross-chunk representative. Any SV mapped to the same
+    rep as `sv_id` is part of one physical supervoxel that was
+    artificially cut at chunk boundaries, and every piece will be
+    rewritten when this rep is split. The chunk-coord envelope of those
+    pieces is exactly the region the split needs to read and modify —
+    no padding, no resolution-axis assumption, no bbox clip that could
+    drop pieces.
     """
-    vol_start = meta.voxel_bounds[:, 0]
-    vol_end = meta.voxel_bounds[:, 1]
-    chunk_size = meta.graph_config.CHUNK_SIZE
-    _coords = np.concatenate([source_coords, sink_coords])
-    _padding = np.array([meta.resolution[-1] * 2] * 3) / meta.resolution
-    bbs = np.clip((np.min(_coords, 0) - _padding).astype(int), vol_start, vol_end)
-    bbe = np.clip((np.max(_coords, 0) + _padding).astype(int), vol_start, vol_end)
-    chunk_min = bbs // chunk_size
-    chunk_max = np.ceil(bbe / chunk_size).astype(int)
-    bbs, bbe = chunk_min * chunk_size, chunk_max * chunk_size
-    return bbs, bbe, chunk_min, chunk_max
+    rep = sv_remapping.get(sv_id, sv_id)
+    all_svs = np.array(
+        [sv for sv, r in sv_remapping.items() if r == rep],
+        dtype=basetypes.NODE_ID,
+    )
+    coords = cg.get_chunk_coordinates_multiple(all_svs)
+    chunk_min = coords.min(axis=0)
+    chunk_max = coords.max(axis=0) + 1  # exclusive
+    chunk_size = cg.meta.graph_config.CHUNK_SIZE
+    return chunk_min * chunk_size, chunk_max * chunk_size
 
 
-def _l2_chunks_for_split(cg: "ChunkedGraph", source_coords, sink_coords):
-    """L2 chunk IDs covering the split bbox envelope.
+def _l2_chunks_for_splits(cg: "ChunkedGraph", per_rep_bboxes: list) -> list[int]:
+    """Layer-2 chunk IDs every rep's split will read or write.
 
-    The L2ChunkLock holds these for the duration of the SV split so
-    concurrent SV splits on overlapping L2 chunks — including across
-    different roots — serialize correctly.
+    Reads extend 1 voxel past `[bbs, bbe]` so `update_edges` has anchor
+    voxels for cross-chunk neighbors; the lock must cover those neighbor
+    chunks too, hence the `bbs - 1` / `bbe + 1` expansion. Clipped to
+    volume bounds so a bbox on the volume edge doesn't enumerate phantom
+    negative-index chunks. Sorted for deterministic lock-acquire order
+    (L2ChunkLock relies on sorted input for deadlock avoidance).
     """
-    bbs, bbe, _, _ = _split_bbox(cg.meta, source_coords, sink_coords)
-    coords = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
+    vol_start = cg.meta.voxel_bounds[:, 0]
+    vol_end = cg.meta.voxel_bounds[:, 1]
+    chunk_size = cg.meta.graph_config.CHUNK_SIZE
+    chunk_coords = set()
+    for bbs, bbe in per_rep_bboxes:
+        read_lo = np.clip(bbs - 1, vol_start, vol_end)
+        read_hi = np.clip(bbe + 1, vol_start, vol_end)
+        chunk_coords.update(
+            chunks_overlapping_bbox(read_lo, read_hi, chunk_size).keys()
+        )
     return sorted(
-        int(cg.get_chunk_id(layer=2, x=x, y=y, z=z)) for (x, y, z) in coords.keys()
+        int(cg.get_chunk_id(layer=2, x=x, y=y, z=z)) for (x, y, z) in chunk_coords
     )
 
 
-def _overlapping_reps(sv_remapping, source_ids, sink_ids, source_coords, sink_coords):
-    """Yield (rep_sv_id, source_coords_for_rep, sink_coords_for_rep) tuples.
+def _overlapping_reps(
+    *,
+    sv_remapping: dict,
+    source_ids: np.ndarray,
+    sink_ids: np.ndarray,
+    source_coords: np.ndarray,
+    sink_coords: np.ndarray,
+):
+    """Yield per-rep data for every rep that links source and sink.
 
-    A rep is a cross-chunk-representative SV shared by at least one source
-    and one sink in `sv_remapping`. These are the SVs that must be split
-    before the multicut can partition source from sink.
+    A rep is a cross-chunk-representative SV shared by at least one
+    source and one sink in `sv_remapping`. These are the SVs that must
+    be split before the multicut can partition source from sink.
+
+    Yields `(sv_id, src_coords_rep, sink_coords_rep, src_mask, sink_mask)`:
+        sv_id           — one of the rep's source SV IDs, used as the
+                          seed for `split_supervoxel`.
+        src_coords_rep  — slice of source_coords whose SV maps to this rep.
+        sink_coords_rep — slice of sink_coords whose SV maps to this rep.
+        src_mask        — positional boolean mask over source_ids; the
+                          caller uses it to splice per-rep results back
+                          into the full source arrays.
+        sink_mask       — same, for sink_ids.
+
+    Keyword-only signature — positional source/sink args of the same
+    shape are easy to swap without noticing.
     """
     sources_remapped = fastremap.remap(
         source_ids, sv_remapping, preserve_missing_labels=True, in_place=False
@@ -83,18 +116,25 @@ def _overlapping_reps(sv_remapping, source_ids, sink_ids, source_coords, sink_co
     for rep in np.unique(sources_remapped[overlap_mask]):
         src_mask = sources_remapped == rep
         sink_mask = sinks_remapped == rep
-        yield source_ids[src_mask][0], source_coords[src_mask], sink_coords[sink_mask]
+        yield (
+            source_ids[src_mask][0],
+            source_coords[src_mask],
+            sink_coords[sink_mask],
+            src_mask,
+            sink_mask,
+        )
 
 
 def split_supervoxels(
     cg: "ChunkedGraph",
+    *,
     sv_remapping: dict,
     source_ids: np.ndarray,
     sink_ids: np.ndarray,
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
     operation_id: int,
-) -> list:
+) -> tuple:
     """Run the SV-split loop under the L2 chunk lock.
 
     Caller must hold the root lock for the roots containing the SVs in
@@ -102,69 +142,86 @@ def split_supervoxels(
     lock, concurrent cross-root edits touching the same L2 chunks are
     serialized by the L2 chunk lock acquired here.
 
-    Returns the list of per-rep base-resolution `(bbs, bbe)` bboxes
-    written to seg. The downsample worker consumes these to re-mip only
-    the regions that actually changed.
+    Each rep's bbox is computed up-front from its CC members' chunk
+    coords (see `_rep_bbox`), so the lock set — union of read-expanded
+    chunks across all reps — is known before we block. The lock scope is
+    then exactly the chunks the per-rep splits will read or write.
+
+    Returns `(seg_bboxes, source_ids_fresh, sink_ids_fresh)`:
+        seg_bboxes: per-rep base-resolution `(bbs, bbe)` bboxes that were
+            written to seg; the downsample worker re-mips only these.
+        source_ids_fresh / sink_ids_fresh: input `source_ids`/`sink_ids`
+            with positions touched by an overlap rep replaced by the new
+            SV ID that now lives at that coord. Untouched positions are
+            unchanged. Callers who need to re-run the multicut after
+            the split feed these to avoid referencing superseded SVs.
     """
-    chunk_ids = _l2_chunks_for_split(cg, source_coords, sink_coords)
+    source_ids_fresh = np.asarray(source_ids, dtype=basetypes.NODE_ID).copy()
+    sink_ids_fresh = np.asarray(sink_ids, dtype=basetypes.NODE_ID).copy()
+
+    # Pre-compute every per-rep bbox (cheap chunk-coord lookups, no lock
+    # needed yet). Reuse later inside the lock to avoid recomputation.
+    reps = []
+    for (
+        sv_id,
+        src_coords_rep,
+        sink_coords_rep,
+        src_mask,
+        sink_mask,
+    ) in _overlapping_reps(
+        sv_remapping=sv_remapping,
+        source_ids=source_ids,
+        sink_ids=sink_ids,
+        source_coords=source_coords,
+        sink_coords=sink_coords,
+    ):
+        bbs, bbe = _rep_bbox(cg, sv_remapping, sv_id)
+        reps.append(
+            (sv_id, src_coords_rep, sink_coords_rep, src_mask, sink_mask, bbs, bbe)
+        )
+
+    chunk_ids = _l2_chunks_for_splits(cg, [(bbs, bbe) for *_, bbs, bbe in reps])
     seg_bboxes = []
     with L2ChunkLock(cg, chunk_ids, operation_id):
-        for sv_id, src_coords_rep, sink_coords_rep in _overlapping_reps(
-            sv_remapping, source_ids, sink_ids, source_coords, sink_coords
-        ):
-            _, _, seg_bbox = split_supervoxel(
+        for (
+            sv_id,
+            src_coords_rep,
+            sink_coords_rep,
+            src_mask,
+            sink_mask,
+            bbs,
+            bbe,
+        ) in reps:
+            _, _, seg_bbox, src_new_ids, sink_new_ids = split_supervoxel(
                 cg,
                 sv_id,
                 src_coords_rep,
                 sink_coords_rep,
                 operation_id,
                 sv_remapping=sv_remapping,
+                bbs=bbs,
+                bbe=bbe,
             )
             seg_bboxes.append(seg_bbox)
-    return seg_bboxes
-
-
-def _get_whole_sv(
-    cg: "ChunkedGraph", node: basetypes.NODE_ID, min_coord, max_coord
-) -> set:
-    all_chunks = [
-        (x, y, z)
-        for x in range(min_coord[0], max_coord[0])
-        for y in range(min_coord[1], max_coord[1])
-        for z in range(min_coord[2], max_coord[2])
-    ]
-    edges = get_chunk_edges(cg.meta.data_source.EDGES, all_chunks)
-    cx_edges = edges["cross"].get_pairs()
-    if len(cx_edges) == 0:
-        return {node}
-
-    explored_nodes = set([node])
-    queue = deque([node])
-    while queue:
-        vertex = queue.popleft()
-        mask = cx_edges[:, 0] == vertex
-        neighbors = cx_edges[mask][:, 1]
-
-        if len(neighbors) > 0:
-            neighbor_coords = cg.get_chunk_coordinates_multiple(neighbors)
-            min_mask = (neighbor_coords >= min_coord).all(axis=1)
-            max_mask = (neighbor_coords < max_coord).all(axis=1)
-            neighbors = neighbors[min_mask & max_mask]
-
-        for neighbor in neighbors:
-            if neighbor not in explored_nodes:
-                explored_nodes.add(neighbor)
-                queue.append(neighbor)
-    return explored_nodes
+            source_ids_fresh[src_mask] = src_new_ids
+            sink_ids_fresh[sink_mask] = sink_new_ids
+    return seg_bboxes, source_ids_fresh, sink_ids_fresh
 
 
 def _update_chunks(cg: "ChunkedGraph", chunks_bbox_map, seg, result_seg, bb_start):
     """Process all chunks in a single pass: assign new SV IDs to split fragments.
 
-    For each chunk overlapping the split bbox, finds split labels and
-    batch-allocates new IDs. No multiprocessing needed.
+    Returns `(results, change_chunks)`:
+        results: per-chunk (indices, old_values, new_values, label_id_map)
+            tuples; consumed by `_parse_results`.
+        change_chunks: `(chunk_coord, chunk_bbox)` for the chunks whose
+            voxels received new SV IDs. `write_seg_chunks` uses this to
+            rewrite only those chunks (skipping gap chunks that had no
+            split activity keeps the OCDBT delta proportional to actual
+            label changes).
     """
     results = []
+    change_chunks = []
     for chunk_coord, chunk_bbox in chunks_bbox_map.items():
         x, y, z = chunk_coord
         chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
@@ -199,7 +256,8 @@ def _update_chunks(cg: "ChunkedGraph", chunks_bbox_map, seg, result_seg, bb_star
         _old_values = np.concatenate(_old_values)
         _new_values = np.concatenate(_new_values)
         results.append((_indices, _old_values, _new_values, _label_id_map))
-    return results
+        change_chunks.append((chunk_coord, chunk_bbox))
+    return results, change_chunks
 
 
 def _voxel_crop(bbs, bbe, bbs_, bbe_):
@@ -239,35 +297,34 @@ def split_supervoxel(
     sink_coords: np.ndarray,
     operation_id: int,
     sv_remapping: dict,
+    bbs: np.ndarray,
+    bbe: np.ndarray,
     verbose: bool = False,
     time_stamp: datetime = None,
-) -> dict[int, set]:
-    """
-    Lookups coordinates of given supervoxel in segmentation.
-    Finds its counterparts split by chunk boundaries and splits them as a whole.
-    Updates the segmentation with new IDs.
+) -> tuple:
+    """Split one cross-chunk-connected SV into connected components.
+
+    `bbs` / `bbe` are the base-voxel bbox envelope covering every CC
+    member of `sv_id`'s rep — caller (`split_supervoxels`) pre-computes
+    this via `_rep_bbox`. The envelope is guaranteed to contain every
+    piece of the SV being split, so no bbox clip is needed inside.
     """
     vol_start = cg.meta.voxel_bounds[:, 0]
     vol_end = cg.meta.voxel_bounds[:, 1]
-    bbs, bbe, chunk_min, chunk_max = _split_bbox(cg.meta, source_coords, sink_coords)
     logger.note(f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}")
-    logger.note(f"bbox and chunk min max {(bbs, bbe)}; {(chunk_min, chunk_max)}")
+    logger.note(f"bbox: {(bbs, bbe)}")
 
     t0 = time.time()
     rep = sv_remapping.get(sv_id, sv_id)
-    all_svs = np.array(
-        [sv for sv, r in sv_remapping.items() if r == rep],
-        dtype=basetypes.NODE_ID,
-    )
-    coords = cg.get_chunk_coordinates_multiple(all_svs)
-    in_bbox = (coords >= chunk_min).all(axis=1) & (coords < chunk_max).all(axis=1)
-    cut_supervoxels = set(all_svs[in_bbox].tolist())
+    cut_supervoxels = {int(sv) for sv, r in sv_remapping.items() if r == rep}
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
     logger.note(
         f"whole sv {sv_id} -> {supervoxel_ids.tolist()} ({time.time() - t0:.2f}s)"
     )
 
-    # one voxel overlap for neighbors
+    # one voxel overlap for neighbors — update_edges needs anchor voxels
+    # from neighboring SVs to route existing cross-chunk edges onto the
+    # new fragments.
     bbs_ = np.clip(bbs - 1, vol_start, vol_end)
     bbe_ = np.clip(bbe + 1, vol_start, vol_end)
     t0 = time.time()
@@ -288,11 +345,12 @@ def split_supervoxel(
 
     chunks_bbox_map = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
     t0 = time.time()
-    results = _update_chunks(
+    results, change_chunks = _update_chunks(
         cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
     )
     logger.note(
-        f"chunk updates {len(chunks_bbox_map)} chunks, {len(results)} with splits ({time.time() - t0:.2f}s)"
+        f"chunk updates {len(chunks_bbox_map)} chunks, "
+        f"{len(change_chunks)} with splits ({time.time() - t0:.2f}s)"
     )
 
     seg_cropped = seg[voxel_overlap_crop].copy()
@@ -332,10 +390,23 @@ def split_supervoxel(
     rows = rows0 + rows1
 
     t0 = time.time()
-    write_seg(cg.meta, bbs, bbe, new_seg)
+    write_seg_chunks(cg.meta, change_chunks, new_seg, bbs)
     cg.client.write(rows)
-    logger.note(f"write seg + {len(rows)} rows ({time.time() - t0:.2f}s)")
-    return old_new_map, edges_tuple, (bbs, bbe)
+    logger.note(
+        f"write seg ({len(change_chunks)} chunks) + {len(rows)} rows "
+        f"({time.time() - t0:.2f}s)"
+    )
+
+    # Per-coord fresh IDs: identical to what a post-write seg read would
+    # return, but computed in-memory from new_seg. new_seg is what just
+    # landed on storage (the write is synchronous and we hold the L2
+    # lock), so reading new_seg[coord - bbs] is equivalent to re-reading
+    # seg — without the storage round-trip.
+    local_src = (np.asarray(source_coords, dtype=int) - bbs).astype(int)
+    local_sink = (np.asarray(sink_coords, dtype=int) - bbs).astype(int)
+    src_new_ids = new_seg[tuple(local_src.T)]
+    sink_new_ids = new_seg[tuple(local_sink.T)]
+    return old_new_map, edges_tuple, (bbs, bbe), src_new_ids, sink_new_ids
 
 
 def copy_parents_and_add_lineage(

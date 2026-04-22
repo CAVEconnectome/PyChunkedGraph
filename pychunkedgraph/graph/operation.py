@@ -32,7 +32,7 @@ from .cache import CacheService
 from .cutting import Cut, SvSplitRequired, run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .utils.generic import get_bounding_box as get_bbox, lookup_svs_from_seg
+from .utils.generic import get_bounding_box as get_bbox
 from pychunkedgraph.graph import get_valid_timestamp
 from ..logging.log_db import TimeIt
 
@@ -929,16 +929,17 @@ class MulticutOperation(GraphEditOperation):
             # L2 chunk lock (inside split_supervoxels) serializes cross-root
             # overlap. The SVs in source_ids/sink_ids are about to be
             # superseded; re-read them from seg after the split lands.
-            self.seg_bboxes = edits_sv.split_supervoxels(
-                self.cg,
-                result.sv_remapping,
-                self.source_ids,
-                self.sink_ids,
-                self.source_coords,
-                self.sink_coords,
-                operation_id,
+            self.seg_bboxes, self.source_ids, self.sink_ids = (
+                edits_sv.split_supervoxels(
+                    self.cg,
+                    sv_remapping=result.sv_remapping,
+                    source_ids=self.source_ids,
+                    sink_ids=self.sink_ids,
+                    source_coords=self.source_coords,
+                    sink_coords=self.sink_coords,
+                    operation_id=operation_id,
+                )
             )
-            self._refresh_sv_ids()
             result = self._run_multicut(operation_id)
             if isinstance(result, SvSplitRequired):
                 raise PreconditionError(
@@ -1008,13 +1009,6 @@ class MulticutOperation(GraphEditOperation):
                 disallow_isolating_cut=self.disallow_isolating_cut,
                 sv_split_supported=self.cg.meta.ocdbt_seg,
             )
-
-    def _refresh_sv_ids(self):
-        """Re-read source_ids / sink_ids from seg after an SV split superseded them."""
-        source_coords = np.asarray(self.source_coords, dtype=int)
-        sink_coords = np.asarray(self.sink_coords, dtype=int)
-        self.source_ids = lookup_svs_from_seg(self.cg.meta, source_coords)
-        self.sink_ids = lookup_svs_from_seg(self.cg.meta, sink_coords)
 
     def _create_log_record(
         self,

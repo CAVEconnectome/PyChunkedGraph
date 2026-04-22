@@ -342,7 +342,7 @@ class L2ChunkLock:
     def __init__(
         self,
         cg,
-        chunk_ids: Sequence[np.uint64],
+        chunk_ids: Sequence[int],
         operation_id: np.uint64,
     ) -> None:
         self.cg = cg
