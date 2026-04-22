@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 
 from . import locks
 from . import edits
+from . import edits_sv
 from . import types
 from pychunkedgraph.graph import attributes
 from .edges import Edges
@@ -28,10 +29,10 @@ from .edges.utils import get_edges_status
 from pychunkedgraph.graph import basetypes
 from pychunkedgraph.graph import serializers
 from .cache import CacheService
-from .cutting import run_multicut
-from .exceptions import PreconditionError, SupervoxelSplitRequiredError
+from .cutting import Cut, SvSplitRequired, run_multicut
+from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .utils.generic import get_bounding_box as get_bbox
+from .utils.generic import get_bounding_box as get_bbox, lookup_svs_from_seg
 from pychunkedgraph.graph import get_valid_timestamp
 from ..logging.log_db import TimeIt
 
@@ -462,11 +463,6 @@ class GraphEditOperation(ABC):
                         new_lvl2_ids=new_lvl2_ids,
                         old_root_ids=root_ids,
                     )
-            except SupervoxelSplitRequiredError as err:
-                # no need for self.cg.cache = None, the cache must be retained after sv split
-                raise SupervoxelSplitRequiredError(
-                    str(err), err.sv_remapping, operation_id=lock.operation_id
-                ) from err
             except PreconditionError as err:
                 self.cg.cache = None
                 raise PreconditionError(err) from err
@@ -552,6 +548,10 @@ class GraphEditOperation(ABC):
             new_root_ids=new_root_ids,
             new_lvl2_ids=new_lvl2_ids,
             old_root_ids=old_root_ids,
+            # Only set when the operation actually ran SV splits (MulticutOperation
+            # populates this; other operations leave the attr absent and it defaults
+            # to None via the Result namedtuple's default).
+            seg_bbox=getattr(self, "seg_bboxes", None) or None,
         )
 
 
@@ -868,6 +868,11 @@ class MulticutOperation(GraphEditOperation):
         "path_augment",
         "disallow_isolating_cut",
         "do_sanity_check",
+        # Base-resolution bboxes of SV splits done as part of this op, one
+        # per rep. Populated only when the multicut hit SvSplitRequired and
+        # split_supervoxels actually ran. Surfaced on the Result so the
+        # downsample worker knows which regions to re-mip.
+        "seg_bboxes",
     ]
 
     def __init__(
@@ -895,6 +900,7 @@ class MulticutOperation(GraphEditOperation):
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
         self.do_sanity_check = do_sanity_check
+        self.seg_bboxes = []
 
         ids = np.concatenate([self.source_ids, self.sink_ids]).astype(basetypes.NODE_ID)
         layers = self.cg.get_chunk_layers(ids)
@@ -916,7 +922,52 @@ class MulticutOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
-        # Verify that sink and source are from the same root object
+        result = self._run_multicut(operation_id)
+        if isinstance(result, SvSplitRequired):
+            # Running under GraphEditOperation.execute's RootLock — no same-root
+            # edit can interleave between the SV split and the retry multicut.
+            # L2 chunk lock (inside split_supervoxels) serializes cross-root
+            # overlap. The SVs in source_ids/sink_ids are about to be
+            # superseded; re-read them from seg after the split lands.
+            self.seg_bboxes = edits_sv.split_supervoxels(
+                self.cg,
+                result.sv_remapping,
+                self.source_ids,
+                self.sink_ids,
+                self.source_coords,
+                self.sink_coords,
+                operation_id,
+            )
+            self._refresh_sv_ids()
+            result = self._run_multicut(operation_id)
+            if isinstance(result, SvSplitRequired):
+                raise PreconditionError(
+                    "Supervoxel split succeeded but source and sink remain "
+                    "connected; place source and sink farther apart."
+                )
+
+        assert isinstance(result, Cut), f"unexpected multicut result: {result!r}"
+        self.removed_edges = result.atomic_edges
+        if not self.removed_edges.size:
+            raise PostconditionError("Mincut could not find any edges to remove.")
+
+        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
+            return edits.remove_edges(
+                self.cg,
+                operation_id=operation_id,
+                atomic_edges=self.removed_edges,
+                time_stamp=timestamp,
+                parent_ts=self.parent_ts,
+                do_sanity_check=self.do_sanity_check,
+            )
+
+    def _run_multicut(self, operation_id):
+        """Build the local subgraph and run multicut; returns the tagged result.
+
+        Factored so `_apply` can call it twice — once for initial detection
+        and again after an SV split to get fresh atomic_edges against the
+        post-split graph topology.
+        """
         root_ids = set(
             self.cg.get_roots(
                 np.concatenate([self.source_ids, self.sink_ids]).astype(
@@ -938,7 +989,6 @@ class MulticutOperation(GraphEditOperation):
             l2id_agglomeration_d, edges_tuple = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
             )
-
             edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
             supervoxels = np.concatenate(
                 [agg.supervoxels for agg in l2id_agglomeration_d.values()]
@@ -950,7 +1000,7 @@ class MulticutOperation(GraphEditOperation):
             raise PreconditionError("No local edges found.")
 
         with TimeIt("multicut", self.cg.graph_id, operation_id):
-            self.removed_edges = run_multicut(
+            return run_multicut(
                 edges,
                 self.source_ids,
                 self.sink_ids,
@@ -958,18 +1008,13 @@ class MulticutOperation(GraphEditOperation):
                 disallow_isolating_cut=self.disallow_isolating_cut,
                 sv_split_supported=self.cg.meta.ocdbt_seg,
             )
-        if not self.removed_edges.size:
-            raise PostconditionError("Mincut could not find any edges to remove.")
 
-        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
-            return edits.remove_edges(
-                self.cg,
-                operation_id=operation_id,
-                atomic_edges=self.removed_edges,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-                do_sanity_check=self.do_sanity_check,
-            )
+    def _refresh_sv_ids(self):
+        """Re-read source_ids / sink_ids from seg after an SV split superseded them."""
+        source_coords = np.asarray(self.source_coords, dtype=int)
+        sink_coords = np.asarray(self.sink_coords, dtype=int)
+        self.source_ids = lookup_svs_from_seg(self.cg.meta, source_coords)
+        self.sink_ids = lookup_svs_from_seg(self.cg.meta, sink_coords)
 
     def _create_log_record(
         self,

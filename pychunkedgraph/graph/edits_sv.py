@@ -5,6 +5,7 @@ Manage new supervoxels after a supervoxel split.
 import time
 from datetime import datetime
 from collections import defaultdict, deque
+from typing import TYPE_CHECKING
 
 import fastremap
 import numpy as np
@@ -12,7 +13,6 @@ import numpy as np
 from pychunkedgraph import get_logger
 from pychunkedgraph.graph import (
     attributes,
-    ChunkedGraph,
     cache as cache_utils,
     basetypes,
     serializers,
@@ -20,15 +20,112 @@ from pychunkedgraph.graph import (
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
 from pychunkedgraph.graph.cutting_sv import split_supervoxel_helper
 from pychunkedgraph.graph.edges_sv import update_edges, add_new_edges
+from pychunkedgraph.graph.locks import L2ChunkLock
 from pychunkedgraph.graph.ocdbt import write_seg
 from pychunkedgraph.graph.utils import get_local_segmentation
 from pychunkedgraph.io.edges import get_chunk_edges
 
+if TYPE_CHECKING:
+    from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
+
 logger = get_logger(__name__)
 
 
+def _split_bbox(meta, source_coords, sink_coords):
+    """Chunk-aligned base-resolution bbox covering source + sink coords.
+
+    Same formula `split_supervoxel` uses internally — factored out so
+    `_l2_chunks_for_split` and any other caller agree on the envelope.
+    Returns `(bbs, bbe, chunk_min, chunk_max)` in base voxels, clipped to
+    volume bounds and expanded to the L2 chunk grid.
+    """
+    vol_start = meta.voxel_bounds[:, 0]
+    vol_end = meta.voxel_bounds[:, 1]
+    chunk_size = meta.graph_config.CHUNK_SIZE
+    _coords = np.concatenate([source_coords, sink_coords])
+    _padding = np.array([meta.resolution[-1] * 2] * 3) / meta.resolution
+    bbs = np.clip((np.min(_coords, 0) - _padding).astype(int), vol_start, vol_end)
+    bbe = np.clip((np.max(_coords, 0) + _padding).astype(int), vol_start, vol_end)
+    chunk_min = bbs // chunk_size
+    chunk_max = np.ceil(bbe / chunk_size).astype(int)
+    bbs, bbe = chunk_min * chunk_size, chunk_max * chunk_size
+    return bbs, bbe, chunk_min, chunk_max
+
+
+def _l2_chunks_for_split(cg: "ChunkedGraph", source_coords, sink_coords):
+    """L2 chunk IDs covering the split bbox envelope.
+
+    The L2ChunkLock holds these for the duration of the SV split so
+    concurrent SV splits on overlapping L2 chunks — including across
+    different roots — serialize correctly.
+    """
+    bbs, bbe, _, _ = _split_bbox(cg.meta, source_coords, sink_coords)
+    coords = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
+    return sorted(
+        int(cg.get_chunk_id(layer=2, x=x, y=y, z=z)) for (x, y, z) in coords.keys()
+    )
+
+
+def _overlapping_reps(sv_remapping, source_ids, sink_ids, source_coords, sink_coords):
+    """Yield (rep_sv_id, source_coords_for_rep, sink_coords_for_rep) tuples.
+
+    A rep is a cross-chunk-representative SV shared by at least one source
+    and one sink in `sv_remapping`. These are the SVs that must be split
+    before the multicut can partition source from sink.
+    """
+    sources_remapped = fastremap.remap(
+        source_ids, sv_remapping, preserve_missing_labels=True, in_place=False
+    )
+    sinks_remapped = fastremap.remap(
+        sink_ids, sv_remapping, preserve_missing_labels=True, in_place=False
+    )
+    overlap_mask = np.isin(sources_remapped, sinks_remapped)
+    for rep in np.unique(sources_remapped[overlap_mask]):
+        src_mask = sources_remapped == rep
+        sink_mask = sinks_remapped == rep
+        yield source_ids[src_mask][0], source_coords[src_mask], sink_coords[sink_mask]
+
+
+def split_supervoxels(
+    cg: "ChunkedGraph",
+    sv_remapping: dict,
+    source_ids: np.ndarray,
+    sink_ids: np.ndarray,
+    source_coords: np.ndarray,
+    sink_coords: np.ndarray,
+    operation_id: int,
+) -> list:
+    """Run the SV-split loop under the L2 chunk lock.
+
+    Caller must hold the root lock for the roots containing the SVs in
+    `sv_remapping` — concurrent same-root edits are kept out by the root
+    lock, concurrent cross-root edits touching the same L2 chunks are
+    serialized by the L2 chunk lock acquired here.
+
+    Returns the list of per-rep base-resolution `(bbs, bbe)` bboxes
+    written to seg. The downsample worker consumes these to re-mip only
+    the regions that actually changed.
+    """
+    chunk_ids = _l2_chunks_for_split(cg, source_coords, sink_coords)
+    seg_bboxes = []
+    with L2ChunkLock(cg, chunk_ids, operation_id):
+        for sv_id, src_coords_rep, sink_coords_rep in _overlapping_reps(
+            sv_remapping, source_ids, sink_ids, source_coords, sink_coords
+        ):
+            _, _, seg_bbox = split_supervoxel(
+                cg,
+                sv_id,
+                src_coords_rep,
+                sink_coords_rep,
+                operation_id,
+                sv_remapping=sv_remapping,
+            )
+            seg_bboxes.append(seg_bbox)
+    return seg_bboxes
+
+
 def _get_whole_sv(
-    cg: ChunkedGraph, node: basetypes.NODE_ID, min_coord, max_coord
+    cg: "ChunkedGraph", node: basetypes.NODE_ID, min_coord, max_coord
 ) -> set:
     all_chunks = [
         (x, y, z)
@@ -61,7 +158,7 @@ def _get_whole_sv(
     return explored_nodes
 
 
-def _update_chunks(cg, chunks_bbox_map, seg, result_seg, bb_start):
+def _update_chunks(cg: "ChunkedGraph", chunks_bbox_map, seg, result_seg, bb_start):
     """Process all chunks in a single pass: assign new SV IDs to split fragments.
 
     For each chunk overlapping the split bbox, finds split labels and
@@ -136,7 +233,7 @@ def _parse_results(results, seg, bbs, bbe):
 
 
 def split_supervoxel(
-    cg: ChunkedGraph,
+    cg: "ChunkedGraph",
     sv_id: basetypes.NODE_ID,
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
@@ -152,16 +249,8 @@ def split_supervoxel(
     """
     vol_start = cg.meta.voxel_bounds[:, 0]
     vol_end = cg.meta.voxel_bounds[:, 1]
-    chunk_size = cg.meta.graph_config.CHUNK_SIZE
-    _coords = np.concatenate([source_coords, sink_coords])
-    _padding = np.array([cg.meta.resolution[-1] * 2] * 3) / cg.meta.resolution
-
-    bbs = np.clip((np.min(_coords, 0) - _padding).astype(int), vol_start, vol_end)
-    bbe = np.clip((np.max(_coords, 0) + _padding).astype(int), vol_start, vol_end)
-    chunk_min, chunk_max = bbs // chunk_size, np.ceil(bbe / chunk_size).astype(int)
-    bbs, bbe = chunk_min * chunk_size, chunk_max * chunk_size
+    bbs, bbe, chunk_min, chunk_max = _split_bbox(cg.meta, source_coords, sink_coords)
     logger.note(f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}")
-    logger.note(f"chunk and padding {chunk_size}; {_padding}")
     logger.note(f"bbox and chunk min max {(bbs, bbe)}; {(chunk_min, chunk_max)}")
 
     t0 = time.time()
@@ -250,7 +339,7 @@ def split_supervoxel(
 
 
 def copy_parents_and_add_lineage(
-    cg: ChunkedGraph,
+    cg: "ChunkedGraph",
     operation_id: int,
     old_new_map: dict,
 ) -> list:

@@ -10,7 +10,6 @@ from collections import deque, defaultdict
 
 import numpy as np
 import pandas as pd
-import fastremap
 from flask import current_app, g, jsonify, make_response, request
 from messagingclient import MessagingClient
 from pytz import UTC
@@ -27,7 +26,6 @@ from pychunkedgraph.graph import (
     exceptions as cg_exceptions,
 )
 from pychunkedgraph.graph.analysis import pathing
-from pychunkedgraph.graph.edits_sv import split_supervoxel
 from pychunkedgraph.graph.misc import get_contact_sites
 from pychunkedgraph.debug.sv_split import check_unsplit_sv_bridges
 from pychunkedgraph.graph.operation import GraphEditOperation
@@ -441,93 +439,6 @@ def _get_sources_and_sinks(cg: ChunkedGraph, data):
     return (source_ids, sink_ids, source_coords, sink_coords)
 
 
-def split_with_sv_splits(cg, data, user_id="test", mincut=True):
-    """Remove edges with automatic supervoxel splitting when needed.
-
-    Attempts remove_edges. If source/sink SVs share a cross-chunk representative,
-    splits the overlapping SVs in the segmentation and retries.
-    """
-    sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
-    logger.note(f"pre-split: sources={sources}, sinks={sinks}")
-    t0 = time.time()
-    try:
-        ret = cg.remove_edges(
-            user_id=user_id,
-            source_ids=sources,
-            sink_ids=sinks,
-            source_coords=source_coords,
-            sink_coords=sink_coords,
-            mincut=mincut,
-        )
-        logger.note(f"remove_edges ({time.time() - t0:.2f}s)")
-    except cg_exceptions.SupervoxelSplitRequiredError as e:
-        logger.note(f"sv split required ({time.time() - t0:.2f}s): {e}")
-        sources_remapped = fastremap.remap(
-            sources,
-            e.sv_remapping,
-            preserve_missing_labels=True,
-            in_place=False,
-        )
-        sinks_remapped = fastremap.remap(
-            sinks,
-            e.sv_remapping,
-            preserve_missing_labels=True,
-            in_place=False,
-        )
-        logger.note(f"remapped sources={sources_remapped}, sinks={sinks_remapped}")
-        overlap_mask = np.isin(sources_remapped, sinks_remapped)
-        logger.note(f"overlapping reps: {np.unique(sources_remapped[overlap_mask])}")
-        t1 = time.time()
-        # Collect the base-resolution bbox for each SV split so the downsample
-        # worker only re-derives coarser mips for regions that actually changed.
-        # The list is kept as-is (not merged into a single envelope) because
-        # merging overlapping-but-disjoint bboxes would include corner regions
-        # that no split touched — the worker would then re-write unchanged
-        # tiles, inflating the OCDBT delta store.
-        seg_bboxes = []
-        for rep in np.unique(sources_remapped[overlap_mask]):
-            _mask0 = sources_remapped == rep
-            _mask1 = sinks_remapped == rep
-            _, _, seg_bbox = split_supervoxel(
-                cg,
-                sources[_mask0][0],
-                source_coords[_mask0],
-                sink_coords[_mask1],
-                e.operation_id,
-                sv_remapping=e.sv_remapping,
-            )
-            seg_bboxes.append(seg_bbox)
-        logger.note(f"sv splits done ({time.time() - t1:.2f}s)")
-
-        sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
-        logger.note(f"post-split: sources={sources}, sinks={sinks}")
-        t1 = time.time()
-        try:
-            ret = cg.remove_edges(
-                user_id=user_id,
-                source_ids=sources,
-                sink_ids=sinks,
-                source_coords=source_coords,
-                sink_coords=sink_coords,
-                mincut=mincut,
-            )
-        except cg_exceptions.SupervoxelSplitRequiredError as e2:
-            # The cross-chunk representative group extends beyond the split
-            # bbox. Unsplit SVs inside the bbox still have inf edges to SVs
-            # outside, bridging source and sink through the broader component.
-
-            logger.note(f"retry still requires sv split")
-            # check_unsplit_sv_bridges(cg, e2.sv_remapping, sources, sinks)
-            raise cg_exceptions.PreconditionError(
-                "Supervoxel split succeeded but the split region is too small "
-                "to fully separate source and sink. "
-                "Try placing source and sink points farther apart."
-            ) from e2
-        logger.note(f"remove_edges after sv split ({time.time() - t1:.2f}s)")
-        ret = ret._replace(seg_bbox=seg_bboxes)
-    return ret
-
-
 def handle_split(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user.get("id", current_app.user_id))
@@ -539,8 +450,17 @@ def handle_split(table_id):
 
     cg = app_utils.get_cg(table_id, skip_cache=True)
     current_app.logger.debug(data)
+    sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
+    logger.note(f"split inputs: sources={sources}, sinks={sinks}")
     try:
-        ret = split_with_sv_splits(cg, data, user_id, mincut)
+        ret = cg.remove_edges(
+            user_id=user_id,
+            source_ids=sources,
+            sink_ids=sinks,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+            mincut=mincut,
+        )
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
     except cg_exceptions.PreconditionError as e:
