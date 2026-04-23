@@ -7,6 +7,27 @@ Writes land in the delta via OCDBT's *_data_prefix options.
 Multi-scale (MIP pyramid) is supported: the source watershed's info JSON
 drives the scale layout. All scales share one OCDBT kvstore; the precomputed
 driver prefixes keys by scale key automatically.
+
+Versioned reads
+---------------
+Every OCDBT commit gets a monotonically-increasing ``generation_number`` and
+an ``absl::Now()``-stamped ``commit_time`` (nanoseconds since epoch). The
+tensorstore OCDBT driver lets callers pin a read-only open to a prior version
+via the ``version`` spec field; accepts either an integer generation number
+or an ISO-8601 UTC timestamp string. The timestamp form requires a ``Z``
+suffix (not ``+00:00``) and is interpreted as ``commit_time <= T`` — the open
+returns the latest version at or before the pinned time.
+
+The commit_time itself cannot be overridden by the caller: OCDBT stamps each
+commit from the writer's local clock (``absl::Now()`` in
+``btree_writer_commit_operation.cc``). This means we can't make OCDBT commits
+align exactly with a caller-provided operation timestamp. What the L2 chunk
+lock guarantees instead: no other writer can commit to our chunks while we
+hold the lock, so any timestamp captured under the lock before our first
+commit is a valid pin for "pre-op state of our chunks."
+
+Retention: the OCDBT spec exposes no pruning fields. All versions are
+retained by default.
 """
 
 import json
@@ -153,7 +174,12 @@ def open_base_ocdbt(ws_path: str):
     return src_list, dst_list, resolutions
 
 
-def build_cg_ocdbt_spec(ws_path: str, graph_id: str) -> dict:
+def build_cg_ocdbt_spec(
+    ws_path: str,
+    graph_id: str,
+    *,
+    pinned_at: "int | str | None" = None,
+) -> dict:
     """Open-time kvstore spec for a CG's OCDBT, backed by a shared immutable base.
 
     The fork directory and its manifest are created automatically by
@@ -162,6 +188,11 @@ def build_cg_ocdbt_spec(ws_path: str, graph_id: str) -> dict:
     All three kvstack layers below AND all three `*_data_prefix` options
     are load-bearing; removing any of them causes fork writes to leak
     into the immutable base (verified empirically).
+
+    When `pinned_at` is set, the opened kvstore is read-only and returns
+    state as of the specified version. Accepts an integer generation
+    number (exact) or an ISO-8601 UTC timestamp string with `Z` suffix
+    (interpreted as `commit_time <= T`).
     """
     base = _base_ocdbt_path(ws_path)
     fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
@@ -189,7 +220,7 @@ def build_cg_ocdbt_spec(ws_path: str, graph_id: str) -> dict:
         "base": _ensure_trailing_slash(fork_dir + data_prefix),
     }
 
-    return {
+    spec = {
         "driver": "ocdbt",
         "base": {
             "driver": "kvstack",
@@ -202,6 +233,9 @@ def build_cg_ocdbt_spec(ws_path: str, graph_id: str) -> dict:
         "btree_node_data_prefix": data_prefix,
         "version_tree_node_data_prefix": data_prefix,
     }
+    if pinned_at is not None:
+        spec["version"] = pinned_at
+    return spec
 
 
 def fork_base_manifest(ws_path: str, graph_id: str, wipe_existing: bool = False):
