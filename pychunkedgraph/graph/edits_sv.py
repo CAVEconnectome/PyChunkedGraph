@@ -30,6 +30,39 @@ logger = get_logger(__name__)
 
 
 @dataclass
+class SvSplitTask:
+    """One SV-split task per cross-chunk rep.
+
+    Produced by `plan_sv_splits` (pure, no IO), consumed by
+    `split_supervoxel`. `src_mask`/`sink_mask` are positional masks
+    back into the caller's `source_ids`/`sink_ids` arrays so the
+    aggregator can splice the per-task fresh IDs in at the right
+    positions.
+    """
+
+    sv_id: int
+    src_coords: np.ndarray
+    sink_coords: np.ndarray
+    src_mask: np.ndarray
+    sink_mask: np.ndarray
+    bbs: np.ndarray
+    bbe: np.ndarray
+
+
+@dataclass
+class SvSplitOutcome:
+    """Output of `split_supervoxel` for one task. Aggregated into
+    `SplitResult` by `split_supervoxels`."""
+
+    seg_bbox: Tuple[np.ndarray, np.ndarray]
+    src_new_ids: np.ndarray
+    sink_new_ids: np.ndarray
+    # Per-chunk OCDBT write payloads for this task.
+    seg_write_pairs: List[Tuple[Tuple[slice, slice, slice], np.ndarray]]
+    bigtable_rows: list
+
+
+@dataclass
 class SplitResult:
     """Pure planner output of `split_supervoxels`.
 
@@ -42,7 +75,7 @@ class SplitResult:
     seg_bboxes: List[Tuple[np.ndarray, np.ndarray]]
     source_ids_fresh: np.ndarray
     sink_ids_fresh: np.ndarray
-    # Flat list across all reps: (voxel_slices, data_block) per OCDBT
+    # Flat list across all tasks: (voxel_slices, data_block) per OCDBT
     # chunk write. `voxel_slices` is a 3-tuple of `slice` objects; the
     # caller appends the channel slice and writes to `meta.ws_ocdbt`.
     seg_writes: List[Tuple[Tuple[slice, slice, slice], np.ndarray]]
@@ -152,18 +185,19 @@ def plan_sv_splits(
     sink_ids: np.ndarray,
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
-) -> tuple:
-    """Compute the per-rep bboxes and the L2 chunk set a SV-split would touch.
+) -> Tuple[List[SvSplitTask], list]:
+    """Compute one `SvSplitTask` per rep and the L2 chunk set the splits
+    will touch.
 
     Pure function — no bigtable/OCDBT IO, no locks. Lets the caller
     acquire the L2 chunk locks (both temporal and indefinite) around
     `split_supervoxels` without recomputing the plan inside.
 
-    Returns `(reps, chunk_ids)` where `reps` is the per-rep tuple fed to
-    `split_supervoxels`, and `chunk_ids` is the sorted union of
-    read-expanded L2 chunks for the full operation.
+    Returns `(tasks, chunk_ids)` — `tasks` feeds `split_supervoxels`,
+    `chunk_ids` is the sorted union of read-expanded L2 chunks the full
+    operation touches.
     """
-    reps = []
+    tasks: List[SvSplitTask] = []
     for (
         sv_id,
         src_coords_rep,
@@ -178,21 +212,30 @@ def plan_sv_splits(
         sink_coords=sink_coords,
     ):
         bbs, bbe = _rep_bbox(cg, sv_remapping, sv_id)
-        reps.append(
-            (sv_id, src_coords_rep, sink_coords_rep, src_mask, sink_mask, bbs, bbe)
+        tasks.append(
+            SvSplitTask(
+                sv_id=sv_id,
+                src_coords=src_coords_rep,
+                sink_coords=sink_coords_rep,
+                src_mask=src_mask,
+                sink_mask=sink_mask,
+                bbs=bbs,
+                bbe=bbe,
+            )
         )
-    chunk_ids = _l2_chunks_for_splits(cg, [(bbs, bbe) for *_, bbs, bbe in reps])
-    return reps, chunk_ids
+    chunk_ids = _l2_chunks_for_splits(cg, [(t.bbs, t.bbe) for t in tasks])
+    return tasks, chunk_ids
 
 
 def split_supervoxels(
     cg: "ChunkedGraph",
     *,
-    reps: list,
+    tasks: List[SvSplitTask],
     sv_remapping: dict,
     source_ids: np.ndarray,
     sink_ids: np.ndarray,
     operation_id: int,
+    timestamp: datetime = None,
 ) -> SplitResult:
     """Pure planner for the SV-split step. Returns a `SplitResult` with
     all the data the caller needs to persist under locks.
@@ -205,17 +248,22 @@ def split_supervoxels(
     `plan.chunk_ids` set — the seg reads inside `split_supervoxel` need
     to be consistent with concurrent writers.
 
+    `timestamp` is the op's logical write time; threaded down to every
+    `mutate_row` in the persist block so all new-SV cells land at the
+    same logical time (atomic visibility for `parent_ts`-filtered
+    readers, and deterministic replay via `override_ts`).
+
     Fields on the returned `SplitResult`:
-        seg_bboxes: per-rep base-resolution `(bbs, bbe)` — downsample
+        seg_bboxes: per-task base-resolution `(bbs, bbe)` — downsample
             worker input.
         source_ids_fresh / sink_ids_fresh: input `source_ids`/`sink_ids`
-            with positions touched by an overlap rep replaced by the new
-            SV ID that now lives at that coord. Untouched positions stay
-            unchanged. Feeds the retry multicut.
+            with positions touched by an overlap task replaced by the
+            new SV ID that now lives at that coord. Untouched positions
+            stay unchanged. Feeds the retry multicut.
         seg_writes: flat list of `(voxel_slices, data)` pairs across all
-            reps — one tensorstore write per pair, fired in parallel.
+            tasks — one tensorstore write per pair, fired in parallel.
         bigtable_rows: flattened rows from `copy_parents_and_add_lineage`
-            + `add_new_edges` across all reps.
+            + `add_new_edges` across all tasks.
     """
     source_ids_fresh = np.asarray(source_ids, dtype=basetypes.NODE_ID).copy()
     sink_ids_fresh = np.asarray(sink_ids, dtype=basetypes.NODE_ID).copy()
@@ -223,38 +271,19 @@ def split_supervoxels(
     seg_bboxes = []
     seg_writes: List[Tuple[Tuple[slice, slice, slice], np.ndarray]] = []
     bigtable_rows: list = []
-    for (
-        sv_id,
-        src_coords_rep,
-        sink_coords_rep,
-        src_mask,
-        sink_mask,
-        bbs,
-        bbe,
-    ) in reps:
-        (
-            _,
-            _,
-            seg_bbox,
-            src_new_ids,
-            sink_new_ids,
-            seg_write_pairs,
-            rows,
-        ) = split_supervoxel(
+    for task in tasks:
+        out = split_supervoxel(
             cg,
-            sv_id,
-            src_coords_rep,
-            sink_coords_rep,
+            task,
             operation_id,
             sv_remapping=sv_remapping,
-            bbs=bbs,
-            bbe=bbe,
+            time_stamp=timestamp,
         )
-        seg_bboxes.append(seg_bbox)
-        source_ids_fresh[src_mask] = src_new_ids
-        sink_ids_fresh[sink_mask] = sink_new_ids
-        seg_writes.extend(seg_write_pairs)
-        bigtable_rows.extend(rows)
+        seg_bboxes.append(out.seg_bbox)
+        source_ids_fresh[task.src_mask] = out.src_new_ids
+        sink_ids_fresh[task.sink_mask] = out.sink_new_ids
+        seg_writes.extend(out.seg_write_pairs)
+        bigtable_rows.extend(out.bigtable_rows)
     return SplitResult(
         seg_bboxes=seg_bboxes,
         source_ids_fresh=source_ids_fresh,
@@ -348,23 +377,30 @@ def _parse_results(results, seg, bbs, bbe):
 
 def split_supervoxel(
     cg: "ChunkedGraph",
-    sv_id: basetypes.NODE_ID,
-    source_coords: np.ndarray,
-    sink_coords: np.ndarray,
+    task: SvSplitTask,
     operation_id: int,
+    *,
     sv_remapping: dict,
-    bbs: np.ndarray,
-    bbe: np.ndarray,
-    verbose: bool = False,
     time_stamp: datetime = None,
-) -> tuple:
+    verbose: bool = False,
+) -> SvSplitOutcome:
     """Split one cross-chunk-connected SV into connected components.
 
-    `bbs` / `bbe` are the base-voxel bbox envelope covering every CC
-    member of `sv_id`'s rep — caller (`split_supervoxels`) pre-computes
+    `task.bbs` / `task.bbe` are the base-voxel bbox envelope covering
+    every CC member of `task.sv_id`'s rep — `plan_sv_splits` pre-computed
     this via `_rep_bbox`. The envelope is guaranteed to contain every
     piece of the SV being split, so no bbox clip is needed inside.
+
+    `time_stamp` is the op's logical write time; threaded through to
+    `copy_parents_and_add_lineage` + `add_new_edges` so every new-SV
+    mutation lands at the same timestamp.
     """
+    sv_id = task.sv_id
+    source_coords = task.src_coords
+    sink_coords = task.sink_coords
+    bbs = task.bbs
+    bbe = task.bbe
+
     vol_start = cg.meta.voxel_bounds[:, 0]
     vol_end = cg.meta.voxel_bounds[:, 1]
     logger.note(f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}")
@@ -441,13 +477,15 @@ def split_supervoxel(
     )
     logger.note(f"edge update ({time.time() - t0:.2f}s)")
 
-    rows0 = copy_parents_and_add_lineage(cg, operation_id, old_new_map)
+    rows0 = copy_parents_and_add_lineage(
+        cg, operation_id, old_new_map, time_stamp=time_stamp
+    )
     rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
     rows = rows0 + rows1
 
     # Prepare per-chunk OCDBT write payloads. The caller batches these
-    # across all reps into one parallel tensorstore write — no serial
-    # per-rep loop.
+    # across all tasks into one parallel tensorstore write — no serial
+    # per-task loop.
     seg_write_pairs: List[Tuple[Tuple[slice, slice, slice], np.ndarray]] = []
     for _, chunk_bbox in change_chunks:
         lo, hi = chunk_bbox[0], chunk_bbox[1]
@@ -469,14 +507,12 @@ def split_supervoxel(
     local_sink = (np.asarray(sink_coords, dtype=int) - bbs).astype(int)
     src_new_ids = new_seg[tuple(local_src.T)]
     sink_new_ids = new_seg[tuple(local_sink.T)]
-    return (
-        old_new_map,
-        edges_tuple,
-        (bbs, bbe),
-        src_new_ids,
-        sink_new_ids,
-        seg_write_pairs,
-        rows,
+    return SvSplitOutcome(
+        seg_bbox=(bbs, bbe),
+        src_new_ids=src_new_ids,
+        sink_new_ids=sink_new_ids,
+        seg_write_pairs=seg_write_pairs,
+        bigtable_rows=rows,
     )
 
 
@@ -484,11 +520,19 @@ def copy_parents_and_add_lineage(
     cg: "ChunkedGraph",
     operation_id: int,
     old_new_map: dict,
+    *,
+    time_stamp: datetime = None,
 ) -> list:
-    """
-    Copy parents column from `old_id` to each of `new_ids`.
-      This makes it easy to get old hierarchy with `new_ids` using an older timestamp.
-    Link `old_id` and `new_ids` to create a lineage at supervoxel layer.
+    """Copy parent pointers from old SVs onto their new-ID fragments
+    and write the lineage (FormerIdentity / NewIdentity) + L2 Child
+    list updates.
+
+    `time_stamp` is the op's logical write time — used for every new-SV
+    cell this function writes so a `parent_ts`-filtered reader sees the
+    op atomically. The Parent-copy and Child-list writes deliberately
+    preserve the old cell's timestamp (so pre-op readers still see the
+    old hierarchy via the old timestamp).
+
     Returns a list of mutations to be persisted.
     """
     result = []
@@ -506,7 +550,11 @@ def copy_parents_and_add_lineage(
                 attributes.OperationLogs.OperationID: operation_id,
             }
             result.append(
-                cg.client.mutate_row(serializers.serialize_uint64(new_id), val_dict)
+                cg.client.mutate_row(
+                    serializers.serialize_uint64(new_id),
+                    val_dict,
+                    time_stamp=time_stamp,
+                )
             )
             for cell in parent_cells_map[old_id]:
                 cache_utils.update(cg.cache.parents_cache, [new_id], cell.value)
@@ -522,7 +570,11 @@ def copy_parents_and_add_lineage(
             attributes.Hierarchy.NewIdentity: np.array(new_ids, dtype=basetypes.NODE_ID)
         }
         result.append(
-            cg.client.mutate_row(serializers.serialize_uint64(old_id), val_dict)
+            cg.client.mutate_row(
+                serializers.serialize_uint64(old_id),
+                val_dict,
+                time_stamp=time_stamp,
+            )
         )
 
     children_cells_map = cg.client.read_nodes(

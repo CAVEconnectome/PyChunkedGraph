@@ -937,7 +937,7 @@ class MulticutOperation(GraphEditOperation):
             #     only. A worker death inside it leaves the indefinite
             #     cell set on every chunk row in scope, blocking future
             #     ops until operator replay clears them.
-            reps, chunk_ids = edits_sv.plan_sv_splits(
+            tasks, chunk_ids = edits_sv.plan_sv_splits(
                 self.cg,
                 sv_remapping=result.sv_remapping,
                 source_ids=self.source_ids,
@@ -953,11 +953,12 @@ class MulticutOperation(GraphEditOperation):
             ):
                 sv_result = edits_sv.split_supervoxels(
                     self.cg,
-                    reps=reps,
+                    tasks=tasks,
                     sv_remapping=result.sv_remapping,
                     source_ids=self.source_ids,
                     sink_ids=self.sink_ids,
                     operation_id=operation_id,
+                    timestamp=timestamp,
                 )
                 with locks.IndefiniteL2ChunkLock(
                     self.cg,

@@ -237,3 +237,56 @@ class TestCopyParentsAndAddLineage:
                 assert val_dict[attributes.OperationLogs.OperationID] == 99
                 op_id_found = True
         assert op_id_found
+
+    def test_time_stamp_threaded_to_new_sv_writes(self):
+        """New-SV writes (FormerIdentity/OperationID on new, NewIdentity
+        on old) land at `time_stamp`. Parent-copy and Child-list writes
+        preserve the old cell's timestamp so pre-op readers still see
+        the old hierarchy.
+        """
+        from datetime import datetime, timezone
+
+        old = np.uint64(10)
+        new1 = np.uint64(101)
+        parent = np.uint64(1000)
+
+        old_cell_ts = 42  # old cell's timestamp, preserved on Parent/Child copies
+        op_ts = datetime(2026, 4, 23, tzinfo=timezone.utc)  # op's logical write time
+
+        parent_cells_map = {old: [_FakeCell(parent, timestamp=old_cell_ts)]}
+        children_cells_map = {
+            parent: [
+                _FakeCell(
+                    np.array([old], dtype=basetypes.NODE_ID), timestamp=old_cell_ts
+                )
+            ]
+        }
+        cg = self._make_cg(parent_cells_map, children_cells_map)
+
+        copy_parents_and_add_lineage(
+            cg, operation_id=7, old_new_map={old: {new1}}, time_stamp=op_ts
+        )
+
+        # Classify each mutate_row call by which column it writes.
+        for call in cg.client.mutate_row.call_args_list:
+            val_dict = call[0][1]
+            kw = call[1]
+            ts = kw.get("time_stamp")
+            cols = set(val_dict.keys())
+
+            if attributes.Hierarchy.FormerIdentity in cols:
+                # New-SV lineage write — should use op's time_stamp.
+                assert ts == op_ts, f"FormerIdentity write ts={ts}, expected {op_ts}"
+            elif attributes.Hierarchy.NewIdentity in cols:
+                # Old-SV NewIdentity write — should use op's time_stamp.
+                assert ts == op_ts, f"NewIdentity write ts={ts}, expected {op_ts}"
+            elif attributes.Hierarchy.Parent in cols:
+                # Copied-parent write — preserves old cell's timestamp.
+                assert (
+                    ts == old_cell_ts
+                ), f"Parent-copy write ts={ts}, expected {old_cell_ts}"
+            elif attributes.Hierarchy.Child in cols:
+                # Updated-children write on L2 parent — preserves old timestamp.
+                assert (
+                    ts == old_cell_ts
+                ), f"Child-list write ts={ts}, expected {old_cell_ts}"
