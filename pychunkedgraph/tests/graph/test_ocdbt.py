@@ -433,64 +433,73 @@ class TestPropagateToCoarserScales:
 
 
 class TestWriteSegChunks:
-    def test_writes_only_change_chunks(self, local_ocdbt):
-        """Only chunks listed in `change_chunks` receive writes; sibling
-        chunks in the same envelope stay untouched (OCDBT delta stays
-        proportional to the actual SV change, not the envelope)."""
+    """`write_seg_chunks` now takes a flat list of (slices, data) pairs.
+
+    `edits_sv.split_supervoxels` is responsible for producing this list
+    across all reps so the outer rep loop is a pure data gather —
+    tensorstore writes fire in one parallel batch.
+    """
+
+    def test_writes_only_supplied_chunks(self, local_ocdbt):
+        """Chunks absent from `seg_writes` stay untouched (OCDBT delta
+        stays proportional to the actual SV change)."""
         scales = local_ocdbt["scales"]
-        res = local_ocdbt["resolutions"]
         meta = MagicMock()
         meta.ws_ocdbt = scales[0]
-        meta.ws_ocdbt_scales = scales
-        meta.ws_ocdbt_resolutions = res
 
-        # new_seg covers a two-chunk envelope [0..32] along x at base scale
-        # (chunk_size = 32). Only the first chunk [0..32, 0..32, 0..32] is
-        # listed as a change chunk; the second chunk should stay zero.
-        new_seg = np.zeros((64, 32, 32), dtype=np.uint64)
-        new_seg[0:32, 0:32, 0:32] = 55
-        # second chunk gets some filler data in-memory, but it's NOT in
-        # change_chunks so it should never hit storage.
-        new_seg[32:64, 0:32, 0:32] = 77
-
-        change_chunks = [
+        # One chunk at [0..32] with label 55. The adjacent chunk at
+        # [32..64] is NOT in the write list, so it should stay zero.
+        chunk_data = np.full((32, 32, 32), 55, dtype=np.uint64)
+        seg_writes = [
             (
-                (0, 0, 0),
-                np.array([[0, 0, 0], [32, 32, 32]], dtype=int),
+                (slice(0, 32), slice(0, 32), slice(0, 32)),
+                chunk_data,
             )
         ]
-        ocdbt_mod.write_seg_chunks(meta, change_chunks, new_seg, np.array([0, 0, 0]))
+        ocdbt_mod.write_seg_chunks(meta, seg_writes)
 
-        # Written chunk has label 55.
         assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 55).all()
-        # Non-change chunk stays zero (skipped).
         assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 0).all()
         # Coarser scales untouched — downsample worker's job.
         assert (scales[1][0:16, 0:16, 0:32, :].read().result() == 0).all()
         assert (scales[2][0:8, 0:8, 0:32, :].read().result() == 0).all()
 
-    def test_new_seg_origin_offset(self, local_ocdbt):
-        """`new_seg_origin` correctly slices the right region of new_seg
-        when the envelope doesn't start at (0, 0, 0)."""
+    def test_multiple_chunks_in_one_batch(self, local_ocdbt):
+        """Multiple chunks (e.g. from different reps) fire in one call."""
         scales = local_ocdbt["scales"]
-        res = local_ocdbt["resolutions"]
         meta = MagicMock()
         meta.ws_ocdbt = scales[0]
-        meta.ws_ocdbt_scales = scales
-        meta.ws_ocdbt_resolutions = res
 
-        # Envelope [32..64] along x, new_seg shape (32, 32, 32).
-        new_seg = np.full((32, 32, 32), 99, dtype=np.uint64)
-        change_chunks = [
+        seg_writes = [
             (
-                (1, 0, 0),
-                np.array([[32, 0, 0], [64, 32, 32]], dtype=int),
+                (slice(0, 32), slice(0, 32), slice(0, 32)),
+                np.full((32, 32, 32), 11, dtype=np.uint64),
+            ),
+            (
+                (slice(32, 64), slice(0, 32), slice(0, 32)),
+                np.full((32, 32, 32), 22, dtype=np.uint64),
+            ),
+        ]
+        ocdbt_mod.write_seg_chunks(meta, seg_writes)
+
+        assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 11).all()
+        assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 22).all()
+
+    def test_offset_region(self, local_ocdbt):
+        """Writes at a non-origin offset land in the right chunk."""
+        scales = local_ocdbt["scales"]
+        meta = MagicMock()
+        meta.ws_ocdbt = scales[0]
+
+        seg_writes = [
+            (
+                (slice(32, 64), slice(0, 32), slice(0, 32)),
+                np.full((32, 32, 32), 99, dtype=np.uint64),
             )
         ]
-        ocdbt_mod.write_seg_chunks(meta, change_chunks, new_seg, np.array([32, 0, 0]))
+        ocdbt_mod.write_seg_chunks(meta, seg_writes)
 
         assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 99).all()
-        # First chunk (outside the envelope) stays zero.
         assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 0).all()
 
 

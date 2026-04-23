@@ -261,11 +261,20 @@ def fork_base_manifest(ws_path: str, graph_id: str, wipe_existing: bool = False)
     fork_kvs.write("manifest.ocdbt", manifest).result()
 
 
-def get_seg_source_and_destination_ocdbt(ws_path: str, graph_id: str) -> tuple:
+def get_seg_source_and_destination_ocdbt(
+    ws_path: str,
+    graph_id: str,
+    *,
+    pinned_at: "int | str | None" = None,
+) -> tuple:
     """Open source watershed + CG's delta OCDBT destination (all scales).
 
     Always uses the fork-based kvstack spec. Requires the base to exist and
     the fork's manifest to be present (set up at ingest time).
+
+    When `pinned_at` is set, the destination OCDBT handles are opened
+    read-only at that version — used by the recovery path to read
+    pre-op seg values via `ChunkedGraphMeta.pinned_seg_reads`.
 
     Returns:
         (src_list, dst_list, resolutions): per-scale TensorStore handles
@@ -273,7 +282,7 @@ def get_seg_source_and_destination_ocdbt(ws_path: str, graph_id: str) -> tuple:
     """
     scales = _read_source_scales(ws_path)
     resolutions = [s["resolution"] for s in scales]
-    cg_kvstore = build_cg_ocdbt_spec(ws_path, graph_id)
+    cg_kvstore = build_cg_ocdbt_spec(ws_path, graph_id, pinned_at=pinned_at)
 
     src_list, dst_list = [], []
     for i in range(len(scales)):
@@ -432,47 +441,32 @@ def propagate_to_coarser_scales(dst_scales, resolutions, base_slices):
         prev_slices = target_slices
 
 
-def write_seg_chunks(meta, change_chunks, new_seg, new_seg_origin):
-    """Write only the L2 chunks that actually received new SV IDs.
+def write_seg_chunks(meta, seg_writes):
+    """Write a flat batch of pre-sliced L2 chunks to OCDBT in parallel.
 
-    An SV split produces `new_seg` (shape `bbe - bbs`) covering the full
-    rep envelope — but only some of its chunks contain split fragments.
-    The rest (gap chunks between cross-chunk-connected pieces, and the
-    neighbor chunks the overlap read touches) are identical to what's on
-    disk. Writing those would bloat OCDBT's append-only delta with
-    unchanged bytes.
+    `seg_writes` is the aggregated output of `edits_sv.split_supervoxels`
+    across every rep in an operation — each pair is one L2 chunk's worth
+    of `(voxel_slices, data)`. Flattening across reps matters: one
+    `write_seg_chunks` call fires every chunk write in one parallel
+    tensorstore batch instead of serializing rep-by-rep.
 
-    Each per-chunk write is fired as an async tensorstore future and
-    awaited in aggregate — wall-time is comparable to a single slab
-    write (tensorstore parallelizes internal OCDBT-chunk writes anyway),
-    but gap and neighbor chunks are never touched.
+    Only chunks that actually received new SV IDs appear here; gap
+    chunks between cross-chunk-connected pieces and neighbor chunks the
+    overlap read touched are skipped by the split planner.
 
     Coarser MIP levels stay the downsample worker's job — it picks up
     the pubsub message `publish_edit` sends after this returns.
 
     Args:
         meta: ChunkedGraphMeta with `ws_ocdbt` (base-scale handle).
-        change_chunks: iterable of `(chunk_coord, chunk_bbox)` pairs;
-            `chunk_bbox` is a (2, 3) array of voxel-coord lo/hi for that
-            L2 chunk (what `_update_chunks` returns).
-        new_seg: 3D array shaped `(bbe - bbs)` with the split's labels
-            applied.
-        new_seg_origin: the rep's `bbs` — used to slice `new_seg` at the
-            right offset for each chunk's write.
+        seg_writes: iterable of `(voxel_slices, data)` pairs, where
+            `voxel_slices` is a 3-tuple of `slice` objects covering one
+            L2 chunk's x/y/z extent and `data` is the 3D label block
+            (shape matches the slice extents).
     """
-    futures = []
-    for _, chunk_bbox in change_chunks:
-        lo, hi = chunk_bbox[0], chunk_bbox[1]
-        local_lo = lo - new_seg_origin
-        local_hi = hi - new_seg_origin
-        data = new_seg[
-            local_lo[0] : local_hi[0],
-            local_lo[1] : local_hi[1],
-            local_lo[2] : local_hi[2],
-        ]
-        slices = tuple(slice(int(s), int(e)) for s, e in zip(lo, hi))
-        futures.append(
-            meta.ws_ocdbt[slices + (slice(None),)].write(data[..., np.newaxis])
-        )
+    futures = [
+        meta.ws_ocdbt[voxel_slices + (slice(None),)].write(data[..., np.newaxis])
+        for voxel_slices, data in seg_writes
+    ]
     for f in futures:
         f.result()

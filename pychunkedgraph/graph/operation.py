@@ -23,6 +23,7 @@ from . import locks
 from . import edits
 from . import edits_sv
 from . import types
+from .ocdbt import write_seg_chunks
 from pychunkedgraph.graph import attributes
 from .edges import Edges
 from .edges.utils import get_edges_status
@@ -926,20 +927,49 @@ class MulticutOperation(GraphEditOperation):
         if isinstance(result, SvSplitRequired):
             # Running under GraphEditOperation.execute's RootLock — no same-root
             # edit can interleave between the SV split and the retry multicut.
-            # L2 chunk lock (inside split_supervoxels) serializes cross-root
-            # overlap. The SVs in source_ids/sink_ids are about to be
-            # superseded; re-read them from seg after the split lands.
-            self.seg_bboxes, self.source_ids, self.sink_ids = (
-                edits_sv.split_supervoxels(
+            # `plan_sv_splits` returns the chunk scope for both locks below,
+            # `split_supervoxels` is a pure planner that computes the full
+            # payload. Writes happen here inside nested L2 chunk locks:
+            #   - `L2ChunkLock` (temporal) spans the seg reads (inside
+            #     `split_supervoxels`) and the writes, so no concurrent
+            #     op can mutate our chunks mid-compute.
+            #   - `IndefiniteL2ChunkLock` is scoped tightly to the writes
+            #     only. A worker death inside it leaves the indefinite
+            #     cell set on every chunk row in scope, blocking future
+            #     ops until operator replay clears them.
+            reps, chunk_ids = edits_sv.plan_sv_splits(
+                self.cg,
+                sv_remapping=result.sv_remapping,
+                source_ids=self.source_ids,
+                sink_ids=self.sink_ids,
+                source_coords=self.source_coords,
+                sink_coords=self.sink_coords,
+            )
+            with locks.L2ChunkLock(
+                self.cg,
+                chunk_ids,
+                operation_id,
+                privileged_mode=self.privileged_mode,
+            ):
+                sv_result = edits_sv.split_supervoxels(
                     self.cg,
+                    reps=reps,
                     sv_remapping=result.sv_remapping,
                     source_ids=self.source_ids,
                     sink_ids=self.sink_ids,
-                    source_coords=self.source_coords,
-                    sink_coords=self.sink_coords,
                     operation_id=operation_id,
                 )
-            )
+                with locks.IndefiniteL2ChunkLock(
+                    self.cg,
+                    chunk_ids,
+                    operation_id,
+                    privileged_mode=self.privileged_mode,
+                ):
+                    write_seg_chunks(self.cg.meta, sv_result.seg_writes)
+                    self.cg.client.write(sv_result.bigtable_rows)
+            self.seg_bboxes = sv_result.seg_bboxes
+            self.source_ids = sv_result.source_ids_fresh
+            self.sink_ids = sv_result.sink_ids_fresh
             result = self._run_multicut(operation_id)
             if isinstance(result, SvSplitRequired):
                 raise PreconditionError(

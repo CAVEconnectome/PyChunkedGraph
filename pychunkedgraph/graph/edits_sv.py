@@ -3,9 +3,10 @@ Manage new supervoxels after a supervoxel split.
 """
 
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Tuple
 
 import fastremap
 import numpy as np
@@ -20,14 +21,32 @@ from pychunkedgraph.graph import (
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
 from pychunkedgraph.graph.cutting_sv import split_supervoxel_helper
 from pychunkedgraph.graph.edges_sv import update_edges, add_new_edges
-from pychunkedgraph.graph.locks import L2ChunkLock
-from pychunkedgraph.graph.ocdbt import write_seg_chunks
 from pychunkedgraph.graph.utils import get_local_segmentation
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class SplitResult:
+    """Pure planner output of `split_supervoxels`.
+
+    The caller (`MulticutOperation._apply`) performs the actual writes
+    under the L2 chunk locks:
+    - `seg_writes` is fed to `write_seg_chunks` as one flat parallel batch.
+    - `bigtable_rows` is written via `cg.client.write` in one batch.
+    """
+
+    seg_bboxes: List[Tuple[np.ndarray, np.ndarray]]
+    source_ids_fresh: np.ndarray
+    sink_ids_fresh: np.ndarray
+    # Flat list across all reps: (voxel_slices, data_block) per OCDBT
+    # chunk write. `voxel_slices` is a 3-tuple of `slice` objects; the
+    # caller appends the channel slice and writes to `meta.ws_ocdbt`.
+    seg_writes: List[Tuple[Tuple[slice, slice, slice], np.ndarray]]
+    bigtable_rows: list
 
 
 def _rep_bbox(cg: "ChunkedGraph", sv_remapping: dict, sv_id) -> tuple:
@@ -125,7 +144,7 @@ def _overlapping_reps(
         )
 
 
-def split_supervoxels(
+def plan_sv_splits(
     cg: "ChunkedGraph",
     *,
     sv_remapping: dict,
@@ -133,34 +152,17 @@ def split_supervoxels(
     sink_ids: np.ndarray,
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
-    operation_id: int,
 ) -> tuple:
-    """Run the SV-split loop under the L2 chunk lock.
+    """Compute the per-rep bboxes and the L2 chunk set a SV-split would touch.
 
-    Caller must hold the root lock for the roots containing the SVs in
-    `sv_remapping` — concurrent same-root edits are kept out by the root
-    lock, concurrent cross-root edits touching the same L2 chunks are
-    serialized by the L2 chunk lock acquired here.
+    Pure function — no bigtable/OCDBT IO, no locks. Lets the caller
+    acquire the L2 chunk locks (both temporal and indefinite) around
+    `split_supervoxels` without recomputing the plan inside.
 
-    Each rep's bbox is computed up-front from its CC members' chunk
-    coords (see `_rep_bbox`), so the lock set — union of read-expanded
-    chunks across all reps — is known before we block. The lock scope is
-    then exactly the chunks the per-rep splits will read or write.
-
-    Returns `(seg_bboxes, source_ids_fresh, sink_ids_fresh)`:
-        seg_bboxes: per-rep base-resolution `(bbs, bbe)` bboxes that were
-            written to seg; the downsample worker re-mips only these.
-        source_ids_fresh / sink_ids_fresh: input `source_ids`/`sink_ids`
-            with positions touched by an overlap rep replaced by the new
-            SV ID that now lives at that coord. Untouched positions are
-            unchanged. Callers who need to re-run the multicut after
-            the split feed these to avoid referencing superseded SVs.
+    Returns `(reps, chunk_ids)` where `reps` is the per-rep tuple fed to
+    `split_supervoxels`, and `chunk_ids` is the sorted union of
+    read-expanded L2 chunks for the full operation.
     """
-    source_ids_fresh = np.asarray(source_ids, dtype=basetypes.NODE_ID).copy()
-    sink_ids_fresh = np.asarray(sink_ids, dtype=basetypes.NODE_ID).copy()
-
-    # Pre-compute every per-rep bbox (cheap chunk-coord lookups, no lock
-    # needed yet). Reuse later inside the lock to avoid recomputation.
     reps = []
     for (
         sv_id,
@@ -179,33 +181,87 @@ def split_supervoxels(
         reps.append(
             (sv_id, src_coords_rep, sink_coords_rep, src_mask, sink_mask, bbs, bbe)
         )
-
     chunk_ids = _l2_chunks_for_splits(cg, [(bbs, bbe) for *_, bbs, bbe in reps])
+    return reps, chunk_ids
+
+
+def split_supervoxels(
+    cg: "ChunkedGraph",
+    *,
+    reps: list,
+    sv_remapping: dict,
+    source_ids: np.ndarray,
+    sink_ids: np.ndarray,
+    operation_id: int,
+) -> SplitResult:
+    """Pure planner for the SV-split step. Returns a `SplitResult` with
+    all the data the caller needs to persist under locks.
+
+    Does **not** write — the caller (`MulticutOperation._apply`) owns
+    the L2 chunk lock lifecycle and fires the OCDBT + bigtable writes
+    inside `IndefiniteL2ChunkLock`.
+
+    Must be called inside the caller's `L2ChunkLock` for the
+    `plan.chunk_ids` set — the seg reads inside `split_supervoxel` need
+    to be consistent with concurrent writers.
+
+    Fields on the returned `SplitResult`:
+        seg_bboxes: per-rep base-resolution `(bbs, bbe)` — downsample
+            worker input.
+        source_ids_fresh / sink_ids_fresh: input `source_ids`/`sink_ids`
+            with positions touched by an overlap rep replaced by the new
+            SV ID that now lives at that coord. Untouched positions stay
+            unchanged. Feeds the retry multicut.
+        seg_writes: flat list of `(voxel_slices, data)` pairs across all
+            reps — one tensorstore write per pair, fired in parallel.
+        bigtable_rows: flattened rows from `copy_parents_and_add_lineage`
+            + `add_new_edges` across all reps.
+    """
+    source_ids_fresh = np.asarray(source_ids, dtype=basetypes.NODE_ID).copy()
+    sink_ids_fresh = np.asarray(sink_ids, dtype=basetypes.NODE_ID).copy()
+
     seg_bboxes = []
-    with L2ChunkLock(cg, chunk_ids, operation_id):
-        for (
+    seg_writes: List[Tuple[Tuple[slice, slice, slice], np.ndarray]] = []
+    bigtable_rows: list = []
+    for (
+        sv_id,
+        src_coords_rep,
+        sink_coords_rep,
+        src_mask,
+        sink_mask,
+        bbs,
+        bbe,
+    ) in reps:
+        (
+            _,
+            _,
+            seg_bbox,
+            src_new_ids,
+            sink_new_ids,
+            seg_write_pairs,
+            rows,
+        ) = split_supervoxel(
+            cg,
             sv_id,
             src_coords_rep,
             sink_coords_rep,
-            src_mask,
-            sink_mask,
-            bbs,
-            bbe,
-        ) in reps:
-            _, _, seg_bbox, src_new_ids, sink_new_ids = split_supervoxel(
-                cg,
-                sv_id,
-                src_coords_rep,
-                sink_coords_rep,
-                operation_id,
-                sv_remapping=sv_remapping,
-                bbs=bbs,
-                bbe=bbe,
-            )
-            seg_bboxes.append(seg_bbox)
-            source_ids_fresh[src_mask] = src_new_ids
-            sink_ids_fresh[sink_mask] = sink_new_ids
-    return seg_bboxes, source_ids_fresh, sink_ids_fresh
+            operation_id,
+            sv_remapping=sv_remapping,
+            bbs=bbs,
+            bbe=bbe,
+        )
+        seg_bboxes.append(seg_bbox)
+        source_ids_fresh[src_mask] = src_new_ids
+        sink_ids_fresh[sink_mask] = sink_new_ids
+        seg_writes.extend(seg_write_pairs)
+        bigtable_rows.extend(rows)
+    return SplitResult(
+        seg_bboxes=seg_bboxes,
+        source_ids_fresh=source_ids_fresh,
+        sink_ids_fresh=sink_ids_fresh,
+        seg_writes=seg_writes,
+        bigtable_rows=bigtable_rows,
+    )
 
 
 def _update_chunks(cg: "ChunkedGraph", chunks_bbox_map, seg, result_seg, bb_start):
@@ -389,24 +445,39 @@ def split_supervoxel(
     rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
     rows = rows0 + rows1
 
-    t0 = time.time()
-    write_seg_chunks(cg.meta, change_chunks, new_seg, bbs)
-    cg.client.write(rows)
-    logger.note(
-        f"write seg ({len(change_chunks)} chunks) + {len(rows)} rows "
-        f"({time.time() - t0:.2f}s)"
-    )
+    # Prepare per-chunk OCDBT write payloads. The caller batches these
+    # across all reps into one parallel tensorstore write — no serial
+    # per-rep loop.
+    seg_write_pairs: List[Tuple[Tuple[slice, slice, slice], np.ndarray]] = []
+    for _, chunk_bbox in change_chunks:
+        lo, hi = chunk_bbox[0], chunk_bbox[1]
+        local_lo = lo - bbs
+        local_hi = hi - bbs
+        data = new_seg[
+            local_lo[0] : local_hi[0],
+            local_lo[1] : local_hi[1],
+            local_lo[2] : local_hi[2],
+        ]
+        voxel_slices = tuple(slice(int(s), int(e)) for s, e in zip(lo, hi))
+        seg_write_pairs.append((voxel_slices, data))
 
-    # Per-coord fresh IDs: identical to what a post-write seg read would
-    # return, but computed in-memory from new_seg. new_seg is what just
-    # landed on storage (the write is synchronous and we hold the L2
-    # lock), so reading new_seg[coord - bbs] is equivalent to re-reading
-    # seg — without the storage round-trip.
+    # Per-coord fresh IDs: bit-identical to what a post-write seg read
+    # would return — new_seg is what the caller is about to write, and
+    # the caller holds the L2 chunk lock when it does, so the storage
+    # round-trip would see the same bytes.
     local_src = (np.asarray(source_coords, dtype=int) - bbs).astype(int)
     local_sink = (np.asarray(sink_coords, dtype=int) - bbs).astype(int)
     src_new_ids = new_seg[tuple(local_src.T)]
     sink_new_ids = new_seg[tuple(local_sink.T)]
-    return old_new_map, edges_tuple, (bbs, bbe), src_new_ids, sink_new_ids
+    return (
+        old_new_map,
+        edges_tuple,
+        (bbs, bbe),
+        src_new_ids,
+        sink_new_ids,
+        seg_write_pairs,
+        rows,
+    )
 
 
 def copy_parents_and_add_lineage(
