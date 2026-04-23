@@ -12,8 +12,12 @@ from ..helpers import (
     make_cg_with_row_key_lock_registry,
     to_label,
 )
-from ...graph import exceptions
-from ...graph.locks import L2ChunkLock, _l2_chunk_lock_row_key
+from ...graph import attributes, exceptions
+from ...graph.locks import (
+    IndefiniteL2ChunkLock,
+    L2ChunkLock,
+    _l2_chunk_lock_row_key,
+)
 from ...graph.lineage import get_future_root_ids
 from ...ingest.create.parent_layer import add_parent_chunk
 
@@ -711,6 +715,30 @@ class TestIndefiniteRootLockExitUnlocks:
         # Should not raise
         lock.__exit__(None, None, None)
 
+    def test_indefiniterootlock_exit_holds_on_exception_path(self):
+        """When `__exit__` is called with a propagating exception, cells
+        stay held — partial bigtable hierarchy writes may have landed
+        and further ops must refuse until operator recovery runs.
+        """
+        cg = _make_mock_cg()
+        root_ids = np.array([np.uint64(100), np.uint64(101)])
+        cg.client.lock_roots_indefinitely.return_value = (
+            True,
+            list(root_ids),
+            [],
+        )
+
+        lock = IndefiniteRootLock(
+            cg,
+            np.uint64(10),
+            root_ids,
+            future_root_ids_d=defaultdict(list),
+        )
+        lock.__enter__()
+        lock.__exit__(ValueError, ValueError("boom"), None)
+
+        cg.client.unlock_indefinitely_locked_root.assert_not_called()
+
 
 class TestIndefiniteRootLockComputesFutureRootIds:
     def test_indefiniterootlock_computes_future_root_ids(self):
@@ -847,3 +875,178 @@ class TestL2ChunkLock:
         # Only chunk 2 remains held, by the pre-existing holder.
         assert len(registry._held) == 1
         assert next(iter(registry._held)) == _l2_chunk_lock_row_key(np.uint64(2))
+
+    def test_privileged_mode_skips_acquire(self):
+        """Replay path: indefinite cells from the crashed op are still
+        set, so a normal temporal acquire would refuse. Privileged mode
+        bypasses the acquire entirely — the indefinite cells are the
+        de-facto lock and the inner `IndefiniteL2ChunkLock(privileged=True)`
+        releases them on exit.
+        """
+        registry = RowKeyLockRegistry()
+        # Crashed op's indefinite cells block a normal temporal acquire.
+        crashed_op = np.uint64(42)
+        for c in (np.uint64(1), np.uint64(2)):
+            registry.lock_by_row_key_indefinitely(_l2_chunk_lock_row_key(c), crashed_op)
+
+        cg = make_cg_with_row_key_lock_registry(registry)
+
+        # Normal acquire refuses because indefinite is held.
+        normal = L2ChunkLock(cg, [np.uint64(1), np.uint64(2)], np.uint64(99))
+        with pytest.raises(exceptions.LockingError):
+            normal.__enter__()
+
+        # Privileged acquire — called from replay with the same op_id as
+        # the crashed op — skips the acquire and returns cleanly.
+        priv = L2ChunkLock(
+            cg, [np.uint64(1), np.uint64(2)], crashed_op, privileged_mode=True
+        )
+        priv.__enter__()
+        priv.__exit__(None, None, None)
+        # Indefinite cells still held (privileged-L2ChunkLock doesn't
+        # touch them — that's IndefiniteL2ChunkLock(privileged=True)'s job).
+        assert len(registry._held_indefinite) == 2
+
+
+class TestIndefiniteL2ChunkLock:
+    """`IndefiniteL2ChunkLock` lifecycle: acquire + scope write on enter,
+    release + scope clear on exit; privileged mode releases pre-existing
+    cells left by a crashed op.
+    """
+
+    def _scope_mutate_calls(self, cg):
+        """Extract (row_key, scope_value) from cg.client.mutate_row calls
+        that set `L2ChunkLockScope`. Lets tests assert on what was written."""
+        calls = []
+        for call in cg.client.mutate_row.call_args_list:
+            row_key, val_dict = call[0][:2]
+            if attributes.OperationLogs.L2ChunkLockScope in val_dict:
+                calls.append(
+                    (row_key, val_dict[attributes.OperationLogs.L2ChunkLockScope])
+                )
+        return calls
+
+    def test_enter_writes_scope_and_acquires_cells(self):
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
+        chunks = [np.uint64(3), np.uint64(1), np.uint64(2)]
+        op_id = np.uint64(42)
+
+        lock = IndefiniteL2ChunkLock(cg, chunks, op_id)
+        lock.__enter__()
+        try:
+            # Every chunk now has an indefinite cell.
+            assert len(registry._held_indefinite) == 3
+            # Scope written to op-log row; value is the sorted chunk list.
+            scope_calls = self._scope_mutate_calls(cg)
+            non_empty = [c for c in scope_calls if len(c[1]) > 0]
+            assert len(non_empty) == 1
+            assert list(non_empty[0][1]) == [1, 2, 3]
+        finally:
+            lock.__exit__(None, None, None)
+
+    def test_exit_releases_cells_and_clears_scope(self):
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
+        chunks = [np.uint64(1), np.uint64(2)]
+        with IndefiniteL2ChunkLock(cg, chunks, np.uint64(42)):
+            pass
+        # Cells released.
+        assert registry._held_indefinite == {}
+        # Scope cleared: one write of an empty array to L2ChunkLockScope.
+        empty_calls = [c for c in self._scope_mutate_calls(cg) if len(c[1]) == 0]
+        assert len(empty_calls) == 1
+
+    def test_privileged_mode_releases_preexisting(self):
+        """Crashed op left indefinite cells under its op_id; the replay
+        re-enters with privileged_mode=True and the `__exit__` is expected
+        to delete those pre-existing cells (value-matched by op_id).
+        """
+        registry = RowKeyLockRegistry()
+        op_id = np.uint64(42)
+        chunks = [np.uint64(10), np.uint64(20)]
+        for c in chunks:
+            assert registry.lock_by_row_key_indefinitely(
+                _l2_chunk_lock_row_key(c), op_id
+            )
+        assert len(registry._held_indefinite) == 2
+
+        cg = make_cg_with_row_key_lock_registry(registry)
+        with IndefiniteL2ChunkLock(cg, chunks, op_id, privileged_mode=True):
+            # Privileged enter skips acquire, so pre-existing cells persist.
+            assert len(registry._held_indefinite) == 2
+            # Privileged mode does not re-write the scope either; only the
+            # clear-on-exit writes `L2ChunkLockScope`.
+            assert self._scope_mutate_calls(cg) == []
+        # Exit released the pre-existing cells.
+        assert registry._held_indefinite == {}
+
+    def test_double_acquire_fails(self):
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
+        op_a = np.uint64(1)
+        op_b = np.uint64(2)
+        with IndefiniteL2ChunkLock(cg, [np.uint64(5)], op_a):
+            lock_b = IndefiniteL2ChunkLock(cg, [np.uint64(5)], op_b)
+            with pytest.raises(exceptions.LockingError):
+                lock_b.__enter__()
+            # Op A's cell still held.
+            assert len(registry._held_indefinite) == 1
+
+    def test_replay_nested_privileged_clears_crashed_cells(self):
+        """Replay lock-dance against a crashed op's pre-existing cells.
+
+        Simulates what `MulticutOperation._apply` does during replay:
+        `with L2ChunkLock(privileged=True): with IndefiniteL2ChunkLock(
+        privileged=True): ...`. Both locks must succeed despite indefinite
+        cells being pre-held, and the inner `__exit__` must release them.
+
+        This regresses the bug where `L2ChunkLock` lacked a privileged
+        escape hatch — the temporal acquire would refuse because
+        `lock_by_row_key_with_indefinite` sees the crashed op's
+        indefinite cell.
+        """
+        registry = RowKeyLockRegistry()
+        crashed_op = np.uint64(42)
+        chunks = [np.uint64(1), np.uint64(2), np.uint64(3)]
+        # Seed crashed op's indefinite cells.
+        for c in chunks:
+            registry.lock_by_row_key_indefinitely(_l2_chunk_lock_row_key(c), crashed_op)
+        assert len(registry._held_indefinite) == 3
+
+        cg = make_cg_with_row_key_lock_registry(registry)
+
+        # Replay's exact lock-dance from operation.py _apply.
+        with L2ChunkLock(cg, chunks, crashed_op, privileged_mode=True):
+            with IndefiniteL2ChunkLock(cg, chunks, crashed_op, privileged_mode=True):
+                # Simulated replay writes would happen here; we just
+                # assert the locks entered without raising.
+                pass
+        # Crashed op's cells released.
+        assert registry._held_indefinite == {}
+
+    def test_exit_holds_on_exception_path(self):
+        """When `__exit__` is called with a propagating exception, cells
+        stay held and the op-log scope is NOT cleared — partial OCDBT /
+        bigtable writes may exist and subsequent ops must refuse until
+        operator recovery runs.
+        """
+        registry = RowKeyLockRegistry()
+        cg = make_cg_with_row_key_lock_registry(registry)
+        chunks = [np.uint64(1), np.uint64(2)]
+        op_id = np.uint64(42)
+
+        lock = IndefiniteL2ChunkLock(cg, chunks, op_id)
+        lock.__enter__()
+        # Enter wrote scope + held cells.
+        assert len(registry._held_indefinite) == 2
+        scope_writes = self._scope_mutate_calls(cg)
+        assert any(len(v) > 0 for _, v in scope_writes)
+
+        # Simulate an exception propagating through the `with` block.
+        lock.__exit__(ValueError, ValueError("boom"), None)
+
+        # Cells still held, scope not cleared (no empty-array mutate).
+        assert len(registry._held_indefinite) == 2
+        empty_writes = [(k, v) for k, v in self._scope_mutate_calls(cg) if len(v) == 0]
+        assert empty_writes == []

@@ -9,7 +9,7 @@ import numpy as np
 
 from pychunkedgraph import get_logger
 
-from . import exceptions
+from . import attributes, exceptions, serializers
 from .types import empty_1d
 from .lineage import lineage_graph
 
@@ -166,6 +166,14 @@ class IndefiniteRootLock:
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
+        if exception_type is not None:
+            # Partial bigtable hierarchy writes may have landed before
+            # the exception propagated. Keep the indefinite cells held
+            # so subsequent ops on these roots refuse to acquire —
+            # forces operator recovery (`repair_operation(..., unlock=
+            # True)`) rather than letting a silent corruption slip into
+            # further edits.
+            return
         if self.acquired:
             max_workers = min(8, max(1, len(self.root_ids)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -332,7 +340,13 @@ class L2ChunkLock:
     under the hood; the row key disambiguates).
     """
 
-    __slots__ = ["cg", "chunk_ids", "operation_id", "acquired_keys"]
+    __slots__ = [
+        "cg",
+        "chunk_ids",
+        "operation_id",
+        "privileged_mode",
+        "acquired_keys",
+    ]
 
     # Retry budget for partial-acquire failures. Each attempt releases
     # anything it got in the previous pass, then re-acquires from scratch.
@@ -344,6 +358,8 @@ class L2ChunkLock:
         cg,
         chunk_ids: Sequence[int],
         operation_id: np.uint64,
+        *,
+        privileged_mode: bool = False,
     ) -> None:
         self.cg = cg
         # Sort so every `__enter__` uses a consistent acquisition order
@@ -351,15 +367,33 @@ class L2ChunkLock:
         # would otherwise race AB/BA.
         self.chunk_ids = sorted(int(c) for c in chunk_ids)
         self.operation_id = np.uint64(operation_id)
+        self.privileged_mode = privileged_mode
         self.acquired_keys: list = []
 
     def __enter__(self):
+        if self.privileged_mode:
+            # Replay path: the crashed op's `IndefiniteL2ChunkLock` cells
+            # are still set on these chunks (that's what's blocking new
+            # ops), and `lock_by_row_key_with_indefinite` would refuse.
+            # Mirror `RootLock`/`IndefiniteRootLock`'s privileged escape
+            # hatch — skip temporal acquire, the indefinite cells are
+            # our de-facto lock and they'll be released by the inner
+            # `IndefiniteL2ChunkLock(privileged_mode=True)` on exit.
+            return self
         for attempt in range(self._MAX_ACQUIRE_ATTEMPTS):
             self.acquired_keys = []
             all_ok = True
             for chunk_id in self.chunk_ids:
                 row_key = _l2_chunk_lock_row_key(chunk_id)
-                if self.cg.client.lock_by_row_key(row_key, self.operation_id):
+                # `_with_indefinite`: the temporal acquire must also
+                # refuse if the indefinite column is set. Closes the
+                # crash-recovery race — a worker that died holding
+                # `IndefiniteL2ChunkLock` leaves the indefinite cell
+                # set, and the next op must see it rather than silently
+                # racing into partial state.
+                if self.cg.client.lock_by_row_key_with_indefinite(
+                    row_key, self.operation_id
+                ):
                     self.acquired_keys.append(row_key)
                 else:
                     all_ok = False
@@ -402,3 +436,136 @@ class L2ChunkLock:
                 logger.warning(f"Failed to renew L2 chunk lock {key!r}")
                 ok = False
         return ok
+
+
+class IndefiniteL2ChunkLock:
+    """Upgrade held-temporal L2 chunk locks to indefinite.
+
+    Structurally mirrors `IndefiniteRootLock`: acquired inside the
+    temporal lock (`L2ChunkLock`) context after preconditions are
+    established, and held across the write phase. Doesn't expire — the
+    cell persists on bigtable until explicitly released (or operator
+    recovery clears it), so a worker that dies with writes in flight
+    leaves the chunks marked indefinitely-held.
+
+    The temporal `L2ChunkLock` must already be held by the same
+    `operation_id`; the acquire filter for temporal now rejects on
+    indefinite cells, so future temporal acquires on these chunks
+    refuse until this lock is released.
+
+    Durable scope: `__enter__` writes `chunk_ids` to the op-log row's
+    `OperationLogs.L2ChunkLockScope` column. This persists through a
+    worker crash, giving `stuck_ops replay` the exact chunk set to
+    clean up without a bigtable-wide lock-row scan.
+
+    `privileged_mode=True` is the operator recovery escape hatch:
+    skips the acquire step (the cells already exist, held by this same
+    op_id from the crashed attempt), pre-populates `acquired_keys` from
+    `chunk_ids` so `__exit__` still value-matches-releases those cells,
+    and does not re-write the op-log scope column.
+    """
+
+    __slots__ = ["cg", "chunk_ids", "operation_id", "privileged_mode", "acquired_keys"]
+
+    def __init__(
+        self,
+        cg,
+        chunk_ids: Sequence[int],
+        operation_id: np.uint64,
+        *,
+        privileged_mode: bool = False,
+    ) -> None:
+        self.cg = cg
+        self.chunk_ids = sorted(int(c) for c in chunk_ids)
+        self.operation_id = np.uint64(operation_id)
+        self.privileged_mode = privileged_mode
+        self.acquired_keys: list = []
+
+    def __enter__(self):
+        if self.privileged_mode:
+            # Recovery path: crashed op's indefinite cells already exist
+            # under this op_id. Populate acquired_keys so __exit__'s
+            # value-matched release deletes them after the replay writes
+            # succeed.
+            self.acquired_keys = [_l2_chunk_lock_row_key(c) for c in self.chunk_ids]
+            return self
+        for chunk_id in self.chunk_ids:
+            row_key = _l2_chunk_lock_row_key(chunk_id)
+            if not self.cg.client.lock_by_row_key_indefinitely(
+                row_key, self.operation_id
+            ):
+                # Partial acquire: release what we got and fail. No
+                # retry — an indefinite cell belongs to a currently-
+                # running or crashed op and won't clear on its own.
+                self._release_acquired()
+                raise exceptions.LockingError(
+                    f"Could not upgrade L2 chunk {chunk_id} to indefinite lock "
+                    f"(another op holds it)"
+                )
+            self.acquired_keys.append(row_key)
+        self._write_scope_to_op_log()
+        return self
+
+    def __exit__(self, exception_type, exception_value, traceback):
+        if exception_type is not None:
+            # Partial OCDBT seg / bigtable SV-hierarchy writes may have
+            # landed before the exception propagated. Leave the
+            # indefinite cells held and the op-log scope intact so
+            # subsequent ops refuse at `L2ChunkLock` acquire — forces
+            # operator recovery (`stuck_ops replay`) rather than
+            # leaking orphan SV IDs into downstream reads.
+            return
+        self._release_acquired()
+        self._clear_scope_on_op_log()
+
+    def _write_scope_to_op_log(self):
+        """Record the chunk scope on the op-log row before seg/bigtable
+        writes begin. A worker crash after this point leaves both the
+        per-chunk indefinite cells AND this field set, so recovery can
+        locate the partial-write region without a bigtable scan.
+        """
+        row_key = serializers.serialize_uint64(self.operation_id)
+        scope = np.asarray(self.chunk_ids, dtype=np.uint64)
+        entry = self.cg.client.mutate_row(
+            row_key,
+            {attributes.OperationLogs.L2ChunkLockScope: scope},
+        )
+        self.cg.client.write([entry])
+
+    def _clear_scope_on_op_log(self):
+        """Clear the scope record on normal exit — op completed or was
+        cleanly rolled back, so no partial state needs recovery. Overwrites
+        with an empty array; a subsequent `read_log_entries` returns an
+        empty scope (recovery skips). Best-effort; failures here are
+        logged but don't propagate.
+        """
+        try:
+            row_key = serializers.serialize_uint64(self.operation_id)
+            empty = np.array([], dtype=np.uint64)
+            entry = self.cg.client.mutate_row(
+                row_key,
+                {attributes.OperationLogs.L2ChunkLockScope: empty},
+            )
+            self.cg.client.write([entry])
+        except Exception as e:
+            logger.warning(f"Failed to clear L2ChunkLockScope on op-log row: {e}")
+
+    def _release_acquired(self):
+        if not self.acquired_keys:
+            return
+        max_workers = min(8, max(1, len(self.acquired_keys)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    self.cg.client.unlock_indefinitely_locked_by_row_key,
+                    key,
+                    self.operation_id,
+                )
+                for key in self.acquired_keys
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.warning(f"Failed to unlock indefinite L2 chunk: {e}")
+        self.acquired_keys = []

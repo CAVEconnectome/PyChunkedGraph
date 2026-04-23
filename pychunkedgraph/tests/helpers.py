@@ -116,15 +116,21 @@ def get_layer_chunk_bounds(
 class RowKeyLockRegistry:
     """Thread-safe in-memory stand-in for kvdbclient's row-key lock API.
 
-    Matches the `cg.client.lock_by_row_key` / `unlock_by_row_key` /
-    `renew_lock_by_row_key` surface so row-key-based lock primitives
-    (DownsampleBlockLock, L2ChunkLock, …) can be exercised in unit
-    tests without running a bigtable emulator.
+    Matches the full `cg.client.lock_by_row_key*` / `unlock_by_row_key*`
+    / `renew_lock_by_row_key` surface — including the indefinite-column
+    variants — so row-key-based lock primitives (DownsampleBlockLock,
+    L2ChunkLock, IndefiniteL2ChunkLock, …) can be exercised without a
+    bigtable emulator.
+
+    Two separate maps, one per column. The "with_indefinite" temporal
+    acquire refuses if either map holds the row, mirroring the filter
+    union that `lock_by_row_key_with_indefinite` uses on bigtable.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._held = {}
+        self._held_indefinite = {}
 
     def lock_by_row_key(self, row_key, operation_id):
         with self._lock:
@@ -133,10 +139,31 @@ class RowKeyLockRegistry:
             self._held[row_key] = operation_id
             return True
 
+    def lock_by_row_key_with_indefinite(self, row_key, operation_id):
+        with self._lock:
+            if row_key in self._held or row_key in self._held_indefinite:
+                return False
+            self._held[row_key] = operation_id
+            return True
+
+    def lock_by_row_key_indefinitely(self, row_key, operation_id):
+        with self._lock:
+            if row_key in self._held_indefinite:
+                return False
+            self._held_indefinite[row_key] = operation_id
+            return True
+
     def unlock_by_row_key(self, row_key, operation_id):
         with self._lock:
             if self._held.get(row_key) == operation_id:
                 del self._held[row_key]
+                return True
+            return False
+
+    def unlock_indefinitely_locked_by_row_key(self, row_key, operation_id):
+        with self._lock:
+            if self._held_indefinite.get(row_key) == operation_id:
+                del self._held_indefinite[row_key]
                 return True
             return False
 
@@ -149,6 +176,11 @@ def make_cg_with_row_key_lock_registry(registry: RowKeyLockRegistry):
     """Attach a `RowKeyLockRegistry` to a `MagicMock` cg.client."""
     cg = MagicMock()
     cg.client.lock_by_row_key = registry.lock_by_row_key
+    cg.client.lock_by_row_key_with_indefinite = registry.lock_by_row_key_with_indefinite
+    cg.client.lock_by_row_key_indefinitely = registry.lock_by_row_key_indefinitely
     cg.client.unlock_by_row_key = registry.unlock_by_row_key
+    cg.client.unlock_indefinitely_locked_by_row_key = (
+        registry.unlock_indefinitely_locked_by_row_key
+    )
     cg.client.renew_lock_by_row_key = registry.renew_lock_by_row_key
     return cg
