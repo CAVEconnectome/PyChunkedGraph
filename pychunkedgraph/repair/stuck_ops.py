@@ -29,6 +29,7 @@ import numpy as np
 from pychunkedgraph import get_logger
 from pychunkedgraph.graph import ChunkedGraph, attributes
 from pychunkedgraph.graph.chunks.utils import get_chunk_coordinates
+from pychunkedgraph.graph.locks import _l2_chunk_lock_row_key
 from pychunkedgraph.graph.ocdbt import get_seg_source_and_destination_ocdbt
 from pychunkedgraph.repair.edits import repair_operation
 
@@ -58,21 +59,34 @@ def _chunk_voxel_slices(cg: ChunkedGraph, chunk_id: int) -> tuple:
 
 
 def list_stuck(cg: ChunkedGraph, min_age: timedelta = timedelta(minutes=10)) -> list:
-    """Return op-log entries still at `CREATED` status past `min_age`.
+    """Return op-log entries whose `L2ChunkLockScope` is set past `min_age`,
+    excluding successfully-completed ops.
 
-    `CREATED` is the initial log state; normal ops transition to
-    `WRITE_STARTED` inside `_write` and then to `SUCCESS`. An op lingering
-    at `CREATED` past `min_age` is a candidate for operator inspection —
-    either the worker crashed mid-write (indefinite cell set, needs
-    `replay`) or the op is still in flight (leave it alone).
+    The authoritative signal for a stuck op is "scope recorded" —
+    `IndefiniteL2ChunkLock.__enter__` writes it before any seg/bigtable
+    write and its clean `__exit__` clears it. An op whose scope is
+    still populated is either a worker crash (Status=CREATED, Fix 1's
+    `__exit__` short-circuit never ran) or an exception during the
+    persist block (Status=EXCEPTION, Fix 1 held the cells on the way
+    out). Either way it's still holding `Concurrency.IndefiniteLock`
+    cells on the listed chunks and blocking any new op that overlaps.
+
+    Ops that reach `SUCCESS` normally have scope cleared — we defensively
+    filter them out in case `_clear_scope_on_op_log`'s best-effort write
+    failed and logged. Failed ops that never touched the persist block
+    (e.g. a PreconditionError from multicut) have no scope and don't
+    show up here; they're not blocking anything.
     """
     now = datetime.now(timezone.utc)
     cutoff = now - min_age
     entries = cg.client.read_log_entries()
     stuck = []
-    created_code = attributes.OperationLogs.StatusCodes.CREATED.value
+    success_code = attributes.OperationLogs.StatusCodes.SUCCESS.value
     for op_id, entry in entries.items():
-        if entry.get(attributes.OperationLogs.Status) != created_code:
+        scope = entry.get(attributes.OperationLogs.L2ChunkLockScope)
+        if scope is None or len(scope) == 0:
+            continue
+        if entry.get(attributes.OperationLogs.Status) == success_code:
             continue
         op_ts = entry.get(attributes.OperationLogs.OperationTimeStamp)
         if op_ts is None:
@@ -87,7 +101,8 @@ def list_stuck(cg: ChunkedGraph, min_age: timedelta = timedelta(minutes=10)) -> 
                 "operation_ts": op_ts,
                 "age": now - op_ts,
                 "user_id": entry.get(attributes.OperationLogs.UserID),
-                "l2_chunk_scope": entry.get(attributes.OperationLogs.L2ChunkLockScope),
+                "l2_chunk_scope": scope,
+                "status": entry.get(attributes.OperationLogs.Status),
             }
         )
     stuck.sort(key=lambda r: r["op_id"])
@@ -149,16 +164,76 @@ def cleanup_partial_writes(cg: ChunkedGraph, op_id: int) -> int:
     return len(scope)
 
 
-def replay(cg: ChunkedGraph, op_id: int):
-    """Recovery: clean up partial OCDBT writes, then run the op normally.
+def _verify_indefinite_cells(cg: ChunkedGraph, op_id: int, scope) -> list:
+    """Check each chunk in `scope` actually has `Concurrency.IndefiniteLock`
+    held by `op_id`. Returns the list of chunk IDs whose cell is missing
+    or held by a different op_id — an empty list means everything is
+    consistent.
 
-    Delegates the actual rerun to `repair.edits.repair_operation`, which
-    loads the op, runs `operation.execute(..., privileged_mode=True,
-    parent_ts=<previous-edit ts>)`, and unlocks the root row on success.
-    Our `IndefiniteL2ChunkLock.__enter__` in privileged mode populates
-    `acquired_keys` from the scope so `__exit__` releases the crashed
-    op's pre-existing indefinite cells after the replay writes land.
+    Guards `replay` against acting on a stale scope: if cells aren't
+    actually held (operator already ran replay, manual intervention,
+    any bug that released cells without clearing scope), `cleanup_
+    partial_writes` would revert chunks that another op may have
+    legitimately written to in the meantime. Refusing loudly is safer
+    than assuming.
     """
+    lock_column = attributes.Concurrency.IndefiniteLock
+    expected = np.uint64(op_id)
+    discrepancies = []
+    for chunk_id in scope:
+        row_key = _l2_chunk_lock_row_key(int(chunk_id))
+        cells = cg.client._read_byte_row(row_key, columns=lock_column)
+        if not cells:
+            discrepancies.append(int(chunk_id))
+            continue
+        held_by = cells[0].value if hasattr(cells[0], "value") else None
+        if held_by != expected:
+            discrepancies.append(int(chunk_id))
+    return discrepancies
+
+
+def replay(cg: ChunkedGraph, op_id: int):
+    """Recovery: verify locks, clean up partial OCDBT writes, then run
+    the op normally.
+
+    Before any destructive step, read back the per-chunk
+    `Concurrency.IndefiniteLock` cells listed in the op's
+    `L2ChunkLockScope` and confirm they're still held by `op_id`. If
+    any are missing or held by another op, raise and do nothing —
+    proceeding would have `cleanup_partial_writes` revert chunks we
+    don't actually own.
+
+    On clean verification, `cleanup_partial_writes` reverts the op's
+    partial OCDBT writes, then `repair.edits.repair_operation` reruns
+    `operation.execute(..., privileged_mode=True, parent_ts=<previous-
+    edit ts>)`. `IndefiniteL2ChunkLock.__enter__` in privileged mode
+    populates `acquired_keys` from the scope so `__exit__` releases the
+    crashed op's pre-existing indefinite cells after the replay writes
+    land.
+    """
+    log_entries = cg.client.read_log_entries(operation_ids=[np.uint64(op_id)])
+    if not log_entries:
+        raise ValueError(f"No op-log row for op_id={op_id}")
+    entry = log_entries[np.uint64(op_id)]
+    scope = entry.get(attributes.OperationLogs.L2ChunkLockScope)
+    if scope is None or len(scope) == 0:
+        raise RuntimeError(
+            f"op {op_id} has no L2ChunkLockScope — not a stuck SV-split op. "
+            "If the op failed cleanly, the client should re-submit under a "
+            "fresh op_id rather than replay."
+        )
+
+    mismatched = _verify_indefinite_cells(cg, op_id, scope)
+    if mismatched:
+        raise RuntimeError(
+            f"op {op_id}: L2ChunkLockScope lists chunks {[int(c) for c in scope]}, "
+            f"but the following chunks do not have Concurrency.IndefiniteLock "
+            f"held by op_id={op_id}: {mismatched}. Refusing to replay — the "
+            "recorded scope disagrees with live lock state. Possible causes: "
+            "replay already ran, cells were manually cleared, or a different "
+            "op acquired these chunks. Investigate before retrying."
+        )
+
     cleanup_partial_writes(cg, op_id)
     return repair_operation(cg, op_id, unlock=True)
 

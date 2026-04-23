@@ -27,7 +27,9 @@ from .test_ocdbt import local_ocdbt  # noqa: F401
 
 
 class TestListStuck:
-    """`list_stuck` filters the op-log by Status==CREATED past min_age."""
+    """`list_stuck` surfaces ops with non-empty `L2ChunkLockScope` past
+    `min_age` whose Status isn't SUCCESS — i.e. still holding
+    `Concurrency.IndefiniteLock` cells somewhere."""
 
     def _entry(self, status, age_seconds, user="u", scope=None):
         now = datetime.now(timezone.utc)
@@ -48,24 +50,61 @@ class TestListStuck:
         cg.client.read_log_entries.return_value = entries
         return cg
 
-    def test_filters_out_success(self):
+    def test_filters_out_success_with_scope(self):
+        """Defensive: a SUCCESS op with stale scope (if
+        `_clear_scope_on_op_log` ever failed silently) must not be
+        listed as stuck."""
         success = attributes.OperationLogs.StatusCodes.SUCCESS.value
         created = attributes.OperationLogs.StatusCodes.CREATED.value
         cg = self._cg(
             {
-                np.uint64(1): self._entry(success, 900),
+                np.uint64(1): self._entry(success, 900, scope=[10, 20]),
                 np.uint64(2): self._entry(created, 900, scope=[10, 20]),
             }
         )
         stuck = stuck_ops.list_stuck(cg, min_age=timedelta(minutes=1))
         assert [r["op_id"] for r in stuck] == [2]
 
+    def test_filters_out_empty_scope(self):
+        """Ops that never touched the persist block (no scope) are not
+        stuck via L2 locks — they're outside `stuck_ops`' concern."""
+        created = attributes.OperationLogs.StatusCodes.CREATED.value
+        exception = attributes.OperationLogs.StatusCodes.EXCEPTION.value
+        cg = self._cg(
+            {
+                np.uint64(1): self._entry(created, 900),  # no scope
+                np.uint64(2): self._entry(exception, 900),  # no scope
+                np.uint64(3): self._entry(created, 900, scope=[42]),
+            }
+        )
+        stuck = stuck_ops.list_stuck(cg, min_age=timedelta(minutes=1))
+        assert [r["op_id"] for r in stuck] == [3]
+
+    def test_surfaces_exception_path_with_scope(self):
+        """After Fix 1, a Python exception during the persist block
+        leaves cells held + scope set but Status=EXCEPTION. The op must
+        be listed so the operator can recover it."""
+        exception = attributes.OperationLogs.StatusCodes.EXCEPTION.value
+        cg = self._cg(
+            {
+                np.uint64(42): self._entry(
+                    exception, 900, user="alice", scope=[100, 200]
+                ),
+            }
+        )
+        stuck = stuck_ops.list_stuck(cg, min_age=timedelta(minutes=1))
+        assert len(stuck) == 1
+        row = stuck[0]
+        assert row["op_id"] == 42
+        assert row["status"] == exception
+        assert list(row["l2_chunk_scope"]) == [100, 200]
+
     def test_filters_out_young_ops(self):
         created = attributes.OperationLogs.StatusCodes.CREATED.value
         cg = self._cg(
             {
-                np.uint64(1): self._entry(created, 10),  # too young
-                np.uint64(2): self._entry(created, 3600),  # an hour old
+                np.uint64(1): self._entry(created, 10, scope=[1]),  # too young
+                np.uint64(2): self._entry(created, 3600, scope=[2]),  # an hour old
             }
         )
         stuck = stuck_ops.list_stuck(cg, min_age=timedelta(minutes=10))
@@ -85,6 +124,114 @@ class TestListStuck:
         assert row["user_id"] == "op"
         assert list(row["l2_chunk_scope"]) == [100, 200]
         assert row["age"] > timedelta(minutes=10)
+
+
+class TestVerifyIndefiniteCells:
+    """`_verify_indefinite_cells` reads each chunk's indefinite-lock cell
+    and reports any that don't match the expected op_id."""
+
+    class _Cell:
+        def __init__(self, value):
+            self.value = value
+
+    def _cg(self, cells_by_row_key):
+        cg = MagicMock()
+
+        def read(row_key, columns=None):
+            return cells_by_row_key.get(row_key, [])
+
+        cg.client._read_byte_row.side_effect = read
+        return cg
+
+    def test_all_held_by_same_op(self):
+        op_id = 42
+        scope = [np.uint64(1), np.uint64(2)]
+        cells = {
+            stuck_ops._l2_chunk_lock_row_key(1): [self._Cell(np.uint64(op_id))],
+            stuck_ops._l2_chunk_lock_row_key(2): [self._Cell(np.uint64(op_id))],
+        }
+        cg = self._cg(cells)
+        assert stuck_ops._verify_indefinite_cells(cg, op_id, scope) == []
+
+    def test_cell_missing_flagged(self):
+        op_id = 42
+        scope = [np.uint64(1), np.uint64(2)]
+        cells = {
+            stuck_ops._l2_chunk_lock_row_key(1): [self._Cell(np.uint64(op_id))],
+            # chunk 2 has no cell
+        }
+        cg = self._cg(cells)
+        discrepancies = stuck_ops._verify_indefinite_cells(cg, op_id, scope)
+        assert discrepancies == [2]
+
+    def test_cell_held_by_different_op_flagged(self):
+        op_id = 42
+        other_op = np.uint64(99)
+        scope = [np.uint64(1), np.uint64(2)]
+        cells = {
+            stuck_ops._l2_chunk_lock_row_key(1): [self._Cell(other_op)],
+            stuck_ops._l2_chunk_lock_row_key(2): [self._Cell(np.uint64(op_id))],
+        }
+        cg = self._cg(cells)
+        discrepancies = stuck_ops._verify_indefinite_cells(cg, op_id, scope)
+        assert discrepancies == [1]
+
+
+class TestReplayVerifies:
+    """`replay` refuses to call cleanup_partial_writes or repair_operation
+    when the recorded scope disagrees with live indefinite-lock state."""
+
+    def test_replay_refuses_when_cells_missing(self, monkeypatch):
+        op_id = 77
+        scope = np.asarray([1, 2], dtype=np.uint64)
+
+        cg = MagicMock()
+        cg.client.read_log_entries.return_value = {
+            np.uint64(op_id): {
+                attributes.OperationLogs.L2ChunkLockScope: scope,
+                attributes.OperationLogs.OperationTimeStamp: datetime.now(timezone.utc),
+            }
+        }
+        # No cells held on either chunk.
+        cg.client._read_byte_row.return_value = []
+
+        # Spy on the destructive steps — neither should be called.
+        cleanup_called = {"v": False}
+        repair_called = {"v": False}
+        monkeypatch.setattr(
+            stuck_ops,
+            "cleanup_partial_writes",
+            lambda *a, **k: cleanup_called.__setitem__("v", True),
+        )
+        monkeypatch.setattr(
+            stuck_ops,
+            "repair_operation",
+            lambda *a, **k: repair_called.__setitem__("v", True),
+        )
+
+        with pytest.raises(RuntimeError, match="Refusing to replay"):
+            stuck_ops.replay(cg, op_id)
+        assert not cleanup_called["v"]
+        assert not repair_called["v"]
+
+    def test_replay_refuses_when_empty_scope(self, monkeypatch):
+        op_id = 77
+        cg = MagicMock()
+        cg.client.read_log_entries.return_value = {
+            np.uint64(op_id): {
+                attributes.OperationLogs.OperationTimeStamp: datetime.now(timezone.utc),
+            }
+        }
+        cleanup_called = {"v": False}
+        monkeypatch.setattr(
+            stuck_ops,
+            "cleanup_partial_writes",
+            lambda *a, **k: cleanup_called.__setitem__("v", True),
+        )
+
+        with pytest.raises(RuntimeError, match="not a stuck SV-split op"):
+            stuck_ops.replay(cg, op_id)
+        assert not cleanup_called["v"]
 
 
 class TestCleanupPartialWrites:
