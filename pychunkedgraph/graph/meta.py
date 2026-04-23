@@ -8,7 +8,10 @@ from collections import namedtuple
 import numpy as np
 from cloudvolume import CloudVolume
 
-from pychunkedgraph.graph.ocdbt import get_seg_source_and_destination_ocdbt
+from pychunkedgraph.graph.ocdbt import (
+    build_cg_ocdbt_spec,
+    get_seg_source_and_destination_ocdbt,
+)
 
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
@@ -296,12 +299,18 @@ class ChunkedGraphMeta:
                     "n_layers": self.layer_count,
                     "spatial_bit_masks": self.bitmasks,
                     "ocdbt_seg": self.ocdbt_seg,
-                    # Per-CG delta OCDBT path. Neuroglancer must open this
-                    # via the kvstack spec from build_cg_ocdbt_spec() to see
-                    # both base + delta data. Opening it as plain OCDBT only
-                    # sees the delta.
-                    "ocdbt_path": (
-                        f"ocdbt/{self.graph_id}" if self._graph_config.ID else None
+                    # Full kvstore spec a reader hands to tensorstore's
+                    # `neuroglancer_precomputed` driver. Server owns the
+                    # contract — paths, data prefixes, and OCDBT config
+                    # (e.g. `max_inline_value_bytes`) are all resolved
+                    # here, so readers don't duplicate configuration and
+                    # future schema changes are picked up on re-fetch.
+                    # Readers pass this verbatim as `kvstore`; add a
+                    # `version` field for time-travel reads.
+                    "ocdbt_kvstore_spec": (
+                        build_cg_ocdbt_spec(self._data_source.WATERSHED, self.graph_id)
+                        if self.ocdbt_seg and self._graph_config.ID
+                        else None
                     ),
                 },
             }
