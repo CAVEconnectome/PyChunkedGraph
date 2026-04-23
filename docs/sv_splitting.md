@@ -127,6 +127,10 @@ After the split lands, the caller-supplied source and sink supervoxel IDs refere
 
 The in-memory segmentation block produced by the split is bitwise identical to what was just written to storage, and the storage write is synchronous (we wait for it) and happens under the L2 chunk lock (so nothing else can have mutated those voxels). Looking up source/sink coords in that block returns the same IDs a storage re-read would — no extra round-trip needed.
 
+### Worker crash mid-write
+
+A worker that dies inside the indefinite L2 chunk lock's scope leaves the lock cells set and the op-log row in `CREATED` status with a durable record of which chunks were being written. Future ops on any of those chunks refuse to start — the crashed state is isolated, not amplified. An operator runs the recovery flow described in [sv_splitting_recovery.md](sv_splitting_recovery.md) to revert the partial writes and replay the op.
+
 ## Invariants
 
 - A supervoxel split and its graph-level commit are one atomic operation. Either both land or neither does, under a single root lock.
