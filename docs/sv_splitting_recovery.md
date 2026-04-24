@@ -10,7 +10,9 @@ Every supervoxel split writes two things atomically from the point of view of th
 - Segmentation chunks — the voxel-level split, where each L2 chunk touched by the split gets fresh supervoxel IDs at the voxels that moved to a new fragment.
 - Graph hierarchy rows — lineage from the old supervoxels to the new ones plus the cross-chunk edges linking the new fragments.
 
-Both writes happen under an indefinite L2 chunk lock covering the exact chunks being rewritten. If the worker running the op dies before the lock's context exits — process kill, pod eviction, hardware failure, OOM — the lock stays held. From that moment on, any new op whose chunk set overlaps the stuck op's chunks refuses to start, blocking further corruption.
+Both writes happen under an indefinite L2 chunk lock covering the exact chunks being rewritten. If the worker running the op dies before the lock's context exits — process kill, pod eviction, hardware failure, OOM — or raises a caught exception inside the persist block, the lock stays held and the op-log row's `L2ChunkLockScope` stays populated with the affected chunk IDs. From that moment on, any new op whose chunk set overlaps the stuck op's chunks refuses to start, blocking further corruption.
+
+The authoritative signal that an op is stuck is `L2ChunkLockScope` being non-empty — the clean `__exit__` path clears it on success. Either a crash (`Status=CREATED`, exit never ran) or a caught exception (`Status=FAILED`, held-cells-on-exception path) keeps the scope set.
 
 The operator runs recovery when the lock has been held long enough that the worker is definitively gone, not merely slow. A minimum-age threshold (10 minutes is a reasonable default) distinguishes stuck ops from ops still in flight.
 
@@ -34,7 +36,7 @@ Recovery proceeds in two steps.
 
 **Cleanup.** For each chunk in the stuck op's durably-recorded scope, the operator reads the chunk's pre-op voxel values from a segmentation handle pinned at the op's `OperationTimeStamp`, and writes those values back to the latest (unpinned) handle. The result: those chunks, at the latest manifest, now show pre-op segmentation — as if the crashed op had never started. Neighbor chunks and every chunk outside the stuck op's scope are untouched, so any concurrent op's work is preserved.
 
-**Replay.** The operator then re-runs the op under the privileged-repair path. The run reads latest state, which is now consistent — clean pre-op values on the stuck op's own chunks, current state everywhere else — and goes through the normal edit flow. It allocates fresh supervoxel IDs, re-computes the split, writes new segmentation and hierarchy, and transitions the op-log row from `CREATED` through `WRITE_STARTED` to `SUCCESS`.
+**Replay.** The operator then re-runs the op under the privileged-repair path. The run reads latest state, which is now consistent — clean pre-op values on the stuck op's own chunks, current state everywhere else — and goes through the normal edit flow. It allocates fresh supervoxel IDs, re-computes the split, writes new segmentation and hierarchy, and lands the op-log row at `SUCCESS`.
 
 When the replay's indefinite lock context exits, it issues value-matched releases on every chunk in the scope. Because the replay re-uses the crashed op's operation ID, the value match succeeds and the pre-existing indefinite cells are deleted. The chunks are free for new ops again.
 
@@ -46,11 +48,11 @@ The orphan supervoxel IDs allocated by the crashed op are never referenced by an
 
 ## Operator workflow
 
-1. **List stuck ops.** The operator runs the list command with a minimum-age threshold. It returns op-log rows still at `CREATED` status past that age, along with each op's user ID, timestamp, age, and the number of chunks in its recorded scope. Ops too young to classify are skipped.
+1. **List stuck ops.** The operator runs the list command with a minimum-age threshold. It returns op-log rows whose `L2ChunkLockScope` is still populated past that age (excluding any that have reached `SUCCESS`), along with each op's user ID, timestamp, age, status, and the number of chunks in its recorded scope. Ops too young to classify are skipped.
 
 2. **Inspect.** For each candidate, confirm from logs or monitoring that the worker that submitted the op is definitively dead — not, for example, paused on a long-running multicut. The minimum-age threshold exists to reduce false positives but the operator retains final judgment.
 
-3. **Replay.** The operator runs the replay command with the op ID. It performs the cleanup pass, then hands off to the privileged-repair path to rerun the op. On success, the op-log row shows `SUCCESS` and the previously-held indefinite lock cells are released.
+3. **Replay.** The operator runs the replay command with the op ID. Before any destructive step the replay cross-checks the recorded scope against live lock state: for every chunk in `L2ChunkLockScope` it reads back the `Concurrency.IndefiniteLock` cell and verifies it's held by the op being replayed. Any discrepancy (cell missing, or held by a different op) aborts the replay loudly — a stale scope could otherwise have cleanup revert chunks another op legitimately owns. On clean verification, cleanup reverts the op's partial writes, then the privileged-repair path reruns the op. On success, the op-log row shows `SUCCESS` and the previously-held indefinite lock cells are released.
 
 4. **Verify.** A second list invocation should no longer include the op. Any new ops that were waiting on the affected chunks proceed.
 

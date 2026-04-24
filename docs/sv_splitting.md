@@ -83,7 +83,7 @@ base-resolution bounding boxes that were rewritten
 │  │                                                      │    │
 │  │  for each pyramid block:                             │    │
 │  │      read base resolution                            │    │
-│  │      mode-downsample through every coarser MIP       │    │
+│  │      downsample through every coarser MIP            │    │
 │  │      write only tiles whose footprint intersects     │    │
 │  │      a published bbox                                │    │
 │  └──────────────────────────────────────────────────────┘    │
@@ -129,7 +129,7 @@ The in-memory segmentation block produced by the split is bitwise identical to w
 
 ### Worker crash mid-write
 
-A worker that dies inside the indefinite L2 chunk lock's scope leaves the lock cells set and the op-log row in `CREATED` status with a durable record of which chunks were being written. Future ops on any of those chunks refuse to start — the crashed state is isolated, not amplified. An operator runs the recovery flow described in [sv_splitting_recovery.md](sv_splitting_recovery.md) to revert the partial writes and replay the op.
+A worker that dies — or raises from the persist block — inside the indefinite L2 chunk lock's scope leaves the lock cells set and the op-log row's `L2ChunkLockScope` populated with the exact chunks being written. Future ops on any of those chunks refuse to start — the crashed state is isolated, not amplified. An operator runs the recovery flow described in [sv_splitting_recovery.md](sv_splitting_recovery.md) to revert the partial writes and replay the op.
 
 ## Invariants
 

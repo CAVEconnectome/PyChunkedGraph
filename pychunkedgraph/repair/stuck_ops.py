@@ -245,7 +245,8 @@ def _main():
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_list = sub.add_parser(
-        "list", help="List stuck ops (CREATED status past min-age)."
+        "list",
+        help="List stuck ops (L2ChunkLockScope still populated past min-age).",
     )
     p_list.add_argument("--graph", required=True, help="Graph ID.")
     p_list.add_argument(
