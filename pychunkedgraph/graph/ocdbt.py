@@ -103,6 +103,14 @@ def base_exists(ws_path: str) -> bool:
     return result.value is not None and len(result.value) > 0
 
 
+def fork_exists(ws_path: str, graph_id: str) -> bool:
+    """Check if this ChunkedGraph's fork has been initialized."""
+    fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
+    kvs = ts.KvStore.open(fork_dir).result()
+    result = kvs.read("manifest.ocdbt").result()
+    return result.value is not None and len(result.value) > 0
+
+
 def create_base_ocdbt(ws_path: str):
     """One-time bootstrap: create the shared base OCDBT at <ws>/ocdbt/base/.
 
@@ -182,8 +190,13 @@ def build_cg_ocdbt_spec(
 ) -> dict:
     """Open-time kvstore spec for a CG's OCDBT, backed by a shared immutable base.
 
-    The fork directory and its manifest are created automatically by
-    `fork_base_manifest` as part of CG creation — no manual setup.
+    This function is a pure spec-constructor — it doesn't materialize
+    the fork. The fork's `manifest.ocdbt` must exist before `ts.open`
+    on this spec will succeed; it's created by `fork_base_manifest`
+    (invoked from the ingest CLI's `--ocdbt` path or the `seg_ocdbt`
+    notebook). `ChunkedGraphMeta.ws_ocdbt_scales` asserts presence via
+    `fork_exists` so callers get a clear error instead of a tensorstore
+    internal failure.
 
     All three kvstack layers below AND all three `*_data_prefix` options
     are load-bearing; removing any of them causes fork writes to leak

@@ -10,6 +10,7 @@ from cloudvolume import CloudVolume
 
 from pychunkedgraph.graph.ocdbt import (
     build_cg_ocdbt_spec,
+    fork_exists,
     get_seg_source_and_destination_ocdbt,
 )
 
@@ -134,10 +135,13 @@ class ChunkedGraphMeta:
         """
         assert self.ocdbt_seg, "make sure this pcg has segmentation in ocdbt format"
         if self._ws_ocdbt_scales is None:
+            ws = self.data_source.WATERSHED
+            assert fork_exists(ws, self.graph_id), (
+                f"ocdbt fork missing at {ws}/ocdbt/{self.graph_id}/ — "
+                "create it via fork_base_manifest or the seg_ocdbt notebook"
+            )
             _, self._ws_ocdbt_scales, self._ws_ocdbt_resolutions = (
-                get_seg_source_and_destination_ocdbt(
-                    self.data_source.WATERSHED, self.graph_id
-                )
+                get_seg_source_and_destination_ocdbt(ws, self.graph_id)
             )
         return self._ws_ocdbt_scales
 

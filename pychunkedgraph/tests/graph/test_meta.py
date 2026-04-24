@@ -582,8 +582,9 @@ class TestOcdbtSeg:
         with pytest.raises(AssertionError, match="ocdbt"):
             _ = meta.ws_ocdbt
 
+    @patch("pychunkedgraph.graph.meta.fork_exists", return_value=True)
     @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
-    def test_ws_ocdbt_returns_base_scale(self, mock_get_ocdbt):
+    def test_ws_ocdbt_returns_base_scale(self, mock_get_ocdbt, _mock_fork_exists):
         gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
@@ -602,8 +603,9 @@ class TestOcdbtSeg:
         assert meta.ws_ocdbt_resolutions == [[4, 4, 40], [8, 8, 40]]
         mock_get_ocdbt.assert_called_once_with("gs://bucket/ws", "test_graph")
 
+    @patch("pychunkedgraph.graph.meta.fork_exists", return_value=True)
     @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
-    def test_ws_ocdbt_cached(self, mock_get_ocdbt):
+    def test_ws_ocdbt_cached(self, mock_get_ocdbt, _mock_fork_exists):
         gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
