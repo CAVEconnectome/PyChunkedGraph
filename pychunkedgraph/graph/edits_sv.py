@@ -82,28 +82,37 @@ class SplitResult:
     bigtable_rows: list
 
 
-def _rep_bbox(cg: "ChunkedGraph", sv_remapping: dict, sv_id) -> tuple:
-    """Base-voxel bbox covering every CC member of `sv_id`'s cross-chunk rep.
+def _coords_bbox(
+    cg: "ChunkedGraph",
+    src_coords_rep: np.ndarray,
+    sink_coords_rep: np.ndarray,
+) -> tuple:
+    """Base-voxel bbox covering the user's source/sink seeds plus a margin.
 
-    The multicut produced `sv_remapping` — every SV in the local subgraph
-    mapped to its cross-chunk representative. Any SV mapped to the same
-    rep as `sv_id` is part of one physical supervoxel that was
-    artificially cut at chunk boundaries, and every piece will be
-    rewritten when this rep is split. The chunk-coord envelope of those
-    pieces is exactly the region the split needs to read and modify —
-    no padding, no resolution-axis assumption, no bbox clip that could
-    drop pieces.
+    The cut surface lives between the user-placed source and sink
+    voxels; voxels of the rep that are far from those seeds never
+    contribute to the cut. So the read region is the seeds' envelope,
+    not the rep's full chunk envelope — for a physical SV cut into many
+    pieces across chunks, this can be orders of magnitude smaller.
+
+    The margin is one CG chunk on each side. It matches the existing
+    L2 chunk lock margin and the 1-voxel shell read in
+    `split_supervoxel`, and gives `split_supervoxel_helper` headroom
+    around the seeds for the cut surface to travel along the SV.
+
+    Pieces of the rep that fall outside the bbox keep their existing
+    IDs — they aren't read here and aren't rewritten. Cross-chunk-edge
+    routing for boundary-adjacent pieces is handled by the 1-voxel
+    shell at read time; cross-chunk edges entirely between unsplit
+    pieces don't change because their IDs don't change.
     """
-    rep = sv_remapping.get(sv_id, sv_id)
-    all_svs = np.array(
-        [sv for sv, r in sv_remapping.items() if r == rep],
-        dtype=basetypes.NODE_ID,
-    )
-    coords = cg.get_chunk_coordinates_multiple(all_svs)
-    chunk_min = coords.min(axis=0)
-    chunk_max = coords.max(axis=0) + 1  # exclusive
-    chunk_size = cg.meta.graph_config.CHUNK_SIZE
-    return chunk_min * chunk_size, chunk_max * chunk_size
+    coords = np.concatenate([src_coords_rep, sink_coords_rep], axis=0)
+    margin = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int)
+    vol_start = cg.meta.voxel_bounds[:, 0]
+    vol_end = cg.meta.voxel_bounds[:, 1]
+    bbs = np.clip(coords.min(axis=0) - margin, vol_start, vol_end)
+    bbe = np.clip(coords.max(axis=0) + margin, vol_start, vol_end)
+    return bbs, bbe
 
 
 def _l2_chunks_for_splits(cg: "ChunkedGraph", per_rep_bboxes: list) -> list[int]:
@@ -211,7 +220,7 @@ def plan_sv_splits(
         source_coords=source_coords,
         sink_coords=sink_coords,
     ):
-        bbs, bbe = _rep_bbox(cg, sv_remapping, sv_id)
+        bbs, bbe = _coords_bbox(cg, src_coords_rep, sink_coords_rep)
         tasks.append(
             SvSplitTask(
                 sv_id=sv_id,
@@ -386,10 +395,11 @@ def split_supervoxel(
 ) -> SvSplitOutcome:
     """Split one cross-chunk-connected SV into connected components.
 
-    `task.bbs` / `task.bbe` are the base-voxel bbox envelope covering
-    every CC member of `task.sv_id`'s rep — `plan_sv_splits` pre-computed
-    this via `_rep_bbox`. The envelope is guaranteed to contain every
-    piece of the SV being split, so no bbox clip is needed inside.
+    `task.bbs` / `task.bbe` are the base-voxel bbox covering the user's
+    source and sink seeds plus a one-chunk margin — `plan_sv_splits`
+    pre-computed this via `_coords_bbox`. The bbox is driven by where
+    the user wants the cut, not by the rep's full chunk envelope; rep
+    pieces outside the bbox aren't read and keep their existing IDs.
 
     `time_stamp` is the op's logical write time; threaded through to
     `copy_parents_and_add_lineage` + `add_new_edges` so every new-SV
@@ -406,13 +416,8 @@ def split_supervoxel(
     logger.note(f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}")
     logger.note(f"bbox: {(bbs, bbe)}")
 
-    t0 = time.time()
     rep = sv_remapping.get(sv_id, sv_id)
-    cut_supervoxels = {int(sv) for sv, r in sv_remapping.items() if r == rep}
-    supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
-    logger.note(
-        f"whole sv {sv_id} -> {supervoxel_ids.tolist()} ({time.time() - t0:.2f}s)"
-    )
+    rep_pieces = {int(sv) for sv, r in sv_remapping.items() if r == rep}
 
     # one voxel overlap for neighbors — update_edges needs anchor voxels
     # from neighboring SVs to route existing cross-chunk edges onto the
@@ -422,6 +427,19 @@ def split_supervoxel(
     t0 = time.time()
     seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
     logger.note(f"segmentation read {seg.shape} ({time.time() - t0:.2f}s)")
+
+    # Narrow the rep to pieces actually present in the bbox seg. Pieces
+    # of the rep whose voxels lie outside the seed-driven bbox don't
+    # appear in `seg` and so don't contribute to `binary_seg` anyway —
+    # carrying them in `cut_supervoxels` is just log noise plus inflated
+    # `unsplit` diff churn.
+    seg_ids = {int(x) for x in fastremap.unique(seg) if x != 0}
+    cut_supervoxels = rep_pieces & seg_ids
+    supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
+    logger.note(
+        f"whole sv {sv_id} -> {supervoxel_ids.tolist()} "
+        f"({len(rep_pieces) - len(cut_supervoxels)} rep pieces outside bbox)"
+    )
 
     binary_seg = np.isin(seg, supervoxel_ids)
     voxel_overlap_crop = _voxel_crop(bbs, bbe, bbs_, bbe_)

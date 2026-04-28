@@ -6,9 +6,11 @@ from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
 from pychunkedgraph.graph.edits_sv import (
+    _coords_bbox,
     _voxel_crop,
     _parse_results,
     copy_parents_and_add_lineage,
+    plan_sv_splits,
 )
 from pychunkedgraph.graph import attributes, basetypes
 
@@ -290,3 +292,77 @@ class TestCopyParentsAndAddLineage:
                 assert (
                     ts == old_cell_ts
                 ), f"Child-list write ts={ts}, expected {old_cell_ts}"
+
+
+# ============================================================
+# Tests: _coords_bbox / plan_sv_splits bbox is seed-driven, not rep-driven
+# ============================================================
+class TestCoordsBbox:
+    def _make_cg(self, chunk_size=(64, 64, 64), volume=(1024, 1024, 1024)):
+        cg = MagicMock()
+        cg.meta.graph_config.CHUNK_SIZE = list(chunk_size)
+        cg.meta.voxel_bounds = np.array(
+            [[0, volume[0]], [0, volume[1]], [0, volume[2]]]
+        )
+        cg.get_chunk_id.side_effect = lambda layer, x, y, z: (
+            (layer << 60) | (x << 40) | (y << 20) | z
+        )
+        return cg
+
+    def test_envelope_around_seeds_with_one_chunk_margin(self):
+        cg = self._make_cg(chunk_size=(64, 64, 64))
+        src = np.array([[100, 200, 300]])
+        sink = np.array([[150, 250, 350]])
+        bbs, bbe = _coords_bbox(cg, src, sink)
+        # min - chunk_size, max + chunk_size, clipped to volume bounds.
+        np.testing.assert_array_equal(bbs, np.array([100 - 64, 200 - 64, 300 - 64]))
+        np.testing.assert_array_equal(bbe, np.array([150 + 64, 250 + 64, 350 + 64]))
+
+    def test_clipped_to_volume_bounds(self):
+        cg = self._make_cg(chunk_size=(64, 64, 64), volume=(256, 256, 256))
+        src = np.array([[10, 10, 10]])
+        sink = np.array([[250, 250, 250]])
+        bbs, bbe = _coords_bbox(cg, src, sink)
+        # Lower seed - 64 = -54 → clipped to 0; upper seed + 64 = 314 → clipped to 256.
+        np.testing.assert_array_equal(bbs, np.array([0, 0, 0]))
+        np.testing.assert_array_equal(bbe, np.array([256, 256, 256]))
+
+    def test_plan_sv_splits_bbox_independent_of_rep_extent(self):
+        """The returned per-task bbox follows the seeds, not the rep's
+        cross-chunk pieces. A rep whose pieces span the whole volume
+        produces the same tight bbox as a rep with one piece, given the
+        same src/sink coords.
+        """
+        cg = self._make_cg(chunk_size=(64, 64, 64), volume=(1024, 1024, 1024))
+
+        # Two source/sink IDs that map to the same rep — the SV-split
+        # trigger condition. The rep's other pieces (b..z) sit far from
+        # the seeds. They would have ballooned the old `_rep_bbox`; the
+        # new `_coords_bbox` ignores them.
+        rep = np.uint64(1)
+        sv_remapping = {
+            np.uint64(10): rep,  # src
+            np.uint64(20): rep,  # sink
+            **{np.uint64(100 + i): rep for i in range(28)},  # 28 distant pieces
+        }
+
+        source_ids = np.array([10], dtype=basetypes.NODE_ID)
+        sink_ids = np.array([20], dtype=basetypes.NODE_ID)
+        source_coords = np.array([[100, 200, 300]])
+        sink_coords = np.array([[150, 250, 350]])
+
+        tasks, _ = plan_sv_splits(
+            cg,
+            sv_remapping=sv_remapping,
+            source_ids=source_ids,
+            sink_ids=sink_ids,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+        )
+        assert len(tasks) == 1
+        np.testing.assert_array_equal(
+            tasks[0].bbs, np.array([100 - 64, 200 - 64, 300 - 64])
+        )
+        np.testing.assert_array_equal(
+            tasks[0].bbe, np.array([150 + 64, 250 + 64, 350 + 64])
+        )
