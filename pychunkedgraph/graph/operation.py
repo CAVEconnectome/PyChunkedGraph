@@ -633,13 +633,14 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
-        root_ids = set(
-            self.cg.get_roots(
-                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
-            )
-        )
+        sv_ids = self.added_edges.ravel()
+        roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
+        root_ids = set(roots)
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
-            raise PreconditionError("Supervoxels must belong to different objects.")
+            raise PreconditionError(
+                f"Supervoxels must belong to different objects. "
+                f"sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
+            )
 
         atomic_edges = self.added_edges
         fake_edge_rows = []
@@ -764,33 +765,26 @@ class SplitOperation(GraphEditOperation):
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
-        root_ids = np.unique(
-            self.cg.get_roots(
-                self.removed_edges.ravel(),
-                assert_roots=True,
-                time_stamp=self.parent_ts,
-            )
-        )
+        sv_ids = self.removed_edges.ravel()
+        roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
+        root_ids = np.unique(roots)
         if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same object.")
+            raise PreconditionError(
+                f"Supervoxels must belong to the same object. "
+                f"sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
+            )
         return root_ids
 
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
-        if (
-            len(
-                set(
-                    self.cg.get_roots(
-                        self.removed_edges.ravel(),
-                        assert_roots=True,
-                        time_stamp=self.parent_ts,
-                    )
-                )
+        sv_ids = self.removed_edges.ravel()
+        roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
+        if len(set(roots)) > 1:
+            raise PreconditionError(
+                f"Supervoxels must belong to the same object. "
+                f"sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
             )
-            > 1
-        ):
-            raise PreconditionError("Supervoxels must belong to the same object.")
 
         with TimeIt("remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
@@ -911,13 +905,16 @@ class MulticutOperation(GraphEditOperation):
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids)).astype(
             basetypes.NODE_ID
         )
-        root_ids = np.unique(
-            self.cg.get_roots(
-                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
-            )
+        roots = self.cg.get_roots(
+            sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
         )
+        root_ids = np.unique(roots)
         if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same segment.")
+            raise PreconditionError(
+                f"Supervoxels must belong to the same segment. "
+                f"sources={self.source_ids.tolist()} sinks={self.sink_ids.tolist()} "
+                f"sv_id->root: {dict(zip(sink_and_source_ids.tolist(), roots.tolist()))}"
+            )
         return root_ids
 
     def _apply(
@@ -1000,17 +997,21 @@ class MulticutOperation(GraphEditOperation):
         and again after an SV split to get fresh atomic_edges against the
         post-split graph topology.
         """
-        root_ids = set(
-            self.cg.get_roots(
-                np.concatenate([self.source_ids, self.sink_ids]).astype(
-                    basetypes.NODE_ID
-                ),
-                assert_roots=True,
-                time_stamp=self.parent_ts,
-            )
+        sink_and_source_ids = np.concatenate([self.source_ids, self.sink_ids]).astype(
+            basetypes.NODE_ID
         )
+        roots = self.cg.get_roots(
+            sink_and_source_ids,
+            assert_roots=True,
+            time_stamp=self.parent_ts,
+        )
+        root_ids = set(roots)
         if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same object.")
+            raise PreconditionError(
+                f"Supervoxels must belong to the same object. "
+                f"sources={self.source_ids.tolist()} sinks={self.sink_ids.tolist()} "
+                f"sv_id->root: {dict(zip(sink_and_source_ids.tolist(), roots.tolist()))}"
+            )
 
         bbox = get_bbox(
             self.source_coords,

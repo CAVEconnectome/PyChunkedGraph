@@ -747,11 +747,15 @@ def run_split_preview(
     path_augment: bool = True,
     disallow_isolating_cut: bool = True,
 ):
-    root_ids = set(
-        cg.get_roots(np.concatenate([source_ids, sink_ids]), assert_roots=True)
-    )
+    sink_and_source_ids = np.concatenate([source_ids, sink_ids])
+    roots = cg.get_roots(sink_and_source_ids, assert_roots=True)
+    root_ids = set(roots)
     if len(root_ids) > 1:
-        raise PreconditionError("Supervoxels must belong to the same object.")
+        raise PreconditionError(
+            f"Supervoxels must belong to the same object. "
+            f"sources={list(source_ids)} sinks={list(sink_ids)} "
+            f"sv_id->root: {dict(zip(sink_and_source_ids.tolist(), roots.tolist()))}"
+        )
 
     bbox = get_bounding_box(source_coords, sink_coords, bb_offset)
     l2id_agglomeration_d, edges = cg.get_subgraph(
