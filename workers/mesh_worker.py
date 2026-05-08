@@ -1,6 +1,24 @@
 from os import getenv
 
 from messagingclient import MessagingClient
+from google.cloud import bigtable
+from google.auth import credentials
+from google.auth import default as default_creds
+from google.cloud import bigtable
+
+class DoNothingCreds(credentials.Credentials):
+    def refresh(self, request):
+        pass
+
+def get_bigtable_client(project_id, emulate=False):
+    if emulate:
+        creds = DoNothingCreds()
+    elif project_id is not None:
+        creds, _ = default_creds()
+    else:
+        creds, project_id = default_creds()
+    client = bigtable.Client(admin=True, project=project_id, credentials=creds)
+    return client
 
 
 def callback(payload):
@@ -24,7 +42,13 @@ def callback(payload):
     logging.info(f"Remeshing {new_lvl2_ids.size} L2 IDs in graph {table_id}")
     logging.info(f"stop_layer={layer}, mip={mip}, max_err={err}")
 
-    cg = ChunkedGraph(table_id)
+    project = getenv("BIGTABLE_PROJECT", "neuromancer-seung-import")
+    instance = getenv("BIGTABLE_INSTANCE", "pychunkedgraph")
+    client = get_bigtable_client(project_id=project)
+    cg=ChunkedGraph(
+        table_id, instance_id=instance, client=client
+    )
+
     meshgen.remeshing(cg, new_lvl2_ids, stop_layer=layer, mip=mip, max_err=err)
     logging.info("Remeshing complete.")
     gc.collect()
