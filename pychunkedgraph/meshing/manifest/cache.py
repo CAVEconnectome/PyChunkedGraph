@@ -17,6 +17,13 @@ REDIS_PORT = os.environ.get("MANIFEST_CACHE_REDIS_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("MANIFEST_CACHE_REDIS_PASSWORD", "")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
+# Upper bound on cache entry lifetime. Cache misses fall through to
+# authoritative storage (sharded archives / dynamic/ in CloudFiles), so
+# expiry is correctness-equivalent to the LRU eviction already in effect.
+MANIFEST_CACHE_TTL_SECONDS = int(
+    os.environ.get("MANIFEST_CACHE_TTL_SECONDS", 3 * 24 * 3600)
+)
+
 
 REDIS = redis.Redis.from_url(REDIS_URL, socket_connect_timeout=1)
 try:
@@ -140,10 +147,18 @@ class ManifestCache:
         for node_id, fragment_info in fragments_d.items():
             path, offset, size = fragment_info
             key = f"{self.namespace}:{node_id}"
-            pipeline.set(key, f"{path[prefix_idx:]}:{offset}:{size}")
+            pipeline.set(
+                key,
+                f"{path[prefix_idx:]}:{offset}:{size}",
+                ex=MANIFEST_CACHE_TTL_SECONDS,
+            )
 
         for node_id in not_existing:
-            pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)
+            pipeline.set(
+                f"{self.namespace}:{node_id}",
+                DOES_NOT_EXIST,
+                ex=MANIFEST_CACHE_TTL_SECONDS,
+            )
 
         pipeline.execute()
 
@@ -155,9 +170,17 @@ class ManifestCache:
 
         pipeline = REDIS.pipeline()
         for node_id, fragment in fragments_d.items():
-            pipeline.set(f"{self.namespace}:{node_id}", fragment)
+            pipeline.set(
+                f"{self.namespace}:{node_id}",
+                fragment,
+                ex=MANIFEST_CACHE_TTL_SECONDS,
+            )
 
         for node_id in not_existing:
-            pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)
+            pipeline.set(
+                f"{self.namespace}:{node_id}",
+                DOES_NOT_EXIST,
+                ex=MANIFEST_CACHE_TTL_SECONDS,
+            )
 
         pipeline.execute()
