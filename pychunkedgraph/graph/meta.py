@@ -16,8 +16,8 @@ from ..utils.redis import get_rq_queue
 from ..utils.redis import get_redis_connection
 
 
-_datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
-_datasource_defaults = (None, None, None, None, 0)
+_datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP", "MESH")
+_datasource_defaults = (None, None, None, None, 0, None)
 DataSource = namedtuple(
     "DataSource",
     _datasource_fields,
@@ -79,6 +79,26 @@ class ChunkedGraphMeta:
     @property
     def custom_data(self):
         return self._custom_data
+
+    @property
+    def mesh_root(self) -> str:
+        """Fully-qualified parent of the mesh subdir.
+
+        Returns `data_source.MESH` when set, otherwise falls back to
+        `data_source.WATERSHED` so graphs predating the MESH field keep working.
+        Every mesh-path construction site should read this instead of WATERSHED.
+        """
+        return self._data_source.MESH or self._data_source.WATERSHED
+
+    def update_mesh_root(self, mesh_root: str, client) -> None:
+        """Set `data_source.MESH` and persist the change via the given client.
+
+        Pass `mesh_root=None` to clear MESH (meshes revert to living under
+        WATERSHED). `client` is the graph storage client (typically `cg.client`)
+        used to write the updated meta row.
+        """
+        self._data_source = self._data_source._replace(MESH=mesh_root)
+        client.update_graph_meta(self)
 
     @property
     def ws_cv(self):
@@ -240,6 +260,7 @@ class ChunkedGraphMeta:
             {
                 "chunks_start_at_voxel_offset": True,
                 "data_dir": self.data_source.WATERSHED,
+                "ws_data_dir": self.data_source.WATERSHED,
                 "graph": {
                     "chunk_size": self.graph_config.CHUNK_SIZE,
                     "bounding_box": [2048, 2048, 512],
@@ -250,6 +271,8 @@ class ChunkedGraphMeta:
                 },
             }
         )
+        if self.data_source.MESH is not None:
+            info["mesh_data_dir"] = self.data_source.MESH
         mesh_dir = self.custom_data.get("mesh", {}).get("dir", None)
         if mesh_dir is not None:
             info.update({"mesh": mesh_dir})

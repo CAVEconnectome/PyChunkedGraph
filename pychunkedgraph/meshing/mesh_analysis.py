@@ -63,7 +63,7 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
         "unsharded_mesh_dir"
     ]
     cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED,
+        cg.meta.mesh_root,
         cv_sharded_mesh_dir,
         cv_unsharded_mesh_dir,
     )

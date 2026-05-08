@@ -183,7 +183,7 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
     cv_mesh_dir = cg.meta.dataset_info["mesh"]
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
     cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
+        cg.meta.mesh_root, cv_mesh_dir, cv_unsharded_mesh_dir
     )
     mesh_data = cg.meta.custom_data["mesh"]
 

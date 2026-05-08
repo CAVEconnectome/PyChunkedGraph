@@ -52,7 +52,7 @@ def callback(payload):
         return
 
     mesh_path = path.join(
-        cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
+        cg.meta.mesh_root, mesh_dir, cv_unsharded_mesh_dir
     )
 
 

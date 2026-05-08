@@ -146,6 +146,10 @@ def get_json_info(cg):
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
     info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    # CloudVolume's graphene driver resolves mesh paths as `data_dir + mesh`.
+    # When MESH is set, point data_dir at the mesh root so sharded readers
+    # fetch from the dedicated mesh location instead of WATERSHED.
+    info["data_dir"] = cg.meta.mesh_root
     info_str = dumps(info)
     return loads(info_str)
 
