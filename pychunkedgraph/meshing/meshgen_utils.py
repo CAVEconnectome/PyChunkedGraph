@@ -108,9 +108,11 @@ def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_
         stop_layer_mask = np.array([cg.get_chunk_layer(node_id) > stop_layer for node_id in cur_node_ids])
         if np.any(stop_layer_mask):
             node_to_children_dict = cg.get_children(cur_node_ids[stop_layer_mask])
-            children_array = np.array(list(node_to_children_dict.values()))
+            children_array = np.empty(len(node_to_children_dict), dtype=object)
+            for i, v in enumerate(node_to_children_dict.values()):
+                children_array[i] = v
             only_child_mask = np.array([len(children_for_node) == 1 for children_for_node in children_array])
-            only_children = children_array[only_child_mask].astype(np.uint64).ravel()
+            only_children = np.concatenate(children_array[only_child_mask]).astype(np.uint64) if np.any(only_child_mask) else np.array([], dtype=np.uint64)
             if np.any(only_child_mask):
                 temp_array = cur_node_ids[stop_layer_mask]
                 temp_array[only_child_mask] = recursive_helper(only_children)
