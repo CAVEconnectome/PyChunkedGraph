@@ -229,20 +229,28 @@ def handle_supervoxel_id_lookup(
         return ccs
 
     coordinates = np.array(coordinates, dtype=int)
-    coordinates_nm = coordinates * cg.meta.resolution
-    max_dist_steps = np.array([4, 8, 14, 28], dtype=float) * np.mean(cg.meta.resolution)
-
-    node_ids = np.array(node_ids, dtype=np.uint64)
     if len(coordinates.shape) != 2:
         raise cg_exceptions.BadRequest(
             f"Could not determine supervoxel ID for coordinates "
             f"{coordinates} - Validation stage."
         )
 
-    # Fast path: all node_ids are L1 and OCDBT — single seg read for all coords
-    if cg.meta.ocdbt_seg and np.all(cg.get_chunk_layers(np.unique(node_ids)) == 1):
+    # OCDBT: always read the current segmentation at the click coords,
+    # regardless of node_ids layer.
+    #   - 2D slice click: NG sends `node_id` = L1 SV from the slice view.
+    #     That slice can be stale after an SV split; the seg read returns
+    #     the current SV at that voxel (which may have a different root).
+    #   - 3D mesh click: NG sends `node_id` = root; no L1 SV is attached,
+    #     so we have to look it up against current seg anyway.
+    # `node_ids` are not used as a constraint here. Stale UI surfaces
+    # downstream as "different roots" with the sv_id->root diagnostic
+    # mapping added in operation.py / cutting.py.
+    if cg.meta.ocdbt_seg:
         return lookup_svs_from_seg(cg.meta, coordinates)
 
+    coordinates_nm = coordinates * cg.meta.resolution
+    max_dist_steps = np.array([4, 8, 14, 28], dtype=float) * np.mean(cg.meta.resolution)
+    node_ids = np.array(node_ids, dtype=np.uint64)
     atomic_ids = np.zeros(len(coordinates), dtype=np.uint64)
     for node_id in np.unique(node_ids):
         node_id_m = node_ids == node_id

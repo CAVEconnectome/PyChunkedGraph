@@ -173,8 +173,9 @@ def get_local_segmentation(meta, bbox_start, bbox_end, mip: int = 0) -> np.ndarr
 
 def lookup_svs_from_seg(meta, coordinates):
     """Read SV IDs directly from OCDBT segmentation at given coordinates."""
-    bbox_start = np.min(coordinates, axis=0)
-    bbox_end = np.max(coordinates, axis=0) + 1
+    coordinates = np.asarray(coordinates, dtype=int)
+    bbox_start = coordinates.min(axis=0)
+    bbox_end = coordinates.max(axis=0) + 1
     seg = get_local_segmentation(meta, bbox_start, bbox_end)[..., 0]
-    local_coords = coordinates - bbox_start
-    return np.array([seg[tuple(c)] for c in local_coords], dtype=np.uint64)
+    local = coordinates - bbox_start
+    return seg[local[:, 0], local[:, 1], local[:, 2]].astype(np.uint64)

@@ -128,10 +128,14 @@ def get_atomic_ids_from_coords(
     """
     import fastremap
 
-    if parent_id_layer == 1 and meta.ocdbt_seg:
+    if meta.ocdbt_seg:
+        # Unified path: any OCDBT lookup reads the current seg at the
+        # coords, ignoring the user-supplied parent (the parent may be
+        # stale after an SV split, or — for 3D mesh clicks — not an L1
+        # SV at all). See handle_supervoxel_id_lookup for the rationale.
         return lookup_svs_from_seg(meta, coordinates)
 
-    if parent_id_layer == 1 and not meta.ocdbt_seg:
+    if parent_id_layer == 1:
         return np.array([parent_id] * len(coordinates), dtype=np.uint64)
 
     coordinates_nm = coordinates * np.array(meta.resolution)
