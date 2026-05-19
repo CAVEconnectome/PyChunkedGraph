@@ -99,25 +99,24 @@ def ingest_graph(
         configure_logging(level=DEBUG)
 
     meta, ingest_config, client_info = bootstrap(graph_id, config, raw, test)
+    if ocdbt:
+        ws = meta.data_source.WATERSHED
+        if reset_ocdbt:
+            wipe_base_ocdbt(ws)
+        if not base_exists(ws):
+            create_base_ocdbt(ws)
+        fork_base_manifest(ws, graph_id, wipe_existing=retry or reset_ocdbt)
+
     cg = ChunkedGraph(meta=meta, client_info=client_info)
     if not retry:
         cg.create()
 
     if ocdbt:
-        ws = cg.meta.data_source.WATERSHED
         cg.meta.custom_data["seg"] = {
             "ocdbt": True,
             "sv_split_threshold": sv_split_threshold,
         }
         cg.update_meta(cg.meta, overwrite=True)
-
-        if reset_ocdbt:
-            wipe_base_ocdbt(ws)
-
-        if not base_exists(ws):
-            create_base_ocdbt(ws)
-
-        fork_base_manifest(ws, graph_id, wipe_existing=retry or reset_ocdbt)
 
     imanager = IngestionManager(
         ingest_config,

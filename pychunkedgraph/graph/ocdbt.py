@@ -128,9 +128,14 @@ def create_base_ocdbt(ws_path: str):
     copy_ws_chunk_multiscale.
     """
     base = _base_ocdbt_path(ws_path)
-    # Wipe existing base for a clean slate.
+    # Wipe via the underlying GCS/file driver, NOT through the ocdbt
+    # driver. Opening as ocdbt on an empty dir creates a default-config
+    # `manifest.ocdbt` stub (max_inline_value_bytes=100); on a dir with
+    # an existing manifest it only clears the B+tree, leaving the
+    # manifest's config in place. Either way the subsequent open with
+    # OCDBT_CONFIG mismatches.
     try:
-        kvs = ts.KvStore.open({"driver": "ocdbt", "base": base}).result()
+        kvs = ts.KvStore.open(base).result()
         kvs.delete_range(ts.KvStore.KeyRange()).result()
     except Exception:
         pass
@@ -155,8 +160,10 @@ def create_base_ocdbt(ws_path: str):
 def wipe_base_ocdbt(ws_path: str):
     """Wipe the base OCDBT entirely (for --reset-ocdbt)."""
     base = _base_ocdbt_path(ws_path)
+    # Wipe via the underlying GCS/file driver so the manifest file is
+    # deleted too. Opening as ocdbt only clears the B+tree.
     try:
-        kvs = ts.KvStore.open({"driver": "ocdbt", "base": base}).result()
+        kvs = ts.KvStore.open(base).result()
         kvs.delete_range(ts.KvStore.KeyRange()).result()
     except Exception:
         pass
