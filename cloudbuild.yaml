@@ -5,19 +5,26 @@ steps:
     args: ["-c", "docker login --username=$$USERNAME --password=$$PASSWORD"]
     secretEnv: ["USERNAME", "PASSWORD"]
 
+  # Set up a buildx builder — needed for registry-type cache export
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args: ["-c", "docker buildx create --use --name pcg-builder"]
+
+  # Build + push in one BuildKit invocation. Registry cache at the fixed
+  # :buildcache tag lets unchanged stages (conda env, bigtable emulator,
+  # pip install) reuse the previous build's exact layer artifacts, so
+  # already-warm nodes only download what actually changed on pull.
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args:
       - "-c"
       - |
-        DOCKER_BUILDKIT=1 docker build -t $$USERNAME/pychunkedgraph:$TAG_NAME .
-    timeout: 600s
-    secretEnv: ["USERNAME"]
-
-  # Push the final image to Dockerhub
-  - name: "gcr.io/cloud-builders/docker"
-    entrypoint: "bash"
-    args: ["-c", "docker push $$USERNAME/pychunkedgraph:$TAG_NAME"]
+        docker buildx build \
+          --cache-from type=registry,ref=$$USERNAME/pychunkedgraph:buildcache \
+          --cache-to   type=registry,ref=$$USERNAME/pychunkedgraph:buildcache,mode=max \
+          --push \
+          -t $$USERNAME/pychunkedgraph:$TAG_NAME .
+    timeout: 1800s
     secretEnv: ["USERNAME"]
 
 availableSecrets:

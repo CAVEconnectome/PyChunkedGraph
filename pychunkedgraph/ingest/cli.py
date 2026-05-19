@@ -67,6 +67,12 @@ def flush_redis():
     is_flag=True,
     help="Wipe base AND this CG's delta OCDBT, then recreate from scratch.",
 )
+@click.option(
+    "--populate-base",
+    is_flag=True,
+    help="Have workers copy precomputed chunks into the OCDBT base. "
+    "Required on first ingest; skip on subsequent runs against the same base.",
+)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @job_type_guard(group_name)
 def ingest_graph(
@@ -77,6 +83,7 @@ def ingest_graph(
     raw: bool,
     retry: bool,
     reset_ocdbt: bool,
+    populate_base: bool,
     test: bool,
 ):
     """
@@ -96,7 +103,6 @@ def ingest_graph(
     if not retry:
         cg.create()
 
-    needs_base = False
     if ocdbt:
         ws = cg.meta.data_source.WATERSHED
         cg.meta.custom_data["seg"] = {
@@ -108,8 +114,7 @@ def ingest_graph(
         if reset_ocdbt:
             wipe_base_ocdbt(ws)
 
-        needs_base = not base_exists(ws)
-        if needs_base:
+        if not base_exists(ws):
             create_base_ocdbt(ws)
 
         fork_base_manifest(ws, graph_id, wipe_existing=retry or reset_ocdbt)
@@ -118,7 +123,7 @@ def ingest_graph(
         ingest_config,
         meta,
         ocdbt_seg=ocdbt,
-        ocdbt_populate_base=needs_base,
+        ocdbt_populate_base=populate_base,
     )
     enqueue_l2_tasks(imanager, create_atomic_chunk)
     os._exit(0)
