@@ -73,14 +73,19 @@ def _open_precomputed_scale(kvstore, scale_index, create=False, **schema_kw):
 
 
 def _schema_from_src(src_handle):
-    """Extract the schema kwargs needed to open a matching destination."""
+    """Extract the schema kwargs needed to open a matching destination.
+
+    `domain` already carries both extent and origin (voxel_offset). Passing
+    `shape` alongside conflicts with non-zero-origin sources because shape
+    implies origin=0 — tensorstore refuses to merge `[0, N)` with
+    `[offset, offset+N)`.
+    """
     s = src_handle.schema
     return dict(
         rank=s.rank,
         dtype=s.dtype,
         codec=s.codec,
         domain=s.domain,
-        shape=s.shape,
         chunk_layout=s.chunk_layout,
         dimension_units=s.dimension_units,
     )
