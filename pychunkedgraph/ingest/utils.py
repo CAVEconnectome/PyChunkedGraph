@@ -14,6 +14,14 @@ import numpy as np
 import tensorstore as ts
 from rq import Queue, Retry, Worker
 from rq.worker import WorkerStatus
+from rq.worker_registration import WORKERS_BY_QUEUE_KEY
+from rich import box
+from rich.console import Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
 
 from . import IngestConfig
 from .manager import IngestionManager
@@ -148,70 +156,202 @@ def print_completion_rate(imanager: IngestionManager, layer: int, span: int = 30
         move_up()
 
 
-def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
+def _busy_over_total_per_queue(redis, worker_keys_per_layer) -> list:
+    """For each layer's set of worker keys, return "busy/total" or "-" if no workers.
+
+    Two-round-trip approach: caller already fetched the SMEMBERS sets; this
+    function pipelines HGET state for every worker key and counts busy.
     """
-    Helper to print status to console.
+    state_pipe = redis.pipeline()
+    for keys in worker_keys_per_layer:
+        for wk in keys:
+            state_pipe.hget(wk, "state")
+    states = state_pipe.execute() if any(worker_keys_per_layer) else []
+
+    out = []
+    idx = 0
+    for keys in worker_keys_per_layer:
+        total = len(keys)
+        busy = 0
+        for _ in keys:
+            if states[idx] == b"busy":
+                busy += 1
+            idx += 1
+        out.append(f"{busy}/{total}" if total else "-")
+    return out
+
+
+def _layer_status(redis, layers):
+    """Pipelined fetch of job_type + per-layer counts + busy-worker ratios."""
+    pipeline = redis.pipeline()
+    pipeline.get(r_keys.JOB_TYPE)
+    for layer in layers:
+        pipeline.scard(f"{layer}c")
+        queue = Queue(f"l{layer}", connection=redis)
+        pipeline.llen(queue.key)
+        pipeline.zcard(queue.failed_job_registry.key)
+        pipeline.smembers(WORKERS_BY_QUEUE_KEY % f"l{layer}")
+    results = pipeline.execute()
+
+    job_type = results[0].decode() if results[0] else "not_available"
+    completed, queued, failed, worker_keys_per_layer = [], [], [], []
+    for i in range(1, len(results), 4):
+        completed.append(results[i])
+        queued.append(results[i + 1])
+        failed.append(results[i + 2])
+        worker_keys_per_layer.append(results[i + 3])
+
+    worker_busy = _busy_over_total_per_queue(redis, worker_keys_per_layer)
+    return job_type, completed, queued, failed, worker_busy
+
+
+def _sized_table(columns: list, rows: list, **table_kwargs) -> Table:
+    """Build a Rich Table whose column widths are sized to the actual data.
+
+    `columns` is a list of (name, justify) tuples.
+    `rows` is a list of tuples of cell strings (one per column).
+    Each column gets width = max(len(name), max(len(cell)) over rows) so Rich
+    never wraps or crops because no column is implicitly squeezed.
+    """
+    table = Table(
+        box=None,
+        pad_edge=False,
+        padding=(0, 1),
+        show_header=True,
+        header_style="bold",
+        **table_kwargs,
+    )
+    for col_idx, (name, justify) in enumerate(columns):
+        width = max(len(name), max((len(row[col_idx]) for row in rows), default=0))
+        table.add_column(name, justify=justify, width=width, no_wrap=True)
+    for row in rows:
+        table.add_row(*row)
+    return table
+
+
+def _aligned_kv_table(pairs: list, widths: list) -> Table:
+    """One-data-row mini-table with externally-provided per-column widths."""
+    table = Table(
+        box=None, pad_edge=False, padding=(0, 1), show_header=True, header_style="bold"
+    )
+    for (name, _), w in zip(pairs, widths):
+        table.add_column(name, justify="left", width=w, no_wrap=True)
+    table.add_row(*(v for _, v in pairs))
+    return table
+
+
+def _header_renderables(imanager: IngestionManager) -> list:
+    """Graph and ocdbt rows as mini-tables sharing column widths so columns line up."""
+    graph_pairs = [
+        ("version", str(imanager.cg.version)),
+        ("graph_id", imanager.cg.graph_id),
+        ("chunk_size", str(imanager.cg.meta.graph_config.CHUNK_SIZE)),
+    ]
+    ocdbt_pairs = []
+    if imanager.ocdbt_seg:
+        ocdbt_pairs = [
+            ("ocdbt", str(imanager.ocdbt_seg)),
+            ("populate_base", str(imanager.ocdbt_populate_base)),
+            ("populate_layer", str(imanager.ocdbt_populate_layer)),
+        ]
+
+    # Per-column width = max length seen in EITHER row's header or value at that index.
+    n = max(len(graph_pairs), len(ocdbt_pairs))
+    widths = []
+    for i in range(n):
+        sizes = []
+        if i < len(graph_pairs):
+            sizes.append(len(graph_pairs[i][0]))
+            sizes.append(len(graph_pairs[i][1]))
+        if i < len(ocdbt_pairs):
+            sizes.append(len(ocdbt_pairs[i][0]))
+            sizes.append(len(ocdbt_pairs[i][1]))
+        widths.append(max(sizes))
+
+    out = [_aligned_kv_table(graph_pairs, widths)]
+    if ocdbt_pairs:
+        out.append(Rule(style="dim"))
+        out.append(_aligned_kv_table(ocdbt_pairs, widths))
+    return out
+
+
+def _status_table(
+    layers, layer_counts, completed, queued, failed, worker_busy
+) -> Table:
+    """One row per layer with progress, queue, and worker stats."""
+    columns = [
+        ("layer", "right"),
+        ("done", "right"),
+        ("total", "right"),
+        ("%", "right"),
+        ("queued", "right"),
+        ("failed", "right"),
+        ("busy", "left"),
+    ]
+    rows = []
+    for layer, done, count, q, f, wb in zip(
+        layers, completed, layer_counts, queued, failed, worker_busy
+    ):
+        pct = math.floor((done / count) * 100) if count else 0
+        rows.append(
+            (
+                str(layer),
+                f"{done:,}",
+                f"{count:,}",
+                f"{pct}%",
+                f"{q:,}",
+                f"{f:,}",
+                str(wb),
+            )
+        )
+    return _sized_table(columns, rows)
+
+
+def _status_renderable(
+    imanager, layers, layer_counts, job_type, completed, queued, failed, worker_busy
+):
+    """Combine header rows + per-layer table inside one Panel; job_type goes in the title."""
+    body = Group(
+        *_header_renderables(imanager),
+        Rule(style="dim"),
+        _status_table(layers, layer_counts, completed, queued, failed, worker_busy),
+    )
+    return Panel(
+        body,
+        title=job_type,
+        title_align="left",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        expand=False,
+    )
+
+
+def print_status(
+    imanager: IngestionManager,
+    redis,
+    upgrade: bool = False,
+    refresh_seconds: int = 5,
+):
+    """
+    Print status to console.
     If `upgrade=True`, status does not include the root layer,
     since there is no need to update cross edges for root ids.
+    `refresh_seconds` is how often redis is re-polled between redraws.
     """
     layers = range(2, imanager.cg_meta.layer_count + 1)
     if upgrade:
         layers = range(2, imanager.cg_meta.layer_count)
-
-    def _refresh_status():
-        pipeline = redis.pipeline()
-        pipeline.get(r_keys.JOB_TYPE)
-        worker_busy = ["-"] * len(layers)
-        for layer in layers:
-            pipeline.scard(f"{layer}c")
-            queue = Queue(f"l{layer}", connection=redis)
-            pipeline.llen(queue.key)
-            pipeline.zcard(queue.failed_job_registry.key)
-
-        results = pipeline.execute()
-        job_type = "not_available"
-        if results[0] is not None:
-            job_type = results[0].decode()
-        completed = []
-        queued = []
-        failed = []
-        for i in range(1, len(results), 3):
-            result = results[i : i + 3]
-            completed.append(result[0])
-            queued.append(result[1])
-            failed.append(result[2])
-        return job_type, completed, queued, failed, worker_busy
-
-    job_type, completed, queued, failed, worker_busy = _refresh_status()
-
     layer_counts = imanager.cg_meta.layer_chunk_counts
-    header = (
-        f"\njob_type: \t{job_type}"
-        f"\nversion: \t{imanager.cg.version}"
-        f"\ngraph_id: \t{imanager.cg.graph_id}"
-        f"\nchunk_size: \t{imanager.cg.meta.graph_config.CHUNK_SIZE}"
-        f"\nocdbt_seg: \t{imanager.ocdbt_seg}"
-    )
-    if imanager.ocdbt_seg:
-        header += (
-            f"\nocdbt_populate_base: \t{imanager.ocdbt_populate_base}"
-            f"\nocdbt_populate_layer: \t{imanager.ocdbt_populate_layer}"
+
+    def render():
+        return _status_renderable(
+            imanager, layers, layer_counts, *_layer_status(redis, layers)
         )
-    header += "\n\nlayer status:"
-    print(header)
-    while True:
-        for layer, done, count in zip(layers, completed, layer_counts):
-            print(
-                f"{layer}\t| {done:9} / {count} \t| {math.floor((done/count)*100):6}%"
-            )
 
-        print("\n\nqueue status:")
-        for layer, q, f, wb in zip(layers, queued, failed, worker_busy):
-            print(f"l{layer}\t| queued: {q:<10} failed: {f:<10} busy: {wb}")
-
-        sleep(1)
-        _, completed, queued, failed, worker_busy = _refresh_status()
-        move_up(lines=2 * len(layers) + 3)
+    with Live(render(), screen=False) as live:
+        while True:
+            sleep(refresh_seconds)
+            live.update(render())
 
 
 def queue_layer_helper(

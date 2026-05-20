@@ -153,13 +153,14 @@ def queue_layer(parent_layer: int, splits: int = 0):
 
 
 @upgrade_cli.command("status")
+@click.option("--refresh", type=int, default=5, help="Seconds between redis polls.")
 @job_type_guard(group_name)
-def upgrade_status():
+def upgrade_status(refresh: int):
     """Print upgrade status to console."""
     redis = get_redis_connection()
     try:
         imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-        print_status(imanager, redis, upgrade=True)
+        print_status(imanager, redis, upgrade=True, refresh_seconds=refresh)
     except TypeError as err:
         print(f"\nNo current `{group_name}` job found in redis: {err}")
 

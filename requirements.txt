@@ -201,11 +201,15 @@ lazy-loader==0.4
     # via scikit-image
 markdown==3.10.2
     # via python-jsonschema-objects
+markdown-it-py==4.2.0
+    # via rich
 markupsafe==3.0.3
     # via
     #   flask
     #   jinja2
     #   werkzeug
+mdurl==0.1.2
+    # via markdown-it-py
 messagingclient==0.4.0
     # via -r requirements.in
 microviewer==1.20.0
@@ -321,7 +325,9 @@ pybind11==3.0.2
 pycparser==3.0
     # via cffi
 pygments==2.19.2
-    # via pytest
+    # via
+    #   pytest
+    #   rich
 pysimdjson==7.0.2
     # via cloud-volume
 pytest==9.0.2
@@ -360,6 +366,8 @@ requests==2.32.5
     #   kvdbclient
     #   middle-auth-client
     #   task-queue
+rich==15.0.0
+    # via -r requirements.in
 rpds-py==0.30.0
     # via
     #   jsonschema

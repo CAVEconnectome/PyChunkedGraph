@@ -14,6 +14,7 @@ pyyaml
 cachetools
 werkzeug
 tensorstore
+rich
 edt
 connected-components-3d
 scikit-image

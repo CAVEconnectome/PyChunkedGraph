@@ -207,13 +207,14 @@ def queue_layer(parent_layer):
 
 
 @ingest_cli.command("status")
+@click.option("--refresh", type=int, default=5, help="Seconds between redis polls.")
 @job_type_guard(group_name)
-def ingest_status():
+def ingest_status(refresh: int):
     """Print ingest status to console by layer."""
     redis = get_redis_connection()
     try:
         imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-        print_status(imanager, redis)
+        print_status(imanager, redis, refresh_seconds=refresh)
     except TypeError as err:
         print(f"\nNo current `{group_name}` job found in redis: {err}")
 
