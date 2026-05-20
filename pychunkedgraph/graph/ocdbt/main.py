@@ -1,8 +1,8 @@
-"""OCDBT-backed neuroglancer_precomputed segmentation store.
+"""OCDBT-backed neuroglancer_precomputed segmentation store — public API.
 
 Architecture: one immutable base OCDBT per watershed + one delta OCDBT per
 ChunkedGraph. Reads merge base + delta via tensorstore's kvstack driver.
-Writes land in the delta via OCDBT's *_data_prefix options.
+Writes land in the delta via OCDBT's ``*_data_prefix`` options.
 
 Multi-scale (MIP pyramid) is supported: the source watershed's info JSON
 drives the scale layout. All scales share one OCDBT kvstore; the precomputed
@@ -30,153 +30,42 @@ Retention: the OCDBT spec exposes no pruning fields. All versions are
 retained by default.
 """
 
-import json
-from typing import Optional
-
 import numpy as np
 import tensorstore as ts
 
 from pychunkedgraph import get_logger
 
+from .meta import OcdbtConfig
+from .utils import (
+    _base_ocdbt_path,
+    _ensure_trailing_slash,
+    _open_precomputed_scale,
+    _read_source_scales,
+    _schema_from_src,
+    base_exists,
+)
+
 logger = get_logger(__name__)
 
-OCDBT_SEG_COMPRESSION_LEVEL = 12
 
-OCDBT_CONFIG = {
-    "compression": {"id": "zstd", "level": OCDBT_SEG_COMPRESSION_LEVEL},
-    # Inline chunk values into B+tree leaves so they share the leaf's zstd
-    # compression context. Default (100 bytes) puts every chunk in its own
-    # out-of-line blob with independent zstd framing → ~7x bloat on GCS.
-    # 512 KiB captures every compressed_segmentation chunk we've measured.
-    "max_inline_value_bytes": 524288,
-}
-
-
-def _read_source_scales(ws_path):
-    """Read the source precomputed `info` JSON to get scale count and resolutions.
-
-    The leading '/' in '/info' is required for GCS — without it the read
-    returns empty.
-    """
-    kvs = ts.KvStore.open(ws_path).result()
-    info = json.loads(kvs.read("/info").result().value)
-    return info["scales"]
-
-
-def _open_precomputed_scale(kvstore, scale_index, create=False, **schema_kw):
-    """Open one neuroglancer_precomputed scale on top of a kvstore spec."""
-    spec = {
-        "driver": "neuroglancer_precomputed",
-        "kvstore": kvstore,
-        "scale_index": scale_index,
-    }
-    return ts.open(spec, create=create, **schema_kw).result()
-
-
-def _schema_from_src(src_handle):
-    """Extract the schema kwargs needed to open a matching destination.
-
-    `domain` already carries both extent and origin (voxel_offset). Passing
-    `shape` alongside conflicts with non-zero-origin sources because shape
-    implies origin=0 — tensorstore refuses to merge `[0, N)` with
-    `[offset, offset+N)`.
-    """
-    s = src_handle.schema
-    return dict(
-        rank=s.rank,
-        dtype=s.dtype,
-        codec=s.codec,
-        domain=s.domain,
-        chunk_layout=s.chunk_layout,
-        dimension_units=s.dimension_units,
-    )
-
-
-def _ensure_trailing_slash(path):
-    """Ensure kvstore paths end with / so they're treated as directories."""
-    return path if path.endswith("/") else path + "/"
-
-
-def _base_ocdbt_path(ws_path):
-    return _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/base")
-
-
-def _populate_markers_path(ws_path):
-    return _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/.populated")
-
-
-def _marker_key(layer: int, coords) -> str:
-    return f"l{int(layer)}_{int(coords[0])}_{int(coords[1])}_{int(coords[2])}"
-
-
-def is_chunk_populated(ws_path: str, layer: int, coords) -> bool:
-    """Check whether this chunk's precomputed→OCDBT copy has already completed.
-
-    Markers live outside the OCDBT keyspace at
-    `<ws>/ocdbt/.populated/l<layer>_<x>_<y>_<z>` so retried ingest tasks
-    don't re-copy chunks and bloat the database with redundant versioned
-    writes.
-    """
-    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
-    result = kvs.read(_marker_key(layer, coords)).result()
-    return result.value is not None and len(result.value) > 0
-
-
-def mark_chunk_populated(ws_path: str, layer: int, coords) -> None:
-    """Record that this chunk's precomputed→OCDBT copy completed."""
-    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
-    kvs.write(_marker_key(layer, coords), b"1").result()
-
-
-def read_populate_meta(ws_path: str) -> Optional[dict]:
-    """Return the per-base populate config dict, or None if not yet written."""
-    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
-    r = kvs.read("meta.json").result()
-    if r.value is None or len(r.value) == 0:
-        return None
-    return json.loads(r.value)
-
-
-def write_populate_meta(ws_path: str, meta: dict) -> None:
-    """Persist the per-base populate config (layer, etc.) alongside markers."""
-    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
-    kvs.write("meta.json", json.dumps(meta).encode()).result()
-
-
-def base_exists(ws_path: str) -> bool:
-    """Check if the base OCDBT has already been created for this watershed."""
-    base = _base_ocdbt_path(ws_path)
-    kvs = ts.KvStore.open(base).result()
-    result = kvs.read("manifest.ocdbt").result()
-    return result.value is not None and len(result.value) > 0
-
-
-def fork_exists(ws_path: str, graph_id: str) -> bool:
-    """Check if this ChunkedGraph's fork has been initialized."""
-    fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
-    kvs = ts.KvStore.open(fork_dir).result()
-    result = kvs.read("manifest.ocdbt").result()
-    return result.value is not None and len(result.value) > 0
-
-
-def create_base_ocdbt(ws_path: str):
-    """One-time bootstrap: create the shared base OCDBT at <ws>/ocdbt/base/.
+def create_base_ocdbt(ws_path: str, config: OcdbtConfig):
+    """One-time bootstrap: create the shared base OCDBT at ``<ws>/ocdbt/base/``.
 
     Wipes any existing base first, then opens each scale with create=True
     so the info JSON is built from the source. Populating the base with
-    actual chunk data happens separately via copy_ws_chunk_multiscale
-    during the per-chunk ingest tasks.
+    actual chunk data happens separately via ``copy_ws_chunk_multiscale``
+    or ``copy_ws_bbox_multiscale`` during the per-chunk ingest tasks.
 
     Returns (src_list, dst_list, resolutions) for the caller to use with
-    copy_ws_chunk_multiscale.
+    the copy helpers.
     """
     base = _base_ocdbt_path(ws_path)
     # Wipe via the underlying GCS/file driver, NOT through the ocdbt
     # driver. Opening as ocdbt on an empty dir creates a default-config
     # `manifest.ocdbt` stub (max_inline_value_bytes=100); on a dir with
     # an existing manifest it only clears the B+tree, leaving the
-    # manifest's config in place. Either way the subsequent open with
-    # OCDBT_CONFIG mismatches.
+    # manifest's config in place. Either way the subsequent open with a
+    # different config mismatches.
     try:
         kvs = ts.KvStore.open(base).result()
         kvs.delete_range(ts.KvStore.KeyRange()).result()
@@ -185,7 +74,7 @@ def create_base_ocdbt(ws_path: str):
 
     scales = _read_source_scales(ws_path)
     resolutions = [s["resolution"] for s in scales]
-    base_kvstore = {"driver": "ocdbt", "base": base, "config": dict(OCDBT_CONFIG)}
+    base_kvstore = {"driver": "ocdbt", "base": base, "config": config.ts_config()}
 
     src_list, dst_list = [], []
     for i in range(len(scales)):
@@ -212,19 +101,19 @@ def wipe_base_ocdbt(ws_path: str):
         pass
 
 
-def open_base_ocdbt(ws_path: str):
+def open_base_ocdbt(ws_path: str, config: OcdbtConfig):
     """Open the existing base OCDBT (read/write) for populating during ingest.
 
     Used by per-chunk ingest tasks that copy precomputed data into the shared
     base. NOT used at runtime — runtime always goes through the per-CG fork
-    spec via get_seg_source_and_destination_ocdbt.
+    spec via ``get_seg_source_and_destination_ocdbt``.
 
     Returns (src_list, dst_list, resolutions).
     """
     base = _base_ocdbt_path(ws_path)
     scales = _read_source_scales(ws_path)
     resolutions = [s["resolution"] for s in scales]
-    base_kvstore = {"driver": "ocdbt", "base": base, "config": dict(OCDBT_CONFIG)}
+    base_kvstore = {"driver": "ocdbt", "base": base, "config": config.ts_config()}
 
     src_list, dst_list = [], []
     for i in range(len(scales)):
@@ -240,27 +129,28 @@ def open_base_ocdbt(ws_path: str):
 def build_cg_ocdbt_spec(
     ws_path: str,
     graph_id: str,
+    config: OcdbtConfig,
     *,
     pinned_at: "int | str | None" = None,
 ) -> dict:
     """Open-time kvstore spec for a CG's OCDBT, backed by a shared immutable base.
 
     This function is a pure spec-constructor — it doesn't materialize
-    the fork. The fork's `manifest.ocdbt` must exist before `ts.open`
-    on this spec will succeed; it's created by `fork_base_manifest`
-    (invoked from the ingest CLI's `--ocdbt` path or the `seg_ocdbt`
-    notebook). `ChunkedGraphMeta.ws_ocdbt_scales` asserts presence via
-    `fork_exists` so callers get a clear error instead of a tensorstore
+    the fork. The fork's ``manifest.ocdbt`` must exist before ``ts.open``
+    on this spec will succeed; it's created by ``fork_base_manifest``
+    (invoked from the ingest CLI's OCDBT path or the ``seg_ocdbt``
+    notebook). ``ChunkedGraphMeta.ws_ocdbt_scales`` asserts presence via
+    ``fork_exists`` so callers get a clear error instead of a tensorstore
     internal failure.
 
-    All three kvstack layers below AND all three `*_data_prefix` options
+    All three kvstack layers below AND all three ``*_data_prefix`` options
     are load-bearing; removing any of them causes fork writes to leak
     into the immutable base (verified empirically).
 
-    When `pinned_at` is set, the opened kvstore is read-only and returns
+    When ``pinned_at`` is set, the opened kvstore is read-only and returns
     state as of the specified version. Accepts an integer generation
-    number (exact) or an ISO-8601 UTC timestamp string with `Z` suffix
-    (interpreted as `commit_time <= T`).
+    number (exact) or an ISO-8601 UTC timestamp string with ``Z`` suffix
+    (interpreted as ``commit_time <= T``).
     """
     base = _base_ocdbt_path(ws_path)
     fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
@@ -294,7 +184,7 @@ def build_cg_ocdbt_spec(
             "driver": "kvstack",
             "layers": [base_layer, fork_manifest_layer, fork_data_layer],
         },
-        "config": dict(OCDBT_CONFIG),
+        "config": config.ts_config(),
         # Steer every kind of OCDBT write under `<graph_id>_d/` so the
         # fork_data_layer catches them.
         "value_data_prefix": data_prefix,
@@ -332,6 +222,7 @@ def fork_base_manifest(ws_path: str, graph_id: str, wipe_existing: bool = False)
 def get_seg_source_and_destination_ocdbt(
     ws_path: str,
     graph_id: str,
+    config: OcdbtConfig,
     *,
     pinned_at: "int | str | None" = None,
 ) -> tuple:
@@ -340,9 +231,9 @@ def get_seg_source_and_destination_ocdbt(
     Always uses the fork-based kvstack spec. Requires the base to exist and
     the fork's manifest to be present (set up at ingest time).
 
-    When `pinned_at` is set, the destination OCDBT handles are opened
+    When ``pinned_at`` is set, the destination OCDBT handles are opened
     read-only at that version — used by the recovery path to read
-    pre-op seg values via `ChunkedGraphMeta.pinned_seg_reads`.
+    pre-op seg values via ``ChunkedGraphMeta.pinned_seg_reads``.
 
     Returns:
         (src_list, dst_list, resolutions): per-scale TensorStore handles
@@ -350,7 +241,7 @@ def get_seg_source_and_destination_ocdbt(
     """
     scales = _read_source_scales(ws_path)
     resolutions = [s["resolution"] for s in scales]
-    cg_kvstore = build_cg_ocdbt_spec(ws_path, graph_id, pinned_at=pinned_at)
+    cg_kvstore = build_cg_ocdbt_spec(ws_path, graph_id, config, pinned_at=pinned_at)
 
     src_list, dst_list = [], []
     for i in range(len(scales)):
@@ -428,18 +319,6 @@ def copy_ws_chunk_multiscale(
         dst[x0:x1, y0:y1, z0:z1].write(data).result()
 
 
-def _layer_bbox(meta, layer: int, coords) -> tuple:
-    """Base-resolution voxel bbox of a chunk at this layer."""
-    chunk_size = np.array(meta.graph_config.CHUNK_SIZE, dtype=int)
-    layer_chunk_size = chunk_size * (1 << (layer - 2))
-    coords = np.array(coords, dtype=int)
-    vol_start = meta.voxel_bounds[:, 0]
-    vol_end = meta.voxel_bounds[:, 1]
-    lo = coords * layer_chunk_size + vol_start
-    hi = np.minimum(lo + layer_chunk_size, vol_end)
-    return lo, hi
-
-
 def copy_ws_bbox_multiscale(
     src_list,
     dst_list,
@@ -449,15 +328,15 @@ def copy_ws_bbox_multiscale(
 ):
     """Copy a base-resolution voxel bbox across all MIP scales under one atomic txn.
 
-    `ts.Transaction(atomic=True)` is load-bearing: without it the precomputed
-    driver splits a multi-chunk `.write()` into multiple OCDBT sub-commits,
+    ``ts.Transaction(atomic=True)`` is load-bearing: without it the precomputed
+    driver splits a multi-chunk ``.write()`` into multiple OCDBT sub-commits,
     so file count would scale with the number of precomputed chunks inside
-    the bbox. With `atomic=True`, every per-chunk underlying-kvstore write
+    the bbox. With ``atomic=True``, every per-chunk underlying-kvstore write
     inside one precomputed handle collapses into a single OCDBT commit — so
     the d/ file count for one call to this function is constant in the
     number of chunks inside the bbox; it only grows with scale count.
 
-    Passing the source TensorStore directly into `write(...)` lets
+    Passing the source TensorStore directly into ``write(...)`` lets
     tensorstore stream the copy without materializing an intermediate
     numpy array in Python — peak RSS drops by roughly one scale's
     worth versus the read-into-numpy-then-write pattern.
@@ -562,10 +441,10 @@ def propagate_to_coarser_scales(dst_scales, resolutions, base_slices):
 def write_seg_chunks(meta, seg_writes):
     """Write a flat batch of pre-sliced L2 chunks to OCDBT in parallel.
 
-    `seg_writes` is the aggregated output of `edits_sv.split_supervoxels`
+    ``seg_writes`` is the aggregated output of ``edits_sv.split_supervoxels``
     across every rep in an operation — each pair is one L2 chunk's worth
-    of `(voxel_slices, data)`. Flattening across reps matters: one
-    `write_seg_chunks` call fires every chunk write in one parallel
+    of ``(voxel_slices, data)``. Flattening across reps matters: one
+    ``write_seg_chunks`` call fires every chunk write in one parallel
     tensorstore batch instead of serializing rep-by-rep.
 
     Only chunks that actually received new SV IDs appear here; gap
@@ -573,13 +452,13 @@ def write_seg_chunks(meta, seg_writes):
     overlap read touched are skipped by the split planner.
 
     Coarser MIP levels stay the downsample worker's job — it picks up
-    the pubsub message `publish_edit` sends after this returns.
+    the pubsub message ``publish_edit`` sends after this returns.
 
     Args:
-        meta: ChunkedGraphMeta with `ws_ocdbt` (base-scale handle).
-        seg_writes: iterable of `(voxel_slices, data)` pairs, where
-            `voxel_slices` is a 3-tuple of `slice` objects covering one
-            L2 chunk's x/y/z extent and `data` is the 3D label block
+        meta: ChunkedGraphMeta with ``ws_ocdbt`` (base-scale handle).
+        seg_writes: iterable of ``(voxel_slices, data)`` pairs, where
+            ``voxel_slices`` is a 3-tuple of ``slice`` objects covering one
+            L2 chunk's x/y/z extent and ``data`` is the 3D label block
             (shape matches the slice extents).
     """
     futures = [

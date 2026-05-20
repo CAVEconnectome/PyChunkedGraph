@@ -71,7 +71,9 @@ def _setup_ts_mock(mock_ts, num_scales=2):
 class TestBuildCgOcdbtSpec:
     def test_spec_structure(self):
         """build_cg_ocdbt_spec returns the expected kvstack-layered spec."""
-        spec = ocdbt_mod.build_cg_ocdbt_spec("gs://bucket/ws", "my_graph")
+        spec = ocdbt_mod.build_cg_ocdbt_spec(
+            "gs://bucket/ws", "my_graph", ocdbt_mod.OcdbtConfig()
+        )
         assert spec["driver"] == "ocdbt"
         layers = spec["base"]["layers"]
         assert len(layers) == 3
@@ -241,14 +243,14 @@ def local_ocdbt():
     base = f"{ws}/ocdbt/base"
 
     def _mk_scale(size, resolution, *, include_mm):
-        # Match OCDBT_CONFIG so forks (which always use it) don't trip the
-        # "Configuration mismatch on max_inline_value_bytes" check.
+        # Match OcdbtConfig defaults so forks (which always use them) don't
+        # trip the "Configuration mismatch on max_inline_value_bytes" check.
         spec = {
             "driver": "neuroglancer_precomputed",
             "kvstore": {
                 "driver": "ocdbt",
                 "base": base,
-                "config": dict(ocdbt_mod.OCDBT_CONFIG),
+                "config": ocdbt_mod.OcdbtConfig().ts_config(),
             },
             "scale_metadata": {
                 "size": size,
@@ -273,7 +275,9 @@ def local_ocdbt():
         if graph_id not in _created_forks:
             ocdbt_mod.fork_base_manifest(ws, graph_id)
             _created_forks.add(graph_id)
-        spec = ocdbt_mod.build_cg_ocdbt_spec(ws, graph_id, pinned_at=pinned_at)
+        spec = ocdbt_mod.build_cg_ocdbt_spec(
+            ws, graph_id, ocdbt_mod.OcdbtConfig(), pinned_at=pinned_at
+        )
         return ts.open(
             {
                 "driver": "neuroglancer_precomputed",
@@ -549,7 +553,9 @@ class TestWsOcdbtScalesProperty:
                 "compressed_segmentation_block_size": [8, 8, 8],
             }
         ]
-        with patch.object(ocdbt_mod, "_read_source_scales", return_value=fake_scales):
+        with patch.object(
+            ocdbt_mod.main, "_read_source_scales", return_value=fake_scales
+        ):
             scales = meta.ws_ocdbt_scales
             assert len(scales) == 1
 

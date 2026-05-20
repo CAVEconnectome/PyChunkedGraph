@@ -142,6 +142,7 @@ def cleanup_partial_writes(cg: ChunkedGraph, op_id: int) -> int:
     _, pinned_scales, _ = get_seg_source_and_destination_ocdbt(
         cg.meta.data_source.WATERSHED,
         cg.meta.graph_id,
+        cg.meta.ocdbt_config,
         pinned_at=pin_str,
     )
     pinned_ws = pinned_scales[0]

@@ -9,6 +9,7 @@ import numpy as np
 from cloudvolume import CloudVolume
 
 from pychunkedgraph.graph.ocdbt import (
+    OcdbtConfig,
     build_cg_ocdbt_spec,
     fork_exists,
     get_seg_source_and_destination_ocdbt,
@@ -116,9 +117,25 @@ class ChunkedGraphMeta:
         return self._ws_cv
 
     @property
+    def ocdbt_config(self) -> OcdbtConfig:
+        """Per-CG OCDBT settings, built from custom_data["ocdbt_config"].
+
+        Falls back to the legacy custom_data["seg"] shape used before the
+        dataclass landed so CGs ingested under the older layout keep working.
+        """
+        d = self._custom_data.get("ocdbt_config")
+        if d is None:
+            seg = self._custom_data.get("seg", {})
+            d = {
+                "enabled": bool(seg.get("ocdbt", False)),
+                "sv_split_threshold": int(seg.get("sv_split_threshold", 10)),
+            }
+        return OcdbtConfig.from_dict(d)
+
+    @property
     def ocdbt_seg(self) -> bool:
         if self._ocdbt_seg is None:
-            self._ocdbt_seg = self._custom_data.get("seg", {}).get("ocdbt", False)
+            self._ocdbt_seg = self.ocdbt_config.enabled
         return self._ocdbt_seg
 
     @property
@@ -141,7 +158,9 @@ class ChunkedGraphMeta:
                 "create it via fork_base_manifest or the seg_ocdbt notebook"
             )
             _, self._ws_ocdbt_scales, self._ws_ocdbt_resolutions = (
-                get_seg_source_and_destination_ocdbt(ws, self.graph_id)
+                get_seg_source_and_destination_ocdbt(
+                    ws, self.graph_id, self.ocdbt_config
+                )
             )
         return self._ws_ocdbt_scales
 
@@ -279,7 +298,7 @@ class ChunkedGraphMeta:
 
     @property
     def sv_split_threshold(self) -> int:
-        return self._custom_data.get("seg", {}).get("sv_split_threshold", 10)
+        return self.ocdbt_config.sv_split_threshold
 
     @property
     def split_bounding_offset(self):
@@ -312,7 +331,11 @@ class ChunkedGraphMeta:
                     # Readers pass this verbatim as `kvstore`; add a
                     # `version` field for time-travel reads.
                     "ocdbt_kvstore_spec": (
-                        build_cg_ocdbt_spec(self._data_source.WATERSHED, self.graph_id)
+                        build_cg_ocdbt_spec(
+                            self._data_source.WATERSHED,
+                            self.graph_id,
+                            self.ocdbt_config,
+                        )
                         if self.ocdbt_seg and self._graph_config.ID
                         else None
                     ),

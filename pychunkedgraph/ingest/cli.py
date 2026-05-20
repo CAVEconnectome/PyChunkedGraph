@@ -26,6 +26,7 @@ from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
 from ..graph.ocdbt import (
+    OcdbtConfig,
     base_exists,
     create_base_ocdbt,
     fork_base_manifest,
@@ -55,13 +56,6 @@ def flush_redis():
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True), required=False)
-@click.option("--ocdbt", is_flag=True, help="Precomputed supervoxel seg into ocdbt.")
-@click.option(
-    "--sv-split-threshold",
-    type=int,
-    default=10,
-    help="Distance threshold for SV split edge matching.",
-)
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
 @click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
 @click.option(
@@ -69,39 +63,17 @@ def flush_redis():
     is_flag=True,
     help="Wipe base AND this CG's delta OCDBT, then recreate from scratch.",
 )
-@click.option(
-    "--populate-base",
-    is_flag=True,
-    help="Have workers copy precomputed chunks into the OCDBT base. "
-    "Required on first ingest; skip on subsequent runs against the same base.",
-)
-@click.option(
-    "--populate-layer",
-    type=int,
-    default=4,
-    help="Layer at which populate tasks copy precomputed chunks into the OCDBT "
-    "base. Each task batches all underlying L2 chunks across all scales into "
-    "one OCDBT commit. Stored alongside the base on first --populate-base; "
-    "subsequent ingests must agree or pass --reset-ocdbt.",
-)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @job_type_guard(group_name)
 def ingest_graph(
     graph_id: str,
     dataset: click.Path,
-    ocdbt: bool,
-    sv_split_threshold: int,
     raw: bool,
     retry: bool,
     reset_ocdbt: bool,
-    populate_base: bool,
-    populate_layer: int,
     test: bool,
 ):
-    """
-    Main ingest command.
-    Takes ingest config from a yaml file and queues atomic tasks.
-    """
+    """Main ingest command. Takes config from yaml, queues atomic tasks."""
     redis = get_redis_connection()
 
     if retry:
@@ -130,42 +102,41 @@ def ingest_graph(
     if test:
         configure_logging(level=DEBUG)
 
-    meta, ingest_config, client_info = bootstrap(graph_id, config, raw, test)
-    if ocdbt:
+    meta, ingest_config, client_info, ocdbt_config_dict = bootstrap(
+        graph_id, config, raw, test
+    )
+    yaml_only_cfg = OcdbtConfig.from_dict(ocdbt_config_dict)
+    if yaml_only_cfg.enabled:
         ws = meta.data_source.WATERSHED
         if reset_ocdbt:
             wipe_base_ocdbt(ws)
         if not base_exists(ws):
-            create_base_ocdbt(ws)
-        if populate_base:
-            existing = read_populate_meta(ws)
-            if existing is None:
-                write_populate_meta(ws, {"layer": populate_layer})
-            elif existing.get("layer") != populate_layer:
-                raise click.ClickException(
-                    f"OCDBT base is already populated at layer {existing.get('layer')}, "
-                    f"but --populate-layer={populate_layer} was passed. "
-                    f"Mixing populate layers is unsupported. To repopulate at a "
-                    f"different layer, manually delete {ws.rstrip('/')}/ocdbt/ and rerun."
-                )
+            # No on-disk OCDBT yet — create it with yaml-supplied values.
+            create_base_ocdbt(ws, yaml_only_cfg)
+        # Precedence: info-file (per-base, already on disk) > yaml > defaults.
+        # Existing bases own the on-disk-format fields (compression,
+        # max_inline_value_bytes, populate_layer); yaml fills missing fields
+        # and supplies values for new bases.
+        info_dict = read_populate_meta(ws)
+        ocdbt_cfg = OcdbtConfig.resolve(ocdbt_config_dict, info_dict)
+        ocdbt_config_dict = ocdbt_cfg.to_dict()
+        if ocdbt_cfg.populate_base:
+            write_populate_meta(ws, ocdbt_config_dict)
         fork_base_manifest(ws, graph_id, wipe_existing=reset_ocdbt)
+    else:
+        ocdbt_cfg = yaml_only_cfg
 
     cg = ChunkedGraph(meta=meta, client_info=client_info)
     cg.create()
 
-    if ocdbt:
-        cg.meta.custom_data["seg"] = {
-            "ocdbt": True,
-            "sv_split_threshold": sv_split_threshold,
-        }
+    if ocdbt_cfg.enabled:
+        cg.meta.custom_data["ocdbt_config"] = ocdbt_config_dict
         cg.update_meta(cg.meta, overwrite=True)
 
     imanager = IngestionManager(
         ingest_config,
         meta,
-        ocdbt_seg=ocdbt,
-        ocdbt_populate_base=populate_base,
-        ocdbt_populate_layer=populate_layer,
+        ocdbt_config=ocdbt_config_dict,
     )
     enqueue_l2_tasks(imanager, create_atomic_chunk)
     os._exit(0)
@@ -187,8 +158,10 @@ def pickle_imanager(graph_id: str, dataset: click.Path, raw: bool):
         except yaml.YAMLError as exc:
             print(exc)
 
-    meta, ingest_config, _ = bootstrap(graph_id, config=config, raw=raw)
-    imanager = IngestionManager(ingest_config, meta)
+    meta, ingest_config, _, ocdbt_config_dict = bootstrap(
+        graph_id, config=config, raw=raw
+    )
+    imanager = IngestionManager(ingest_config, meta, ocdbt_config=ocdbt_config_dict)
     imanager.redis.set(r_keys.JOB_TYPE, group_name)
 
 

@@ -1,19 +1,15 @@
 # pylint: disable=invalid-name, missing-docstring
 
 import functools
-
-from pychunkedgraph import get_logger
-
-logger = get_logger(__name__)
-import math, random, sys
+import math
+import sys
 from os import environ
 from time import sleep
-from typing import Any, Generator, Tuple
+from typing import Any, Dict, Generator, Tuple
 
 import numpy as np
 import tensorstore as ts
-from rq import Queue, Retry
-from rq.worker_registration import WORKERS_BY_QUEUE_KEY
+from kvdbclient import BigTableConfig, HBaseConfig
 from rich import box
 from rich.console import Group
 from rich.live import Live
@@ -21,15 +17,21 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
+from rq import Queue, Retry
+from rq.worker_registration import WORKERS_BY_QUEUE_KEY
+
+from pychunkedgraph import get_logger
 
 from . import IngestConfig
 from .manager import IngestionManager
-from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
 from ..graph import BackendClientInfo
-from kvdbclient import BigTableConfig, HBaseConfig
+from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
+from ..graph.ocdbt import OcdbtConfig
 from ..utils.general import chunked
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
+
+logger = get_logger(__name__)
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -39,8 +41,13 @@ def bootstrap(
     config: dict,
     raw: bool = False,
     test_run: bool = False,
-) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo]:
-    """Parse config loaded from a yaml file."""
+) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo, Dict]:
+    """Parse config loaded from a yaml file.
+
+    Returns ``(meta, ingest_config, client_info, ocdbt_config_dict)`` where the
+    ocdbt config dict is sanitized through ``OcdbtConfig.from_dict(...).to_dict()``
+    so unknown yaml keys are dropped and missing fields take dataclass defaults.
+    """
     ingest_config = IngestConfig(
         **config.get("ingest_config", {}),
         USE_RAW_EDGES=raw,
@@ -62,7 +69,8 @@ def bootstrap(
     data_source = DataSource(**config["data_source"])
 
     meta = ChunkedGraphMeta(graph_config, data_source)
-    return (meta, ingest_config, client_info)
+    ocdbt_config_dict = OcdbtConfig.from_dict(config.get("ocdbt_config")).to_dict()
+    return (meta, ingest_config, client_info, ocdbt_config_dict)
 
 
 def move_up(lines: int = 1):

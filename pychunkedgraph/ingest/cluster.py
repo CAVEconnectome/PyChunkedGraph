@@ -30,6 +30,7 @@ from .upgrade.parent_layer import update_chunk as update_parent_chunk
 from ..graph.edges import EDGE_TYPES, Edges, put_edges
 from ..graph import ChunkedGraph, ChunkedGraphMeta
 from ..graph.ocdbt import (
+    OcdbtConfig,
     _layer_bbox,
     copy_ws_bbox_multiscale,
     is_chunk_populated,
@@ -68,7 +69,8 @@ def _post_task_completion(
 
 
 def _populate_ocdbt_chunk(imanager, ws, layer, coords):
-    src_list, dst_list, resolutions = open_base_ocdbt(ws)
+    cfg = OcdbtConfig.from_dict(imanager.ocdbt_config)
+    src_list, dst_list, resolutions = open_base_ocdbt(ws, cfg)
     lo, hi = _layer_bbox(imanager.cg.meta, layer, coords)
     copy_ws_bbox_multiscale(src_list, dst_list, resolutions, lo, hi)
     mark_chunk_populated(ws, layer, coords)
