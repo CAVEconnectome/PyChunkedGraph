@@ -15,11 +15,11 @@ from .cluster import enqueue_l2_tasks, upgrade_atomic_chunk, upgrade_parent_chun
 from .manager import IngestionManager
 from .ocdbt import setup_base
 from .utils import (
-    chunk_id_str,
     job_type_guard,
     print_completion_rate,
     print_status,
     queue_layer_helper,
+    requeue_chunk,
 )
 from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
 from ..graph.ocdbt import OcdbtConfig
@@ -129,23 +129,7 @@ def upgrade_status(refresh: int):
 @job_type_guard(group_name)
 def upgrade_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    layer, coords = chunk_info[0], chunk_info[1:]
-
-    func = upgrade_parent_chunk
-    args = (layer, coords)
-    if layer == 2:
-        func = upgrade_atomic_chunk
-        args = (coords,)
-    queue = imanager.get_task_queue(queue)
-    queue.enqueue(
-        func,
-        job_id=chunk_id_str(layer, coords),
-        job_timeout=f"{int(layer * layer)}m",
-        result_ttl=0,
-        args=args,
-    )
+    requeue_chunk(queue, chunk_info, upgrade_atomic_chunk, upgrade_parent_chunk)
 
 
 @upgrade_cli.command("rate")

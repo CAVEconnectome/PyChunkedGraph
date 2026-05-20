@@ -18,11 +18,11 @@ from .manager import IngestionManager
 from .ocdbt import coordinator, setup_base
 from .utils import (
     bootstrap,
-    chunk_id_str,
+    job_type_guard,
     print_completion_rate,
     print_status,
     queue_layer_helper,
-    job_type_guard,
+    requeue_chunk,
 )
 from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
@@ -182,23 +182,7 @@ def ingest_status(refresh: int):
 @job_type_guard(group_name)
 def ingest_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    layer, coords = chunk_info[0], chunk_info[1:]
-
-    func = create_parent_chunk
-    args = (layer, coords)
-    if layer == 2:
-        func = create_atomic_chunk
-        args = (coords,)
-    queue = imanager.get_task_queue(queue)
-    queue.enqueue(
-        func,
-        job_id=chunk_id_str(layer, coords),
-        job_timeout=f"{int(layer * layer)}m",
-        result_ttl=0,
-        args=args,
-    )
+    requeue_chunk(queue, chunk_info, create_atomic_chunk, create_parent_chunk)
 
 
 @ingest_cli.command("chunk_local")

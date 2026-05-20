@@ -428,6 +428,30 @@ def queue_layer_helper(
         logger.note(f"Queued {len(job_datas)} chunks.")
 
 
+def requeue_chunk(queue_name: str, chunk_info, atomic_fn, parent_fn):
+    """Body of the ``chunk`` CLI command (shared by ingest and upgrade).
+
+    Loads the manager from Redis, dispatches ``atomic_fn`` for L2 or
+    ``parent_fn`` for L3+, and enqueues a single task with the standard
+    job_id / timeout convention.
+    """
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    layer, coords = chunk_info[0], chunk_info[1:]
+    if layer == 2:
+        fn, args = atomic_fn, (coords,)
+    else:
+        fn, args = parent_fn, (layer, coords)
+    queue = imanager.get_task_queue(queue_name)
+    queue.enqueue(
+        fn,
+        job_id=chunk_id_str(layer, coords),
+        job_timeout=f"{int(layer * layer)}m",
+        result_ttl=0,
+        args=args,
+    )
+
+
 def job_type_guard(job_type: str):
     def decorator_job_type_guard(func):
         @functools.wraps(func)
