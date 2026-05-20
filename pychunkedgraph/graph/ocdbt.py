@@ -31,6 +31,7 @@ retained by default.
 """
 
 import json
+from typing import Optional
 
 import numpy as np
 import tensorstore as ts
@@ -98,6 +99,48 @@ def _ensure_trailing_slash(path):
 
 def _base_ocdbt_path(ws_path):
     return _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/base")
+
+
+def _populate_markers_path(ws_path):
+    return _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/.populated")
+
+
+def _marker_key(layer: int, coords) -> str:
+    return f"l{int(layer)}_{int(coords[0])}_{int(coords[1])}_{int(coords[2])}"
+
+
+def is_chunk_populated(ws_path: str, layer: int, coords) -> bool:
+    """Check whether this chunk's precomputed→OCDBT copy has already completed.
+
+    Markers live outside the OCDBT keyspace at
+    `<ws>/ocdbt/.populated/l<layer>_<x>_<y>_<z>` so retried ingest tasks
+    don't re-copy chunks and bloat the database with redundant versioned
+    writes.
+    """
+    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
+    result = kvs.read(_marker_key(layer, coords)).result()
+    return result.value is not None and len(result.value) > 0
+
+
+def mark_chunk_populated(ws_path: str, layer: int, coords) -> None:
+    """Record that this chunk's precomputed→OCDBT copy completed."""
+    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
+    kvs.write(_marker_key(layer, coords), b"1").result()
+
+
+def read_populate_meta(ws_path: str) -> Optional[dict]:
+    """Return the per-base populate config dict, or None if not yet written."""
+    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
+    r = kvs.read("meta.json").result()
+    if r.value is None or len(r.value) == 0:
+        return None
+    return json.loads(r.value)
+
+
+def write_populate_meta(ws_path: str, meta: dict) -> None:
+    """Persist the per-base populate config (layer, etc.) alongside markers."""
+    kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
+    kvs.write("meta.json", json.dumps(meta).encode()).result()
 
 
 def base_exists(ws_path: str) -> bool:
@@ -383,6 +426,50 @@ def copy_ws_chunk_multiscale(
             continue
         data = src[x0:x1, y0:y1, z0:z1].read().result()
         dst[x0:x1, y0:y1, z0:z1].write(data).result()
+
+
+def _layer_bbox(meta, layer: int, coords) -> tuple:
+    """Base-resolution voxel bbox of a chunk at this layer."""
+    chunk_size = np.array(meta.graph_config.CHUNK_SIZE, dtype=int)
+    layer_chunk_size = chunk_size * (1 << (layer - 2))
+    coords = np.array(coords, dtype=int)
+    vol_start = meta.voxel_bounds[:, 0]
+    vol_end = meta.voxel_bounds[:, 1]
+    lo = coords * layer_chunk_size + vol_start
+    hi = np.minimum(lo + layer_chunk_size, vol_end)
+    return lo, hi
+
+
+def copy_ws_bbox_multiscale(
+    src_list,
+    dst_list,
+    resolutions,
+    bbox_lo: np.ndarray,
+    bbox_hi: np.ndarray,
+):
+    """Copy a base-resolution voxel bbox across all MIP scales in ONE OCDBT commit.
+
+    `ts.Transaction(atomic=True)` is load-bearing: without it the precomputed
+    driver splits a multi-chunk `.write()` into two OCDBT sub-commits (one for
+    the first chunk, another for the rest), and each scale's write becomes its
+    own pair of sub-commits — even when wrapped in the same Python transaction.
+    With `atomic=True`, every per-chunk underlying-kvstore write across every
+    scale is batched into a single OCDBT commit, producing exactly one new
+    data file in `d/` regardless of how many chunks or scales are written.
+    """
+    assert len(src_list) == len(dst_list) == len(resolutions)
+    base_res = np.array(resolutions[0])
+    txn = ts.Transaction(atomic=True)
+    for i, (src, dst) in enumerate(zip(src_list, dst_list)):
+        factor = (np.array(resolutions[i]) / base_res).astype(int)
+        x0, y0, z0 = bbox_lo // factor
+        x1, y1, z1 = bbox_hi // factor
+        if x1 <= x0 or y1 <= y0 or z1 <= z0:
+            logger.debug(f"skipping empty region at scale {i}")
+            continue
+        data = src[x0:x1, y0:y1, z0:z1].read().result()
+        dst.with_transaction(txn)[x0:x1, y0:y1, z0:z1].write(data).result()
+    txn.commit_async().result()
 
 
 def _mode_downsample(data: np.ndarray, factors: tuple) -> np.ndarray:

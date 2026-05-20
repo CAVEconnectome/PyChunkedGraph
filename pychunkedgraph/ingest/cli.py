@@ -29,7 +29,9 @@ from ..graph.ocdbt import (
     base_exists,
     create_base_ocdbt,
     fork_base_manifest,
+    read_populate_meta,
     wipe_base_ocdbt,
+    write_populate_meta,
 )
 from ..utils.redis import get_redis_connection, keys as r_keys
 
@@ -73,6 +75,15 @@ def flush_redis():
     help="Have workers copy precomputed chunks into the OCDBT base. "
     "Required on first ingest; skip on subsequent runs against the same base.",
 )
+@click.option(
+    "--populate-layer",
+    type=int,
+    default=4,
+    help="Layer at which populate tasks copy precomputed chunks into the OCDBT "
+    "base. Each task batches all underlying L2 chunks across all scales into "
+    "one OCDBT commit. Stored alongside the base on first --populate-base; "
+    "subsequent ingests must agree or pass --reset-ocdbt.",
+)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @job_type_guard(group_name)
 def ingest_graph(
@@ -84,6 +95,7 @@ def ingest_graph(
     retry: bool,
     reset_ocdbt: bool,
     populate_base: bool,
+    populate_layer: int,
     test: bool,
 ):
     """
@@ -105,6 +117,17 @@ def ingest_graph(
             wipe_base_ocdbt(ws)
         if not base_exists(ws):
             create_base_ocdbt(ws)
+        if populate_base:
+            existing = read_populate_meta(ws)
+            if existing is None:
+                write_populate_meta(ws, {"layer": populate_layer})
+            elif existing.get("layer") != populate_layer:
+                raise click.ClickException(
+                    f"OCDBT base is already populated at layer {existing.get('layer')}, "
+                    f"but --populate-layer={populate_layer} was passed. "
+                    f"Mixing populate layers is unsupported. To repopulate at a "
+                    f"different layer, manually delete {ws.rstrip('/')}/ocdbt/ and rerun."
+                )
         fork_base_manifest(ws, graph_id, wipe_existing=retry or reset_ocdbt)
 
     cg = ChunkedGraph(meta=meta, client_info=client_info)
@@ -123,6 +146,7 @@ def ingest_graph(
         meta,
         ocdbt_seg=ocdbt,
         ocdbt_populate_base=populate_base,
+        ocdbt_populate_layer=populate_layer,
     )
     enqueue_l2_tasks(imanager, create_atomic_chunk)
     os._exit(0)

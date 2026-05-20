@@ -29,7 +29,13 @@ from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
 from .upgrade.parent_layer import update_chunk as update_parent_chunk
 from ..graph.edges import EDGE_TYPES, Edges, put_edges
 from ..graph import ChunkedGraph, ChunkedGraphMeta
-from ..graph.ocdbt import copy_ws_chunk_multiscale, open_base_ocdbt
+from ..graph.ocdbt import (
+    _layer_bbox,
+    copy_ws_bbox_multiscale,
+    is_chunk_populated,
+    mark_chunk_populated,
+    open_base_ocdbt,
+)
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 from ..graph.basetypes import NODE_ID
 from ..io.edges import get_chunk_edges
@@ -76,6 +82,23 @@ def create_parent_chunk(
             parent_coords,
         ),
     )
+
+    if (
+        imanager.ocdbt_seg
+        and imanager.ocdbt_populate_base
+        and parent_layer == imanager.ocdbt_populate_layer
+    ):
+        # Populate the shared base OCDBT with precomputed chunks at the
+        # configured layer. One task batches all underlying L2 chunks
+        # across all scales into a single OCDBT commit via the atomic
+        # transaction inside copy_ws_bbox_multiscale.
+        ws = imanager.cg.meta.data_source.WATERSHED
+        if not is_chunk_populated(ws, parent_layer, parent_coords):
+            src_list, dst_list, resolutions = open_base_ocdbt(ws)
+            lo, hi = _layer_bbox(imanager.cg.meta, parent_layer, parent_coords)
+            copy_ws_bbox_multiscale(src_list, dst_list, resolutions, lo, hi)
+            mark_chunk_populated(ws, parent_layer, parent_coords)
+
     _post_task_completion(imanager, parent_layer, parent_coords)
 
 
@@ -146,21 +169,6 @@ def create_atomic_chunk(coords: Sequence[int]):
     for k, v in chunk_edges_active.items():
         logger.debug(f"active_{k}: {len(v)}")
 
-    if imanager.ocdbt_seg and imanager.ocdbt_populate_base:
-        # Populate the shared base OCDBT with precomputed chunks (one-time
-        # per watershed). Uses the raw base handles, NOT the per-CG fork
-        # spec — the fork only stores SV-split deltas.
-        src_list, dst_list, resolutions = open_base_ocdbt(
-            imanager.cg.meta.data_source.WATERSHED
-        )
-        copy_ws_chunk_multiscale(
-            src_list,
-            dst_list,
-            resolutions,
-            imanager.cg.meta.graph_config.CHUNK_SIZE,
-            coords,
-            imanager.cg.meta.voxel_bounds,
-        )
     _post_task_completion(imanager, 2, coords)
 
 
