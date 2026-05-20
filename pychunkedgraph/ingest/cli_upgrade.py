@@ -4,33 +4,21 @@
 cli for running upgrade
 """
 
-from time import sleep
-
-from pychunkedgraph import get_logger
-
-logger = get_logger(__name__)
-
 import click
-import tensorstore as ts
 from flask.cli import AppGroup
-from pychunkedgraph import __version__
+
+from pychunkedgraph import __version__, get_logger
 from pychunkedgraph.graph.meta import GraphConfig
 
 from . import IngestConfig
-from .cluster import (
-    convert_edges_to_ocdbt,
-    enqueue_l2_tasks,
-    upgrade_atomic_chunk,
-    upgrade_parent_chunk,
-)
+from .cluster import enqueue_l2_tasks, upgrade_atomic_chunk, upgrade_parent_chunk
 from .manager import IngestionManager
 from .utils import (
     chunk_id_str,
+    job_type_guard,
     print_completion_rate,
     print_status,
     queue_layer_helper,
-    start_ocdbt_server,
-    job_type_guard,
 )
 from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
 from ..graph.ocdbt import (
@@ -41,6 +29,8 @@ from ..graph.ocdbt import (
 )
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
+
+logger = get_logger(__name__)
 
 group_name = "upgrade"
 upgrade_cli = AppGroup(group_name)
@@ -63,7 +53,6 @@ def flush_redis():
 @click.argument("graph_id", type=str)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @click.option("--ocdbt", is_flag=True, help="Enable ocdbt seg (SV splitting support).")
-@click.option("--ocdbt-edges", is_flag=True, help="Convert edges to ocdbt kv store.")
 @click.option(
     "--sv-split-threshold",
     type=int,
@@ -80,7 +69,6 @@ def upgrade_graph(
     graph_id: str,
     test: bool,
     ocdbt: bool,
-    ocdbt_edges: bool,
     sv_split_threshold: int,
     reset_ocdbt: bool,
 ):
@@ -124,17 +112,7 @@ def upgrade_graph(
         ...
 
     imanager = IngestionManager(ingest_config, cg.meta)
-    if ocdbt_edges:
-        server = ts.ocdbt.DistributedCoordinatorServer()
-        start_ocdbt_server(imanager, server)
-
-    fn = convert_edges_to_ocdbt if ocdbt_edges else upgrade_atomic_chunk
-    enqueue_l2_tasks(imanager, fn)
-
-    if ocdbt_edges:
-        logger.note("All tasks queued. Keep this alive for ocdbt coordinator server.")
-        while True:
-            sleep(60)
+    enqueue_l2_tasks(imanager, upgrade_atomic_chunk)
 
 
 @upgrade_cli.command("layer")

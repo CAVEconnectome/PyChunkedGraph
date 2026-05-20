@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 from .utils import chunk_id_str, get_chunks_not_done, randomize_grid_points
 from .manager import IngestionManager
+from .ocdbt import populate_chunk
 from .ran_agglomeration import (
     get_active_edges,
     read_raw_edge_data,
@@ -27,18 +28,10 @@ from .create.atomic_layer import add_atomic_chunk
 from .create.parent_layer import add_parent_chunk
 from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
 from .upgrade.parent_layer import update_chunk as update_parent_chunk
-from ..graph.edges import EDGE_TYPES, Edges, put_edges
+from ..graph.edges import EDGE_TYPES
 from ..graph import ChunkedGraph, ChunkedGraphMeta
-from ..graph.ocdbt import (
-    OcdbtConfig,
-    _layer_bbox,
-    copy_ws_bbox_multiscale,
-    is_chunk_populated,
-    mark_chunk_populated,
-    open_base_ocdbt,
-)
+from ..graph.ocdbt import is_chunk_populated
 from ..graph.chunks.hierarchy import get_children_chunk_coords
-from ..graph.basetypes import NODE_ID
 from ..io.edges import get_chunk_edges
 from ..io.components import get_chunk_components
 from ..utils.redis import keys as r_keys, get_redis_connection
@@ -68,14 +61,6 @@ def _post_task_completion(
     logger.note(f"{chunk_str} marked as complete")
 
 
-def _populate_ocdbt_chunk(imanager, ws, layer, coords):
-    cfg = OcdbtConfig.from_dict(imanager.ocdbt_config)
-    src_list, dst_list, resolutions = open_base_ocdbt(ws, cfg)
-    lo, hi = _layer_bbox(imanager.cg.meta, layer, coords)
-    copy_ws_bbox_multiscale(src_list, dst_list, resolutions, lo, hi)
-    mark_chunk_populated(ws, layer, coords)
-
-
 def create_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
@@ -99,7 +84,7 @@ def create_parent_chunk(
     ):
         ws = imanager.cg.meta.data_source.WATERSHED
         if not is_chunk_populated(ws, parent_layer, parent_coords):
-            _populate_ocdbt_chunk(imanager, ws, parent_layer, parent_coords)
+            populate_chunk(imanager, ws, parent_layer, parent_coords)
 
     _post_task_completion(imanager, parent_layer, parent_coords)
 
@@ -179,47 +164,6 @@ def upgrade_atomic_chunk(coords: Sequence[int]):
     imanager = _get_imanager()
     coords = np.array(list(coords), dtype=int)
     update_atomic_chunk(imanager.cg, coords)
-    _post_task_completion(imanager, 2, coords)
-
-
-def convert_edges_to_ocdbt(coords: Sequence[int]):
-    """
-    Convert edges stored per chunk to ajacency list in the tensorstore ocdbt kv store.
-    """
-    imanager = _get_imanager()
-    coords = np.array(list(coords), dtype=int)
-    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
-
-    node_ids1 = []
-    node_ids2 = []
-    affinities = []
-    areas = []
-    for edges in chunk_edges_all.values():
-        node_ids1.extend(edges.node_ids1)
-        node_ids2.extend(edges.node_ids2)
-        affinities.extend(edges.affinities)
-        areas.extend(edges.areas)
-
-    edges = Edges(node_ids1, node_ids2, affinities=affinities, areas=areas)
-    nodes = np.concatenate(
-        [edges.node_ids1, edges.node_ids2, np.fromiter(mapping.keys(), dtype=NODE_ID)]
-    )
-    nodes = np.unique(nodes)
-
-    chunk_id = imanager.cg.get_chunk_id(layer=1, x=coords[0], y=coords[1], z=coords[2])
-    chunk_ids = imanager.cg.get_chunk_ids_from_node_ids(nodes)
-
-    host = imanager.redis.get("OCDBT_COORDINATOR_HOST").decode()
-    port = imanager.redis.get("OCDBT_COORDINATOR_PORT").decode()
-    environ["OCDBT_COORDINATOR_HOST"] = host
-    environ["OCDBT_COORDINATOR_PORT"] = port
-    logger.note(f"OCDBT Coordinator address {host}:{port}")
-
-    put_edges(
-        f"{imanager.cg.meta.data_source.EDGES}/ocdbt",
-        nodes[chunk_ids == chunk_id],
-        edges,
-    )
     _post_task_completion(imanager, 2, coords)
 
 

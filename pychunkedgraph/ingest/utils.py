@@ -5,10 +5,9 @@ import math
 import sys
 from os import environ
 from time import sleep
-from typing import Any, Dict, Generator, Tuple
+from typing import Dict, Generator, Tuple
 
 import numpy as np
-import tensorstore as ts
 from kvdbclient import BigTableConfig, HBaseConfig
 from rich import box
 from rich.console import Group
@@ -108,16 +107,6 @@ def postprocess_edge_data(im, edge_dict):
         return new_edge_dict
     else:
         raise ValueError(f"Unknown data_version: {data_version}")
-
-
-def start_ocdbt_server(imanager: IngestionManager, server: Any):
-    spec = {"driver": "ocdbt", "base": f"{imanager.cg.meta.data_source.EDGES}/ocdbt"}
-    spec["coordinator"] = {"address": f"localhost:{server.port}"}
-    ts.KvStore.open(spec).result()
-    imanager.redis.set("OCDBT_COORDINATOR_PORT", str(server.port))
-    ocdbt_host = environ.get("MY_POD_IP", "localhost")
-    imanager.redis.set("OCDBT_COORDINATOR_HOST", ocdbt_host)
-    logger.note(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
 
 
 def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
