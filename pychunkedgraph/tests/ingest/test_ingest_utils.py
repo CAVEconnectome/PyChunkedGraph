@@ -44,10 +44,13 @@ class TestBootstrap:
             },
             "ingest_config": {},
         }
-        meta, ingest_config, client_info = bootstrap("test_graph", config=config)
+        meta, ingest_config, client_info, ocdbt_config_dict = bootstrap(
+            "test_graph", config=config
+        )
         assert meta.graph_config.ID == "test_graph"
         assert meta.graph_config.FANOUT == 2
         assert ingest_config.USE_RAW_EDGES is False
+        assert isinstance(ocdbt_config_dict, dict)
 
 
 class TestPostprocessEdgeData:
