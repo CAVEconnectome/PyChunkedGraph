@@ -456,6 +456,11 @@ def copy_ws_bbox_multiscale(
     inside one precomputed handle collapses into a single OCDBT commit — so
     the d/ file count for one call to this function is constant in the
     number of chunks inside the bbox; it only grows with scale count.
+
+    Passing the source TensorStore directly into `write(...)` lets
+    tensorstore stream the copy without materializing an intermediate
+    numpy array in Python — peak RSS drops by roughly one scale's
+    worth versus the read-into-numpy-then-write pattern.
     """
     assert len(src_list) == len(dst_list) == len(resolutions)
     base_res = np.array(resolutions[0])
@@ -467,8 +472,9 @@ def copy_ws_bbox_multiscale(
         if x1 <= x0 or y1 <= y0 or z1 <= z0:
             logger.debug(f"skipping empty region at scale {i}")
             continue
-        data = src[x0:x1, y0:y1, z0:z1].read().result()
-        dst.with_transaction(txn)[x0:x1, y0:y1, z0:z1].write(data).result()
+        dst.with_transaction(txn)[x0:x1, y0:y1, z0:z1].write(
+            src[x0:x1, y0:y1, z0:z1]
+        ).result()
     txn.commit_async().result()
 
 
