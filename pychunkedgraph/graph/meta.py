@@ -13,6 +13,7 @@ from pychunkedgraph.graph.ocdbt import (
     build_cg_ocdbt_spec,
     fork_exists,
     get_seg_source_and_destination_ocdbt,
+    read_populate_meta,
 )
 
 from .utils.generic import compute_bitmasks
@@ -55,6 +56,29 @@ GraphConfig = namedtuple(
 )
 
 
+def _redis_cached_json(key: str, loader):
+    """Return JSON-decoded value at ``key`` in Redis, or call ``loader()`` and
+    write the result through. Spares distributed workers from re-fetching the
+    same GCS object on every CG instantiation. Silently bypasses Redis if it
+    is unreachable; returns ``loader()`` directly in that case.
+    """
+    redis = None
+    try:
+        redis = get_redis_connection()
+        cached = redis.get(key)
+        if cached is not None:
+            return json.loads(cached)
+    except Exception:
+        redis = None
+    value = loader()
+    if value is not None and redis is not None:
+        try:
+            redis.set(key, json.dumps(value))
+        except Exception:
+            ...
+    return value
+
+
 class ChunkedGraphMeta:
     def __init__(
         self, graph_config: GraphConfig, data_source: DataSource, custom_data: Dict = {}
@@ -76,6 +100,7 @@ class ChunkedGraphMeta:
         self._layer_count = None
         self._bitmasks = None
         self._ocdbt_seg = None
+        self._ocdbt_config_cached = None
 
     @property
     def graph_id(self):
@@ -98,39 +123,52 @@ class ChunkedGraphMeta:
     def ws_cv(self):
         if self._ws_cv:
             return self._ws_cv
-
-        cache_key = f"{self.graph_config.ID}:ws_cv_info_cached"
-        try:
-            # try reading a cached info file for distributed workers
-            # useful to avoid md5 errors on high gcs load
-            redis = get_redis_connection()
-            cached_info = json.loads(redis.get(cache_key))
-            self._ws_cv = CloudVolume(
-                self._data_source.WATERSHED, info=cached_info, progress=False
-            )
-        except Exception:
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED, progress=False)
-            try:
-                redis.set(cache_key, json.dumps(self._ws_cv.info))
-            except Exception:
-                ...
+        ws = self._data_source.WATERSHED
+        info = _redis_cached_json(
+            f"ws_cv_info_cached:{ws}",
+            lambda: CloudVolume(ws, progress=False).info,
+        )
+        self._ws_cv = CloudVolume(ws, info=info, progress=False)
         return self._ws_cv
 
     @property
     def ocdbt_config(self) -> OcdbtConfig:
-        """Per-CG OCDBT settings, built from custom_data["ocdbt_config"].
+        """Per-CG OCDBT settings with precedence info-file > custom_data > defaults.
 
-        Falls back to the legacy custom_data["seg"] shape used before the
-        dataclass landed so CGs ingested under the older layout keep working.
+        The watershed's ``<ws>/ocdbt/.populated/meta.json`` is the authoritative
+        on-disk source for fields that affect the OCDBT format (compression,
+        max_inline_value_bytes, populate_layer). custom_data fills per-CG
+        fields (enabled, sv_split_threshold) and anything the info file
+        doesn't pin. Both layers fall through to dataclass defaults.
+
+        The info-file fetch goes through a Redis cache (same pattern as
+        ``ws_cv``) so distributed workers don't re-read the same GCS
+        object on every CG instantiation. Result is also cached in
+        instance state after first access. Legacy ``custom_data["seg"]``
+        shape is read when ``"ocdbt_config"`` is absent so pre-refactor
+        CGs still open.
         """
-        d = self._custom_data.get("ocdbt_config")
-        if d is None:
+        if self._ocdbt_config_cached is not None:
+            return self._ocdbt_config_cached
+
+        meta_d = self._custom_data.get("ocdbt_config")
+        if meta_d is None:
             seg = self._custom_data.get("seg", {})
-            d = {
+            meta_d = {
                 "enabled": bool(seg.get("ocdbt", False)),
                 "sv_split_threshold": int(seg.get("sv_split_threshold", 10)),
             }
-        return OcdbtConfig.from_dict(d)
+
+        info_d = None
+        ws = self._data_source.WATERSHED
+        if ws:
+            info_d = _redis_cached_json(
+                f"ocdbt_info_cached:{ws}",
+                lambda: read_populate_meta(ws),
+            )
+
+        self._ocdbt_config_cached = OcdbtConfig.resolve(meta_d, info_d)
+        return self._ocdbt_config_cached
 
     @property
     def ocdbt_seg(self) -> bool:
