@@ -447,15 +447,15 @@ def copy_ws_bbox_multiscale(
     bbox_lo: np.ndarray,
     bbox_hi: np.ndarray,
 ):
-    """Copy a base-resolution voxel bbox across all MIP scales in ONE OCDBT commit.
+    """Copy a base-resolution voxel bbox across all MIP scales under one atomic txn.
 
     `ts.Transaction(atomic=True)` is load-bearing: without it the precomputed
-    driver splits a multi-chunk `.write()` into two OCDBT sub-commits (one for
-    the first chunk, another for the rest), and each scale's write becomes its
-    own pair of sub-commits — even when wrapped in the same Python transaction.
-    With `atomic=True`, every per-chunk underlying-kvstore write across every
-    scale is batched into a single OCDBT commit, producing exactly one new
-    data file in `d/` regardless of how many chunks or scales are written.
+    driver splits a multi-chunk `.write()` into multiple OCDBT sub-commits,
+    so file count would scale with the number of precomputed chunks inside
+    the bbox. With `atomic=True`, every per-chunk underlying-kvstore write
+    inside one precomputed handle collapses into a single OCDBT commit — so
+    the d/ file count for one call to this function is constant in the
+    number of chunks inside the bbox; it only grows with scale count.
     """
     assert len(src_list) == len(dst_list) == len(resolutions)
     base_res = np.array(resolutions[0])
