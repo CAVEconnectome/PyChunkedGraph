@@ -23,7 +23,6 @@ from ..graph.ocdbt import (
     mark_chunk_populated,
     open_base_ocdbt,
     read_populate_meta,
-    wipe_base_ocdbt,
     write_populate_meta,
 )
 
@@ -92,18 +91,17 @@ def populate_chunk(imanager, ws: str, layer: int, coords) -> None:
     mark_chunk_populated(ws, layer, coords)
 
 
-def setup_base(cg, ocdbt_cfg: OcdbtConfig, reset: bool = False) -> OcdbtConfig:
+def setup_base(cg, ocdbt_cfg: OcdbtConfig) -> OcdbtConfig:
     """Idempotent OCDBT base + fork setup, shared by ingest and upgrade.
 
-    Wipes if ``reset``; creates the base if missing; reconciles the
-    yaml/CLI-supplied config with the on-disk populate_meta (info-file
-    wins per ``OcdbtConfig.resolve``); persists the resolved config to
+    Creates the base if missing; reconciles the yaml/CLI-supplied config
+    with the on-disk populate_meta (info-file wins per
+    ``OcdbtConfig.resolve``); persists the resolved config to
     ``cg.meta.custom_data["ocdbt_config"]``; forks the manifest for this
-    CG. Returns the resolved OcdbtConfig.
+    CG. Returns the resolved OcdbtConfig. To wipe and start over, use
+    ``gcloud storage rm -r gs://<ws>/ocdbt/`` before invoking.
     """
     ws = cg.meta.data_source.WATERSHED
-    if reset:
-        wipe_base_ocdbt(ws)
     if not base_exists(ws):
         create_base_ocdbt(ws, ocdbt_cfg)
     info = read_populate_meta(ws)
@@ -112,5 +110,5 @@ def setup_base(cg, ocdbt_cfg: OcdbtConfig, reset: bool = False) -> OcdbtConfig:
         write_populate_meta(ws, resolved.to_dict())
     cg.meta.custom_data["ocdbt_config"] = resolved.to_dict()
     cg.update_meta(cg.meta, overwrite=True)
-    fork_base_manifest(ws, cg.meta.graph_id, wipe_existing=reset)
+    fork_base_manifest(ws, cg.meta.graph_id)
     return resolved

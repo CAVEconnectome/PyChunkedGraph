@@ -13,6 +13,7 @@ from pychunkedgraph.graph.meta import GraphConfig
 from . import IngestConfig
 from .cluster import enqueue_l2_tasks, upgrade_atomic_chunk, upgrade_parent_chunk
 from .manager import IngestionManager
+from .ocdbt import setup_base
 from .utils import (
     chunk_id_str,
     job_type_guard,
@@ -21,12 +22,7 @@ from .utils import (
     queue_layer_helper,
 )
 from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
-from ..graph.ocdbt import (
-    base_exists,
-    create_base_ocdbt,
-    fork_base_manifest,
-    wipe_base_ocdbt,
-)
+from ..graph.ocdbt import OcdbtConfig
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 
@@ -59,18 +55,12 @@ def flush_redis():
     default=10,
     help="Distance threshold for SV split edge matching.",
 )
-@click.option(
-    "--reset-ocdbt",
-    is_flag=True,
-    help="Wipe base AND this CG's delta OCDBT, then recreate from scratch.",
-)
 @job_type_guard(group_name)
 def upgrade_graph(
     graph_id: str,
     test: bool,
     ocdbt: bool,
     sv_split_threshold: int,
-    reset_ocdbt: bool,
 ):
     """
     Main upgrade command. Queues atomic tasks.
@@ -91,21 +81,11 @@ def upgrade_graph(
         cg = ChunkedGraph(graph_id=graph_id)
 
     if ocdbt:
-        ws = cg.meta.data_source.WATERSHED
-        cg.meta.custom_data["seg"] = {
-            "ocdbt": True,
-            "sv_split_threshold": sv_split_threshold,
-        }
-        cg.update_meta(cg.meta, overwrite=True)
+        ocdbt_cfg = OcdbtConfig.from_dict(cg.meta.custom_data.get("ocdbt_config"))
+        ocdbt_cfg.enabled = True
+        ocdbt_cfg.sv_split_threshold = sv_split_threshold
+        setup_base(cg, ocdbt_cfg)
         logger.note(f"enabled ocdbt seg with sv_split_threshold={sv_split_threshold}")
-
-        if reset_ocdbt:
-            wipe_base_ocdbt(ws)
-
-        if not base_exists(ws):
-            create_base_ocdbt(ws)
-
-        fork_base_manifest(ws, graph_id, wipe_existing=reset_ocdbt)
     try:
         cg.client.create_column_family("4")
     except Exception:

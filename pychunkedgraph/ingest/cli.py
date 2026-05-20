@@ -5,6 +5,7 @@ cli for running ingest
 """
 
 import os
+from time import sleep
 
 from pychunkedgraph import configure_logging, DEBUG
 
@@ -14,6 +15,7 @@ from flask.cli import AppGroup
 
 from .cluster import create_atomic_chunk, create_parent_chunk, enqueue_l2_tasks
 from .manager import IngestionManager
+from .ocdbt import coordinator, setup_base
 from .utils import (
     bootstrap,
     chunk_id_str,
@@ -25,15 +27,7 @@ from .utils import (
 from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
-from ..graph.ocdbt import (
-    OcdbtConfig,
-    base_exists,
-    create_base_ocdbt,
-    fork_base_manifest,
-    read_populate_meta,
-    wipe_base_ocdbt,
-    write_populate_meta,
-)
+from ..graph.ocdbt import OcdbtConfig, fork_base_manifest
 from ..utils.redis import get_redis_connection, keys as r_keys
 
 group_name = "ingest"
@@ -58,11 +52,6 @@ def flush_redis():
 @click.argument("dataset", type=click.Path(exists=True), required=False)
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
 @click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
-@click.option(
-    "--reset-ocdbt",
-    is_flag=True,
-    help="Wipe base AND this CG's delta OCDBT, then recreate from scratch.",
-)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @job_type_guard(group_name)
 def ingest_graph(
@@ -70,7 +59,6 @@ def ingest_graph(
     dataset: click.Path,
     raw: bool,
     retry: bool,
-    reset_ocdbt: bool,
     test: bool,
 ):
     """Main ingest command. Takes config from yaml, queues atomic tasks."""
@@ -105,33 +93,13 @@ def ingest_graph(
     meta, ingest_config, client_info, ocdbt_config_dict = bootstrap(
         graph_id, config, raw, test
     )
-    yaml_only_cfg = OcdbtConfig.from_dict(ocdbt_config_dict)
-    if yaml_only_cfg.enabled:
-        ws = meta.data_source.WATERSHED
-        if reset_ocdbt:
-            wipe_base_ocdbt(ws)
-        if not base_exists(ws):
-            # No on-disk OCDBT yet — create it with yaml-supplied values.
-            create_base_ocdbt(ws, yaml_only_cfg)
-        # Precedence: info-file (per-base, already on disk) > yaml > defaults.
-        # Existing bases own the on-disk-format fields (compression,
-        # max_inline_value_bytes, populate_layer); yaml fills missing fields
-        # and supplies values for new bases.
-        info_dict = read_populate_meta(ws)
-        ocdbt_cfg = OcdbtConfig.resolve(ocdbt_config_dict, info_dict)
-        ocdbt_config_dict = ocdbt_cfg.to_dict()
-        if ocdbt_cfg.populate_base:
-            write_populate_meta(ws, ocdbt_config_dict)
-        fork_base_manifest(ws, graph_id, wipe_existing=reset_ocdbt)
-    else:
-        ocdbt_cfg = yaml_only_cfg
-
     cg = ChunkedGraph(meta=meta, client_info=client_info)
     cg.create()
 
+    ocdbt_cfg = OcdbtConfig.from_dict(ocdbt_config_dict)
     if ocdbt_cfg.enabled:
-        cg.meta.custom_data["ocdbt_config"] = ocdbt_config_dict
-        cg.update_meta(cg.meta, overwrite=True)
+        resolved = setup_base(cg, ocdbt_cfg)
+        ocdbt_config_dict = resolved.to_dict()
 
     imanager = IngestionManager(
         ingest_config,
@@ -172,11 +140,27 @@ def queue_layer(parent_layer):
     """
     Queue all chunk tasks at a given layer.
     Must be used when all the chunks at `parent_layer - 1` have completed.
+
+    When this layer is the OCDBT populate layer, also start a
+    ``DistributedCoordinatorServer`` so every worker's commit routes through
+    one process — eliminates manifest-CAS races and orphan ``d/`` files.
+    Stays in the foreground until killed.
     """
     assert parent_layer > 2, "This command is for layers 3 and above."
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    queue_layer_helper(parent_layer, imanager, create_parent_chunk)
+
+    if (
+        imanager.ocdbt_seg
+        and imanager.ocdbt_populate_base
+        and parent_layer == imanager.ocdbt_populate_layer
+    ):
+        with coordinator(imanager.redis):
+            queue_layer_helper(parent_layer, imanager, create_parent_chunk)
+            while True:
+                sleep(60)
+    else:
+        queue_layer_helper(parent_layer, imanager, create_parent_chunk)
 
 
 @ingest_cli.command("status")
