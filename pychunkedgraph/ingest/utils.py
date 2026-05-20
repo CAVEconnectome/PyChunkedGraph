@@ -12,8 +12,7 @@ from typing import Any, Generator, Tuple
 
 import numpy as np
 import tensorstore as ts
-from rq import Queue, Retry, Worker
-from rq.worker import WorkerStatus
+from rq import Queue, Retry
 from rq.worker_registration import WORKERS_BY_QUEUE_KEY
 from rich import box
 from rich.console import Group
@@ -181,16 +180,32 @@ def _busy_over_total_per_queue(redis, worker_keys_per_layer) -> list:
     return out
 
 
-def _layer_status(redis, layers):
+def _layer_keys(layers) -> list:
+    """Stable per-layer redis keys (completed-set, queue list, failed zset, workers set).
+
+    Returned once before the refresh loop so each refresh skips Queue /
+    FailedJobRegistry construction and the lazy rq.registry import.
+    """
+    return [
+        (
+            f"{layer}c",
+            f"rq:queue:l{layer}",
+            f"rq:failed:l{layer}",
+            WORKERS_BY_QUEUE_KEY % f"l{layer}",
+        )
+        for layer in layers
+    ]
+
+
+def _layer_status(redis, layer_keys):
     """Pipelined fetch of job_type + per-layer counts + busy-worker ratios."""
     pipeline = redis.pipeline()
     pipeline.get(r_keys.JOB_TYPE)
-    for layer in layers:
-        pipeline.scard(f"{layer}c")
-        queue = Queue(f"l{layer}", connection=redis)
-        pipeline.llen(queue.key)
-        pipeline.zcard(queue.failed_job_registry.key)
-        pipeline.smembers(WORKERS_BY_QUEUE_KEY % f"l{layer}")
+    for completed_key, queue_key, failed_key, workers_key in layer_keys:
+        pipeline.scard(completed_key)
+        pipeline.llen(queue_key)
+        pipeline.zcard(failed_key)
+        pipeline.smembers(workers_key)
     results = pipeline.execute()
 
     job_type = results[0].decode() if results[0] else "not_available"
@@ -342,16 +357,19 @@ def print_status(
     if upgrade:
         layers = range(2, imanager.cg_meta.layer_count)
     layer_counts = imanager.cg_meta.layer_chunk_counts
+    layer_keys = _layer_keys(layers)
 
     def render():
         return _status_renderable(
-            imanager, layers, layer_counts, *_layer_status(redis, layers)
+            imanager, layers, layer_counts, *_layer_status(redis, layer_keys)
         )
 
-    with Live(render(), screen=False) as live:
+    # Start Live with a placeholder so the panel paints instantly; the first
+    # real fetch (which includes redis connection setup) replaces it.
+    with Live(Text("loading…"), screen=False) as live:
         while True:
-            sleep(refresh_seconds)
             live.update(render())
+            sleep(refresh_seconds)
 
 
 def queue_layer_helper(
