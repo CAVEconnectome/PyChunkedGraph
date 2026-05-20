@@ -4,7 +4,6 @@
 Ingest / create chunkedgraph with workers on a cluster.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 from os import environ
 from time import sleep
 from typing import Callable, Dict, Iterable, Tuple, Sequence
@@ -80,23 +79,6 @@ def create_parent_chunk(
     parent_coords: Sequence[int],
 ) -> None:
     imanager = _get_imanager()
-
-    # If this task is responsible for populating the OCDBT base at the
-    # configured layer, kick the copy off on a worker thread so it overlaps
-    # with add_parent_chunk (BigTable-bound) — they share no state.
-    populate_future = None
-    if (
-        imanager.ocdbt_seg
-        and imanager.ocdbt_populate_base
-        and parent_layer == imanager.ocdbt_populate_layer
-    ):
-        ws = imanager.cg.meta.data_source.WATERSHED
-        if not is_chunk_populated(ws, parent_layer, parent_coords):
-            executor = ThreadPoolExecutor(max_workers=1)
-            populate_future = executor.submit(
-                _populate_ocdbt_chunk, imanager, ws, parent_layer, parent_coords
-            )
-
     add_parent_chunk(
         imanager.cg,
         parent_layer,
@@ -108,8 +90,14 @@ def create_parent_chunk(
         ),
     )
 
-    if populate_future is not None:
-        populate_future.result()  # surface populate exceptions before marking complete
+    if (
+        imanager.ocdbt_seg
+        and imanager.ocdbt_populate_base
+        and parent_layer == imanager.ocdbt_populate_layer
+    ):
+        ws = imanager.cg.meta.data_source.WATERSHED
+        if not is_chunk_populated(ws, parent_layer, parent_coords):
+            _populate_ocdbt_chunk(imanager, ws, parent_layer, parent_coords)
 
     _post_task_completion(imanager, parent_layer, parent_coords)
 
