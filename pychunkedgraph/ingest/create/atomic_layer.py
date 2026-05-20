@@ -11,6 +11,8 @@ from typing import Sequence
 
 import numpy as np
 
+from pychunkedgraph import get_logger
+
 from ...graph import attributes, basetypes, serializers, get_valid_timestamp
 from ...graph.chunkedgraph import ChunkedGraph
 from ...graph.edges import Edges
@@ -18,6 +20,8 @@ from ...graph.edges import EDGE_TYPES
 from ...graph.utils.generic import compute_indices_pandas
 from ...graph.utils.flatgraph import build_gt_graph
 from ...graph.utils.flatgraph import connected_components
+
+logger = get_logger(__name__)
 
 
 def add_atomic_chunk(
@@ -28,6 +32,10 @@ def add_atomic_chunk(
     time_stamp: Optional[datetime.datetime] = None,
 ):
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges_d, isolated)
+    logger.note(
+        f"L2 chunk {tuple(coords)}: nodes={len(chunk_node_ids):,} "
+        f"edges={len(chunk_edge_ids):,}"
+    )
     if not chunk_node_ids.size:
         return
 

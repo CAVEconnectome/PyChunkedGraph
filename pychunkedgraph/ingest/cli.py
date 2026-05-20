@@ -54,7 +54,7 @@ def flush_redis():
 
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
-@click.argument("dataset", type=click.Path(exists=True))
+@click.argument("dataset", type=click.Path(exists=True), required=False)
 @click.option("--ocdbt", is_flag=True, help="Precomputed supervoxel seg into ocdbt.")
 @click.option(
     "--sv-split-threshold",
@@ -103,6 +103,26 @@ def ingest_graph(
     Takes ingest config from a yaml file and queues atomic tasks.
     """
     redis = get_redis_connection()
+
+    if retry:
+        imanager_pickle = redis.get(r_keys.INGESTION_MANAGER)
+        if imanager_pickle is None:
+            raise click.ClickException(
+                f"--retry requires an existing `{group_name}` job in redis. "
+                f"Run without --retry to start a new job."
+            )
+        if test:
+            configure_logging(level=DEBUG)
+        imanager = IngestionManager.from_pickle(imanager_pickle)
+        if imanager.ocdbt_seg:
+            ws = imanager.cg_meta.data_source.WATERSHED
+            fork_base_manifest(ws, graph_id, wipe_existing=True)
+        enqueue_l2_tasks(imanager, create_atomic_chunk)
+        os._exit(0)
+
+    if dataset is None:
+        raise click.ClickException("dataset is required unless --retry is passed.")
+
     redis.set(r_keys.JOB_TYPE, group_name)
     with open(dataset, "r") as stream:
         config = yaml.safe_load(stream)
@@ -128,11 +148,10 @@ def ingest_graph(
                     f"Mixing populate layers is unsupported. To repopulate at a "
                     f"different layer, manually delete {ws.rstrip('/')}/ocdbt/ and rerun."
                 )
-        fork_base_manifest(ws, graph_id, wipe_existing=retry or reset_ocdbt)
+        fork_base_manifest(ws, graph_id, wipe_existing=reset_ocdbt)
 
     cg = ChunkedGraph(meta=meta, client_info=client_info)
-    if not retry:
-        cg.create()
+    cg.create()
 
     if ocdbt:
         cg.meta.custom_data["seg"] = {

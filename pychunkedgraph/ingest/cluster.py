@@ -4,16 +4,17 @@
 Ingest / create chunkedgraph with workers on a cluster.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from os import environ
-
-from pychunkedgraph import get_logger
-
-logger = get_logger(__name__)
 from time import sleep
 from typing import Callable, Dict, Iterable, Tuple, Sequence
 
 import numpy as np
 from rq import Queue as RQueue, Retry
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 
 
 from .utils import chunk_id_str, get_chunks_not_done, randomize_grid_points
@@ -67,11 +68,35 @@ def _post_task_completion(
     logger.note(f"{chunk_str} marked as complete")
 
 
+def _populate_ocdbt_chunk(imanager, ws, layer, coords):
+    src_list, dst_list, resolutions = open_base_ocdbt(ws)
+    lo, hi = _layer_bbox(imanager.cg.meta, layer, coords)
+    copy_ws_bbox_multiscale(src_list, dst_list, resolutions, lo, hi)
+    mark_chunk_populated(ws, layer, coords)
+
+
 def create_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
 ) -> None:
     imanager = _get_imanager()
+
+    # If this task is responsible for populating the OCDBT base at the
+    # configured layer, kick the copy off on a worker thread so it overlaps
+    # with add_parent_chunk (BigTable-bound) — they share no state.
+    populate_future = None
+    if (
+        imanager.ocdbt_seg
+        and imanager.ocdbt_populate_base
+        and parent_layer == imanager.ocdbt_populate_layer
+    ):
+        ws = imanager.cg.meta.data_source.WATERSHED
+        if not is_chunk_populated(ws, parent_layer, parent_coords):
+            executor = ThreadPoolExecutor(max_workers=1)
+            populate_future = executor.submit(
+                _populate_ocdbt_chunk, imanager, ws, parent_layer, parent_coords
+            )
+
     add_parent_chunk(
         imanager.cg,
         parent_layer,
@@ -83,21 +108,8 @@ def create_parent_chunk(
         ),
     )
 
-    if (
-        imanager.ocdbt_seg
-        and imanager.ocdbt_populate_base
-        and parent_layer == imanager.ocdbt_populate_layer
-    ):
-        # Populate the shared base OCDBT with precomputed chunks at the
-        # configured layer. One task batches all underlying L2 chunks
-        # across all scales into a single OCDBT commit via the atomic
-        # transaction inside copy_ws_bbox_multiscale.
-        ws = imanager.cg.meta.data_source.WATERSHED
-        if not is_chunk_populated(ws, parent_layer, parent_coords):
-            src_list, dst_list, resolutions = open_base_ocdbt(ws)
-            lo, hi = _layer_bbox(imanager.cg.meta, parent_layer, parent_coords)
-            copy_ws_bbox_multiscale(src_list, dst_list, resolutions, lo, hi)
-            mark_chunk_populated(ws, parent_layer, parent_coords)
+    if populate_future is not None:
+        populate_future.result()  # surface populate exceptions before marking complete
 
     _post_task_completion(imanager, parent_layer, parent_coords)
 

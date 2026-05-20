@@ -190,8 +190,14 @@ def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
         f"\nversion: \t{imanager.cg.version}"
         f"\ngraph_id: \t{imanager.cg.graph_id}"
         f"\nchunk_size: \t{imanager.cg.meta.graph_config.CHUNK_SIZE}"
-        "\n\nlayer status:"
+        f"\nocdbt_seg: \t{imanager.ocdbt_seg}"
     )
+    if imanager.ocdbt_seg:
+        header += (
+            f"\nocdbt_populate_base: \t{imanager.ocdbt_populate_base}"
+            f"\nocdbt_populate_layer: \t{imanager.ocdbt_populate_layer}"
+        )
+    header += "\n\nlayer status:"
     print(header)
     while True:
         for layer, done, count in zip(layers, completed, layer_counts):
