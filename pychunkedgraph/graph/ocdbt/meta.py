@@ -27,6 +27,14 @@ class OcdbtConfig:
     # ~7× bloat on GCS. 1 MiB is tensorstore's hard ceiling for this field
     # and captures every compressed_segmentation chunk we've measured.
     max_inline_value_bytes: int = 1048576
+    # Cap on btree-node bytes. The OCDBT distributed cooperator forwards
+    # mutations to the lease holder over gRPC, with each RPC carrying the
+    # node delta + value bytes for keys being committed into that node.
+    # tensorstore's default node cap of 8 MiB lets a single node update
+    # alone exceed gRPC's 4 MiB max-receive (the wire limit on the
+    # cooperator). 1 MiB keeps node-delta + one value comfortably under
+    # 4 MiB at the cost of more frequent node splits (larger manifest).
+    max_decoded_node_bytes: int = 1048576
 
     @classmethod
     def from_dict(cls, d: Optional[Dict]) -> "OcdbtConfig":
@@ -62,4 +70,5 @@ class OcdbtConfig:
         return {
             "compression": dict(self.compression),
             "max_inline_value_bytes": self.max_inline_value_bytes,
+            "max_decoded_node_bytes": self.max_decoded_node_bytes,
         }
