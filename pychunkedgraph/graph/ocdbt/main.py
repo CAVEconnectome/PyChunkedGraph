@@ -101,12 +101,21 @@ def wipe_base_ocdbt(ws_path: str):
         pass
 
 
-def open_base_ocdbt(ws_path: str, config: OcdbtConfig):
+def open_base_ocdbt(
+    ws_path: str, config: OcdbtConfig, coordinator_address: str | None = None
+):
     """Open the existing base OCDBT (read/write) for populating during ingest.
 
     Used by per-chunk ingest tasks that copy precomputed data into the shared
     base. NOT used at runtime — runtime always goes through the per-CG fork
     spec via ``get_seg_source_and_destination_ocdbt``.
+
+    ``coordinator_address`` (``"host:port"``) routes every OCDBT commit
+    through a ``DistributedCoordinatorServer`` so parallel workers don't
+    race the shared manifest's CAS — the only thing that prevents the
+    orphan ``d/`` file explosion. Required for any concurrent writer; the
+    arg is optional so single-process callers (e.g. tests, notebooks) can
+    skip it.
 
     Returns (src_list, dst_list, resolutions).
     """
@@ -114,6 +123,8 @@ def open_base_ocdbt(ws_path: str, config: OcdbtConfig):
     scales = _read_source_scales(ws_path)
     resolutions = [s["resolution"] for s in scales]
     base_kvstore = {"driver": "ocdbt", "base": base, "config": config.ts_config()}
+    if coordinator_address:
+        base_kvstore["coordinator"] = {"address": coordinator_address}
 
     src_list, dst_list = [], []
     for i in range(len(scales)):

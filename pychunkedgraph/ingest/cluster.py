@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 from .utils import chunk_id_str, get_chunks_not_done, randomize_grid_points
 from .manager import IngestionManager
-from .ocdbt import populate_chunk
+from .ocdbt import get_coordinator_address, populate_chunk
 from .ran_agglomeration import (
     get_active_edges,
     read_raw_edge_data,
@@ -84,7 +84,10 @@ def create_parent_chunk(
     ):
         ws = imanager.cg.meta.data_source.WATERSHED
         if not is_chunk_populated(ws, parent_layer, parent_coords):
-            populate_chunk(imanager, ws, parent_layer, parent_coords)
+            address = get_coordinator_address(imanager.redis)
+            populate_chunk(
+                imanager, ws, parent_layer, parent_coords, coordinator_address=address
+            )
 
     _post_task_completion(imanager, parent_layer, parent_coords)
 

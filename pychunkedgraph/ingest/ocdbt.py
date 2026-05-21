@@ -55,12 +55,17 @@ def coordinator(redis):
         logger.note("OCDBT Coordinator advertisement cleared.")
 
 
-def _apply_coordinator_env(redis) -> None:
-    """Worker-side: copy advertised coordinator address from Redis into env
-    vars so this process's OCDBT commits route through the coordinator.
+def get_coordinator_address(redis) -> str:
+    """Return the advertised ``"host:port"`` for the OCDBT coordinator.
 
-    Fails loudly if the address isn't advertised. Uncoordinated parallel
-    commits race the shared manifest and leak orphan ``d/`` files — the
+    The address goes into the OCDBT kvstore spec's ``coordinator`` field —
+    the only routing knob tensorstore actually honors (verified against
+    the tensorstore binary; ``OCDBT_COORDINATOR_HOST/PORT`` env vars are
+    not consulted).
+
+    Distributed callers MUST go through this getter so the populate fails
+    loudly when the coordinator isn't advertised — uncoordinated parallel
+    commits race the shared manifest and leak orphan ``d/`` files, the
     exact bug this code exists to prevent.
     """
     host = redis.get(_COORD_HOST_KEY)
@@ -72,20 +77,26 @@ def _apply_coordinator_env(redis) -> None:
             "Run `flask ingest layer N` (with N == ocdbt_populate_layer) to "
             "start the coordinator before queuing populate workers."
         )
-    environ[_COORD_HOST_KEY] = host.decode()
-    environ[_COORD_PORT_KEY] = port.decode()
+    return f"{host.decode()}:{port.decode()}"
 
 
-def populate_chunk(imanager, ws: str, layer: int, coords) -> None:
+def populate_chunk(
+    imanager, ws: str, layer: int, coords, coordinator_address: str | None = None
+) -> None:
     """One LN parent-layer task's OCDBT populate.
 
-    Routes through the advertised coordinator (mandatory — raises if it
-    isn't running), copies the base-resolution bbox at every scale under
-    one atomic transaction, and records the per-chunk completion marker.
+    When ``coordinator_address`` is set, every commit routes through that
+    server (mandatory for distributed workers — see ``get_coordinator_address``).
+    Single-process callers (notebooks, local one-off runs) can omit it and
+    write directly; safe as long as no other writer is committing concurrently.
+
+    Copies the base-resolution bbox at every scale under one atomic
+    transaction and records the per-chunk completion marker.
     """
-    _apply_coordinator_env(imanager.redis)
     cfg = OcdbtConfig.from_dict(imanager.ocdbt_config)
-    src_list, dst_list, resolutions = open_base_ocdbt(ws, cfg)
+    src_list, dst_list, resolutions = open_base_ocdbt(
+        ws, cfg, coordinator_address=coordinator_address
+    )
     lo, hi = _layer_bbox(imanager.cg.meta, layer, coords)
     copy_ws_bbox_multiscale(src_list, dst_list, resolutions, lo, hi)
     mark_chunk_populated(ws, layer, coords)
