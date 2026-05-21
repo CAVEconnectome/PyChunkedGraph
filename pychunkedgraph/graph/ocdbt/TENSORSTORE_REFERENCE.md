@@ -31,7 +31,7 @@ Sibling of `driver: "ocdbt"`:
 | Field | Type | tensorstore default | Notes |
 |---|---|---|---|
 | `compression` | object | `{}` (none) | `{"id": "zstd", "level": N}` — zstd level 1–22 |
-| `max_inline_value_bytes` | uint64 | `100` | values ≤ this size are inlined into btree leaves. **1 MiB is the hard ceiling** per our code's prior measurement note. Setting to 1 MiB avoids per-chunk out-of-line zstd-framing bloat. |
+| `max_inline_value_bytes` | uint64 | `100` | values ≤ this size live inline in the btree leaf bytes; larger values get written to a d/ file and the mutation carries only an `IndirectDataReference`. In distributed mode this **directly bounds cooperator-forwarded RPC size**: inline values are carried inside the `WriteRequest.mutations` field, so a leaf's batch blows past the 4 MiB gRPC max-receive whenever multiple inline values pile up on one node. Source: `distributed/btree_writer.cc` `StagePending`. Setting low (≤ a few KB) pushes chunk values out-of-line → small mutations → small RPCs. |
 | `max_decoded_node_bytes` | uint64 | `8388608` (8 MiB) | btree node split threshold. Larger nodes → shallower tree → fewer per-commit node touches. Setting this *smaller* than the default INCREASES per-commit forwarded bytes — empirically went from ~8 MiB to ~23 MiB RPCs when set to 1 MiB. |
 | `version_tree_arity_log2` | int | — | controls version tree branching; rarely tuned |
 | `manifest_kind` | enum | `"single"` | `"single"` or `"numbered"` (manifest history retained — needed for time-travel reads) |
@@ -71,12 +71,15 @@ The OCDBT driver picks one of two compiled implementations at open time:
 
 ## Cooperator batching
 
-`cooperator_submit_mutation_batch.cc` queues mutations and groups them by lease holder; each group becomes one `SubmitMutationBatch` RPC. Internal symbol of interest: `AddToPrioritizedQueue`. No Python-visible knob for batch size, queue policy, or batching window.
+`cooperator_submit_mutation_batch.cc` `SendToPeer` is the gRPC sender. The `WriteRequest` proto has `repeated bytes mutations` — each entry is one encoded `BtreeNodeWriteMutation` destined for the same leaf. The encoded mutation embeds the value_reference inline if it's an `absl::Cord`, or carries just an `IndirectDataReference` (small struct) otherwise. So **what's actually on the wire per RPC = (small request header) + Σ encoded mutations**, and each encoded mutation's size is dominated by its value bytes IF the value is inline.
 
-What ACTUALLY changes RPC size (verified by production dumps):
-- Default config → RPCs 5–8 MiB (one chunk's compressed_segmentation value + small node delta)
-- Default config + `max_decoded_node_bytes=1 MiB` → RPCs up to 23 MiB (smaller nodes ≠ smaller RPCs; verified regression)
-- Default config + dst chunk_size halved → RPCs grew to 12 MiB (more mutations per node → bigger batches)
+Threshold for inline-vs-ref is `max_inline_value_bytes` (see config table). That's the real lever for RPC size.
+
+What changes RPC size (verified by production dumps):
+- `max_inline_value_bytes=1 MiB`, default node bytes → RPCs 5–8 MiB (inline chunks pile up in the batch)
+- `max_inline_value_bytes=1 MiB` + `max_decoded_node_bytes=1 MiB` → RPCs up to 23 MiB (smaller nodes ≠ smaller RPCs)
+- `max_inline_value_bytes=1 MiB` + dst `chunk_size` halved → RPCs grew to 12 MiB (more mutations per node → bigger batches)
+- `max_inline_value_bytes=4 KiB` (chunks go out-of-line) → mutations carry only refs; RPC = small header + N×(key + ref + generation) → fits 4 MiB regardless of value sizes (this is the path our code takes)
 
 ## Defaults visible from spec round-trip
 
@@ -109,7 +112,7 @@ Other `TENSORSTORE_*` vars exist (CA paths, S3/GCS concurrency, etc.) — grep t
 
 ## How this maps onto pychunkedgraph
 
-- `OcdbtConfig` (`pychunkedgraph/graph/ocdbt/meta.py`) → `compression`, `max_inline_value_bytes` (=1 MiB).
+- `OcdbtConfig` (`pychunkedgraph/graph/ocdbt/meta.py`) → `compression: zstd 12`, `max_inline_value_bytes = 4 KiB`. The 4 KiB threshold keeps small metadata (info JSON, populate markers) inline while forcing every chunk value out-of-line into d/ files — this is what keeps cooperator RPCs under the 4 MiB gRPC ceiling.
 - `create_base_ocdbt` / `open_base_ocdbt` pass `config.ts_config()` so the same OCDBT config persists across opens.
 - `populate_chunk` (`pychunkedgraph/ingest/ocdbt.py`) opens the base with `coordinator_address` (distributed mode).
 - `copy_ws_bbox_multiscale` uses **non-atomic** `ts.Transaction()` because of the distributed-mode constraint above.

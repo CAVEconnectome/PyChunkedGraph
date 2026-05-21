@@ -21,12 +21,25 @@ class OcdbtConfig:
     populate_layer: int = 3
     sv_split_threshold: int = 10
     compression: Dict = field(default_factory=lambda: {"id": "zstd", "level": 12})
-    # Inline chunk values into B+tree leaves so they share the leaf's zstd
-    # compression context. Default tensorstore value (100 bytes) puts every
-    # chunk in its own out-of-line blob with independent zstd framing →
-    # ~7× bloat on GCS. 1 MiB is tensorstore's hard ceiling for this field
-    # and captures every compressed_segmentation chunk we've measured.
-    max_inline_value_bytes: int = 1048576
+    # Inline-vs-out-of-line threshold. Values ≤ this size live in the btree
+    # leaf bytes; larger values get written to a d/ file and the mutation
+    # carries only an IndirectDataReference. This directly determines
+    # cooperator-forwarded RPC size in distributed mode: inline values are
+    # carried inside the gRPC WriteRequest's `mutations` field, so a leaf's
+    # batch can blow past tensorstore's hardcoded 4 MiB gRPC max-receive
+    # whenever multiple inline values pile up on the same node. Verified
+    # by reading btree_writer.cc StagePending in v0.1.81.
+    #
+    # 4 KiB keeps small metadata (info JSON ~1.5 KB, populate-marker files)
+    # inline while forcing every segmentation chunk value out-of-line —
+    # chunks compress to 100s of KB even for the smallest scales. With
+    # chunk bytes out-of-line the WriteRequest stays tiny regardless of
+    # how many keys a worker commits at once. Tradeoff vs the previous
+    # 1 MiB cap: each chunk now has its own zstd-framed d/ blob instead of
+    # sharing a leaf's compression context, which can cost a few percent
+    # of compression ratio (much less than the originally-feared "7×
+    # bloat", which only applied at the 100-byte default).
+    max_inline_value_bytes: int = 4096
 
     @classmethod
     def from_dict(cls, d: Optional[Dict]) -> "OcdbtConfig":
