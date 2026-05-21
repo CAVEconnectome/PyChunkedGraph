@@ -66,17 +66,12 @@ def create_parent_chunk(
     parent_coords: Sequence[int],
 ) -> None:
     imanager = _get_imanager()
-    add_parent_chunk(
-        imanager.cg,
-        parent_layer,
-        parent_coords,
-        get_children_chunk_coords(
-            imanager.cg_meta,
-            parent_layer,
-            parent_coords,
-        ),
-    )
 
+    # OCDBT populate runs FIRST so any failure here (coordinator missing,
+    # commit error, etc.) aborts the task BEFORE any graph mutation —
+    # otherwise an OCDBT failure could land after add_parent_chunk has
+    # already written parents, leaving the graph half-built and forcing
+    # corrupt-state retries.
     if (
         imanager.ocdbt_seg
         and imanager.ocdbt_populate_base
@@ -88,6 +83,17 @@ def create_parent_chunk(
             populate_chunk(
                 imanager, ws, parent_layer, parent_coords, coordinator_address=address
             )
+
+    add_parent_chunk(
+        imanager.cg,
+        parent_layer,
+        parent_coords,
+        get_children_chunk_coords(
+            imanager.cg_meta,
+            parent_layer,
+            parent_coords,
+        ),
+    )
 
     _post_task_completion(imanager, parent_layer, parent_coords)
 

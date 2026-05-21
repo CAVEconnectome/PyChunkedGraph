@@ -48,6 +48,14 @@ from .utils import (
 logger = get_logger(__name__)
 
 
+def _humanize_count(n: int) -> str:
+    """Compact count for log lines: 1234567 → '1.2M', 950 → '950'."""
+    for unit, scale in (("G", 1_000_000_000), ("M", 1_000_000), ("K", 1_000)):
+        if n >= scale:
+            return f"{n / scale:.1f}{unit}"
+    return str(n)
+
+
 def create_base_ocdbt(ws_path: str, config: OcdbtConfig):
     """One-time bootstrap: create the shared base OCDBT at ``<ws>/ocdbt/base/``.
 
@@ -358,6 +366,8 @@ def copy_ws_bbox_multiscale(
     assert len(src_list) == len(dst_list) == len(resolutions)
     base_res = np.array(resolutions[0])
     txn = ts.Transaction()
+    n_scales = 0
+    total_voxels = 0
     for i, (src, dst) in enumerate(zip(src_list, dst_list)):
         factor = (np.array(resolutions[i]) / base_res).astype(int)
         x0, y0, z0 = bbox_lo // factor
@@ -365,10 +375,17 @@ def copy_ws_bbox_multiscale(
         if x1 <= x0 or y1 <= y0 or z1 <= z0:
             logger.debug(f"skipping empty region at scale {i}")
             continue
+        nvox = int((x1 - x0) * (y1 - y0) * (z1 - z0))
+        n_scales += 1
+        total_voxels += nvox
+        logger.debug(f"scale {i}: {nvox:,} voxels")
         dst.with_transaction(txn)[x0:x1, y0:y1, z0:z1].write(
             src[x0:x1, y0:y1, z0:z1]
         ).result()
     txn.commit_async().result()
+    logger.note(
+        f"OCDBT commit: {_humanize_count(total_voxels)} voxels, {n_scales} scales"
+    )
 
 
 def _mode_downsample(data: np.ndarray, factors: tuple) -> np.ndarray:

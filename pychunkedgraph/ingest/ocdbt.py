@@ -98,6 +98,7 @@ def populate_chunk(
         ws, cfg, coordinator_address=coordinator_address
     )
     lo, hi = _layer_bbox(imanager.cg.meta, layer, coords)
+    logger.note(f"L{layer} OCDBT populate {tuple(int(c) for c in coords)}")
     copy_ws_bbox_multiscale(src_list, dst_list, resolutions, lo, hi)
     mark_chunk_populated(ws, layer, coords)
 
