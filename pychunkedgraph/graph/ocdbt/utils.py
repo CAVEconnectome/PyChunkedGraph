@@ -10,6 +10,25 @@ from typing import Optional
 
 import numpy as np
 import tensorstore as ts
+from tenacity import (
+    retry,
+    retry_if_exception_message,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+# tensorstore raises ValueError with an absl/grpc status-code prefix. Retry
+# only the transient classes — DNS hiccups, deadline-blown reads, server
+# 5xx — so a single flaky GCS call doesn't kill the populate task. Persistent
+# errors (NOT_FOUND, INVALID_ARGUMENT, RESOURCE_EXHAUSTED, …) propagate.
+_transient = retry(
+    retry=retry_if_exception_message(
+        match=r"^(UNAVAILABLE|DEADLINE_EXCEEDED|ABORTED|INTERNAL):"
+    ),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=0.5, min=0.5, max=8),
+    reraise=True,
+)
 
 
 def _ensure_trailing_slash(path: str) -> str:
@@ -71,6 +90,7 @@ def _schema_from_src(src_handle) -> dict:
     )
 
 
+@_transient
 def is_chunk_populated(ws_path: str, layer: int, coords) -> bool:
     """Check whether this chunk's precomputed→OCDBT copy has already completed.
 
@@ -84,12 +104,14 @@ def is_chunk_populated(ws_path: str, layer: int, coords) -> bool:
     return result.value is not None and len(result.value) > 0
 
 
+@_transient
 def mark_chunk_populated(ws_path: str, layer: int, coords) -> None:
     """Record that this chunk's precomputed→OCDBT copy completed."""
     kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
     kvs.write(_marker_key(layer, coords), b"1").result()
 
 
+@_transient
 def read_populate_meta(ws_path: str) -> Optional[dict]:
     """Return the per-base populate config dict, or None if not yet written."""
     kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
@@ -99,6 +121,7 @@ def read_populate_meta(ws_path: str) -> Optional[dict]:
     return json.loads(r.value)
 
 
+@_transient
 def write_populate_meta(ws_path: str, meta: dict) -> None:
     """Persist the per-base populate config (layer, etc.) alongside markers."""
     kvs = ts.KvStore.open(_populate_markers_path(ws_path)).result()
