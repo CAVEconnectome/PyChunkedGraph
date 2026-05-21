@@ -337,15 +337,18 @@ def copy_ws_bbox_multiscale(
     bbox_lo: np.ndarray,
     bbox_hi: np.ndarray,
 ):
-    """Copy a base-resolution voxel bbox across all MIP scales under one atomic txn.
+    """Copy a base-resolution voxel bbox across all MIP scales under one
+    transaction so the whole multi-scale write lands as a single OCDBT commit.
 
-    ``ts.Transaction(atomic=True)`` is load-bearing: without it the precomputed
-    driver splits a multi-chunk ``.write()`` into multiple OCDBT sub-commits,
-    so file count would scale with the number of precomputed chunks inside
-    the bbox. With ``atomic=True``, every per-chunk underlying-kvstore write
-    inside one precomputed handle collapses into a single OCDBT commit — so
-    the d/ file count for one call to this function is constant in the
-    number of chunks inside the bbox; it only grows with scale count.
+    The transaction (not ``atomic=True``) is what's load-bearing: it batches
+    every per-chunk underlying-kvstore write across every scale into one
+    commit, so the d/ file count for one call is constant in bbox size and
+    grows only with scale count. ``atomic=True`` would add cross-key
+    isolation but is rejected by tensorstore's distributed-OCDBT path —
+    when the kvstore is opened with a ``coordinator``, atomic transactions
+    cannot span multiple keys (verified empirically). Non-atomic still
+    batches; the coordinator handles concurrency by serializing the commit
+    on the wire.
 
     Passing the source TensorStore directly into ``write(...)`` lets
     tensorstore stream the copy without materializing an intermediate
@@ -354,7 +357,7 @@ def copy_ws_bbox_multiscale(
     """
     assert len(src_list) == len(dst_list) == len(resolutions)
     base_res = np.array(resolutions[0])
-    txn = ts.Transaction(atomic=True)
+    txn = ts.Transaction()
     for i, (src, dst) in enumerate(zip(src_list, dst_list)):
         factor = (np.array(resolutions[i]) / base_res).astype(int)
         x0, y0, z0 = bbox_lo // factor
