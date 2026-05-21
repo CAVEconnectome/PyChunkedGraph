@@ -28,7 +28,7 @@ from .utils import (
 from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
-from ..graph.ocdbt import OcdbtConfig, fork_base_manifest
+from ..graph.ocdbt import OcdbtConfig
 from ..utils.redis import get_redis_connection, keys as r_keys
 
 group_name = "ingest"
@@ -52,18 +52,43 @@ def flush_redis():
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True), required=False)
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
-@click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
-@click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
+@click.option(
+    "--retry",
+    "-r",
+    is_flag=True,
+    help="Re-run setup against the existing table (no cg.create()).",
+)
+@click.option(
+    "--skip-queue",
+    "-s",
+    is_flag=True,
+    help="Set up everything but don't enqueue L2 tasks.",
+)
+@click.option(
+    "--test",
+    "-t",
+    is_flag=True,
+    help="Test 8 chunks at the center of dataset.",
+)
 @job_type_guard(group_name)
 def ingest_graph(
     graph_id: str,
     dataset: click.Path,
     raw: bool,
     retry: bool,
+    skip_queue: bool,
     test: bool,
 ):
-    """Main ingest command. Takes config from yaml, queues atomic tasks."""
+    """Main ingest command. Takes config from yaml, queues atomic tasks.
+
+    ``--retry`` reuses the existing IngestionManager from redis and skips
+    only ``cg.create()`` — everything else (OCDBT base + fork via
+    ``setup_base``, L2 enqueue) still runs, idempotently. Pair with
+    ``--skip-queue`` to perform setup without queueing any tasks.
+    """
     redis = get_redis_connection()
+    if test:
+        configure_logging(level=DEBUG)
 
     if retry:
         imanager_pickle = redis.get(r_keys.INGESTION_MANAGER)
@@ -72,42 +97,38 @@ def ingest_graph(
                 f"--retry requires an existing `{group_name}` job in redis. "
                 f"Run without --retry to start a new job."
             )
-        if test:
-            configure_logging(level=DEBUG)
         imanager = IngestionManager.from_pickle(imanager_pickle)
+        cg = imanager.cg
         if imanager.ocdbt_seg:
-            ws = imanager.cg_meta.data_source.WATERSHED
-            fork_base_manifest(ws, graph_id, wipe_existing=True)
+            # setup_base is idempotent — recreates the OCDBT base + info
+            # if absent (e.g. after `gcloud storage rm -r .../ocdbt/`),
+            # reconciles config with the on-disk meta, and forks the
+            # manifest for this CG. Bigtable is left alone.
+            resolved = setup_base(cg, OcdbtConfig.from_dict(imanager.ocdbt_config))
+            imanager.ocdbt_config = resolved.to_dict()
+    else:
+        if dataset is None:
+            raise click.ClickException("dataset is required unless --retry is passed.")
+        redis.set(r_keys.JOB_TYPE, group_name)
+        with open(dataset, "r") as stream:
+            config = yaml.safe_load(stream)
+        meta, ingest_config, client_info, ocdbt_config_dict = bootstrap(
+            graph_id, config, raw, test
+        )
+        cg = ChunkedGraph(meta=meta, client_info=client_info)
+        cg.create()
+        ocdbt_cfg = OcdbtConfig.from_dict(ocdbt_config_dict)
+        if ocdbt_cfg.enabled:
+            resolved = setup_base(cg, ocdbt_cfg)
+            ocdbt_config_dict = resolved.to_dict()
+        imanager = IngestionManager(
+            ingest_config,
+            meta,
+            ocdbt_config=ocdbt_config_dict,
+        )
+
+    if not skip_queue:
         enqueue_l2_tasks(imanager, create_atomic_chunk)
-        os._exit(0)
-
-    if dataset is None:
-        raise click.ClickException("dataset is required unless --retry is passed.")
-
-    redis.set(r_keys.JOB_TYPE, group_name)
-    with open(dataset, "r") as stream:
-        config = yaml.safe_load(stream)
-
-    if test:
-        configure_logging(level=DEBUG)
-
-    meta, ingest_config, client_info, ocdbt_config_dict = bootstrap(
-        graph_id, config, raw, test
-    )
-    cg = ChunkedGraph(meta=meta, client_info=client_info)
-    cg.create()
-
-    ocdbt_cfg = OcdbtConfig.from_dict(ocdbt_config_dict)
-    if ocdbt_cfg.enabled:
-        resolved = setup_base(cg, ocdbt_cfg)
-        ocdbt_config_dict = resolved.to_dict()
-
-    imanager = IngestionManager(
-        ingest_config,
-        meta,
-        ocdbt_config=ocdbt_config_dict,
-    )
-    enqueue_l2_tasks(imanager, create_atomic_chunk)
     os._exit(0)
 
 
