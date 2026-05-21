@@ -152,8 +152,9 @@ def print_completion_rate(imanager: IngestionManager, layer: int, span: int = 30
         move_up()
 
 
-def _busy_over_total_per_queue(redis, worker_keys_per_layer) -> list:
-    """For each layer's set of worker keys, return "busy/total" or "-" if no workers.
+def _workers_busy_per_queue(redis, worker_keys_per_layer):
+    """For each layer's set of worker keys, return parallel (workers, busy)
+    string lists — "-" / "-" when no workers are registered for that layer.
 
     Two-round-trip approach: caller already fetched the SMEMBERS sets; this
     function pipelines HGET state for every worker key and counts busy.
@@ -164,17 +165,18 @@ def _busy_over_total_per_queue(redis, worker_keys_per_layer) -> list:
             state_pipe.hget(wk, "state")
     states = state_pipe.execute() if any(worker_keys_per_layer) else []
 
-    out = []
+    workers, busy = [], []
     idx = 0
     for keys in worker_keys_per_layer:
         total = len(keys)
-        busy = 0
+        b = 0
         for _ in keys:
             if states[idx] == b"busy":
-                busy += 1
+                b += 1
             idx += 1
-        out.append(f"{busy}/{total}" if total else "-")
-    return out
+        workers.append(f"{total}" if total else "-")
+        busy.append(f"{b}" if total else "-")
+    return workers, busy
 
 
 def _layer_keys(layers) -> list:
@@ -213,8 +215,8 @@ def _layer_status(redis, layer_keys):
         failed.append(results[i + 2])
         worker_keys_per_layer.append(results[i + 3])
 
-    worker_busy = _busy_over_total_per_queue(redis, worker_keys_per_layer)
-    return job_type, completed, queued, failed, worker_busy
+    workers, busy = _workers_busy_per_queue(redis, worker_keys_per_layer)
+    return job_type, completed, queued, failed, workers, busy
 
 
 def _sized_table(columns: list, rows: list, **table_kwargs) -> Table:
@@ -228,14 +230,18 @@ def _sized_table(columns: list, rows: list, **table_kwargs) -> Table:
     table = Table(
         box=None,
         pad_edge=False,
-        padding=(0, 1),
+        padding=(0, 2),
         show_header=True,
         header_style="bold",
         **table_kwargs,
     )
     for col_idx, (name, justify) in enumerate(columns):
         width = max(len(name), max((len(row[col_idx]) for row in rows), default=0))
-        table.add_column(name, justify=justify, width=width, no_wrap=True)
+        # Header wrapped in Text so any brackets in `name` render literally
+        # rather than being parsed as Rich markup tags.
+        table.add_column(
+            Text(name, style="bold"), justify=justify, width=width, no_wrap=True
+        )
     for row in rows:
         table.add_row(*row)
     return table
@@ -288,45 +294,55 @@ def _header_renderables(imanager: IngestionManager) -> list:
 
 
 def _status_table(
-    layers, layer_counts, completed, queued, failed, worker_busy
+    layers, layer_counts, completed, queued, failed, workers, busy
 ) -> Table:
     """One row per layer with progress, queue, and worker stats."""
     columns = [
-        ("layer", "right"),
-        ("done", "right"),
-        ("total", "right"),
-        ("%", "right"),
+        ("layer", "center"),
         ("queued", "right"),
+        ("completed", "right"),
+        ("total", "right"),
+        ("progress", "right"),
         ("failed", "right"),
-        ("busy", "left"),
+        ("workers", "right"),
+        ("busy", "right"),
     ]
     rows = []
-    for layer, done, count, q, f, wb in zip(
-        layers, completed, layer_counts, queued, failed, worker_busy
+    for layer, done, count, q, f, w, b in zip(
+        layers, completed, layer_counts, queued, failed, workers, busy
     ):
         pct = math.floor((done / count) * 100) if count else 0
         rows.append(
             (
                 str(layer),
+                f"{q:,}",
                 f"{done:,}",
                 f"{count:,}",
                 f"{pct}%",
-                f"{q:,}",
                 f"{f:,}",
-                str(wb),
+                str(w),
+                str(b),
             )
         )
     return _sized_table(columns, rows)
 
 
 def _status_renderable(
-    imanager, layers, layer_counts, job_type, completed, queued, failed, worker_busy
+    imanager,
+    layers,
+    layer_counts,
+    job_type,
+    completed,
+    queued,
+    failed,
+    workers,
+    busy,
 ):
     """Combine header rows + per-layer table inside one Panel; job_type goes in the title."""
     body = Group(
         *_header_renderables(imanager),
         Rule(style="dim"),
-        _status_table(layers, layer_counts, completed, queued, failed, worker_busy),
+        _status_table(layers, layer_counts, completed, queued, failed, workers, busy),
     )
     return Panel(
         body,
