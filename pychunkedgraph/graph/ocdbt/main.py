@@ -30,11 +30,14 @@ Retention: the OCDBT spec exposes no pruning fields. All versions are
 retained by default.
 """
 
+from os import environ
+
 import numpy as np
 import tensorstore as ts
 
 from pychunkedgraph import get_logger
 
+from .debug import bbox_failure_payload, dump_failure_to_gcs
 from .meta import OcdbtConfig
 from .utils import (
     _base_ocdbt_path,
@@ -46,14 +49,6 @@ from .utils import (
 )
 
 logger = get_logger(__name__)
-
-
-def _humanize_count(n: int) -> str:
-    """Compact count for log lines: 1234567 → '1.2M', 950 → '950'."""
-    for unit, scale in (("G", 1_000_000_000), ("M", 1_000_000), ("K", 1_000)):
-        if n >= scale:
-            return f"{n / scale:.1f}{unit}"
-    return str(n)
 
 
 def create_base_ocdbt(ws_path: str, config: OcdbtConfig):
@@ -344,6 +339,7 @@ def copy_ws_bbox_multiscale(
     resolutions,
     bbox_lo: np.ndarray,
     bbox_hi: np.ndarray,
+    dump_tag: str | None = None,
 ):
     """Copy a base-resolution voxel bbox across all MIP scales under one
     transaction so the whole multi-scale write lands as a single OCDBT commit.
@@ -364,28 +360,56 @@ def copy_ws_bbox_multiscale(
     worth versus the read-into-numpy-then-write pattern.
     """
     assert len(src_list) == len(dst_list) == len(resolutions)
+    dump_enabled = bool(environ.get("ERROR_DUMP"))
     base_res = np.array(resolutions[0])
     txn = ts.Transaction()
-    n_scales = 0
-    total_voxels = 0
+    # per_scale rows are only populated when dump_enabled, so the failure
+    # path has enough context for the structured GCS dump without paying any
+    # bookkeeping cost on the happy path.
+    per_scale: list = []
     for i, (src, dst) in enumerate(zip(src_list, dst_list)):
         factor = (np.array(resolutions[i]) / base_res).astype(int)
         x0, y0, z0 = bbox_lo // factor
         x1, y1, z1 = bbox_hi // factor
         if x1 <= x0 or y1 <= y0 or z1 <= z0:
-            logger.debug(f"skipping empty region at scale {i}")
             continue
-        nvox = int((x1 - x0) * (y1 - y0) * (z1 - z0))
-        n_scales += 1
-        total_voxels += nvox
-        logger.debug(f"scale {i}: {nvox:,} voxels")
+        if dump_enabled:
+            dims = (int(x1 - x0), int(y1 - y0), int(z1 - z0))
+            nvox = dims[0] * dims[1] * dims[2]
+            bpv = int(np.dtype(dst.dtype.numpy_dtype).itemsize)
+            # The precomputed driver's read_chunk shape includes a channel
+            # axis; the spatial chunk shape is the first three dims.
+            chunk_shape = tuple(int(s) for s in dst.chunk_layout.read_chunk.shape[:3])
+            n_keys = int(
+                np.prod(
+                    [int(np.ceil(d / c)) if c else 0 for d, c in zip(dims, chunk_shape)]
+                )
+            )
+            max_raw_per_key = int(np.prod(chunk_shape)) * bpv
+            per_scale.append(
+                (i, dims, nvox, nvox * bpv, chunk_shape, n_keys, max_raw_per_key)
+            )
         dst.with_transaction(txn)[x0:x1, y0:y1, z0:z1].write(
             src[x0:x1, y0:y1, z0:z1]
         ).result()
-    txn.commit_async().result()
-    logger.note(
-        f"OCDBT commit: {_humanize_count(total_voxels)} voxels, {n_scales} scales"
-    )
+    try:
+        txn.commit_async().result()
+    except Exception as exc:
+        if dump_enabled:
+            payload = bbox_failure_payload(
+                exc,
+                dump_tag,
+                bbox_lo,
+                bbox_hi,
+                resolutions,
+                per_scale,
+                dst_list[0],
+                src_list[0],
+            )
+            path = dump_failure_to_gcs(payload, dump_tag)
+            if path:
+                logger.note(f"OCDBT commit failure dump → {path}")
+        raise
 
 
 def _mode_downsample(data: np.ndarray, factors: tuple) -> np.ndarray:
