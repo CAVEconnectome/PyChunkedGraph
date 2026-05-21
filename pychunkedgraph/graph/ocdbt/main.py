@@ -79,14 +79,25 @@ def create_base_ocdbt(ws_path: str, config: OcdbtConfig):
     resolutions = [s["resolution"] for s in scales]
     base_kvstore = {"driver": "ocdbt", "base": base, "config": config.ts_config()}
 
+    # Cap each scale's dst chunk_shape per-axis with the configured
+    # max_dst_chunk_shape so cooperator-forwarded mutations stay under
+    # tensorstore's 4 MiB gRPC default. Source scales that already use
+    # small chunks aren't inflated; only oversized axes are shrunk.
+    max_xyz = list(config.max_dst_chunk_shape)
+
     src_list, dst_list = [], []
     for i in range(len(scales)):
         src_i = ts.open(
             {"driver": "neuroglancer_precomputed", "kvstore": ws_path, "scale_index": i}
         ).result()
-        dst_i = _open_precomputed_scale(
-            base_kvstore, i, create=True, **_schema_from_src(src_i)
+        schema_kw = _schema_from_src(src_i)
+        src_chunk = list(src_i.chunk_layout.read_chunk.shape)
+        dst_chunk = [min(src_chunk[j], max_xyz[j]) for j in range(3)] + [src_chunk[3]]
+        schema_kw["chunk_layout"] = ts.ChunkLayout(
+            read_chunk_shape=dst_chunk,
+            write_chunk_shape=dst_chunk,
         )
+        dst_i = _open_precomputed_scale(base_kvstore, i, create=True, **schema_kw)
         src_list.append(src_i)
         dst_list.append(dst_i)
     return src_list, dst_list, resolutions

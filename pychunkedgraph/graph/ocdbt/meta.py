@@ -1,7 +1,7 @@
 """OcdbtConfig dataclass — single source of truth for per-CG OCDBT settings."""
 
 from dataclasses import asdict, dataclass, field
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -27,6 +27,16 @@ class OcdbtConfig:
     # ~7× bloat on GCS. 1 MiB is tensorstore's hard ceiling for this field
     # and captures every compressed_segmentation chunk we've measured.
     max_inline_value_bytes: int = 1048576
+    # Per-axis upper bound on the destination chunk_size for every scale's
+    # precomputed grid. Each scale's dst chunk_size is
+    # ``min(src_chunk[axis], max_dst_chunk_shape[axis])`` so source scales
+    # that already use small chunks aren't inflated, and oversized source
+    # chunks are clamped. The clamp determines the per-OCDBT-key value
+    # size: smaller → smaller mutations forwarded between cooperators
+    # (the 4 MiB gRPC default rejects anything bigger). 128×128×64 = 1M
+    # voxels = 8 MiB uint64 raw, ~1–2 MiB after typical
+    # compressed_segmentation, safely under the wire limit.
+    max_dst_chunk_shape: List[int] = field(default_factory=lambda: [128, 128, 64])
 
     @classmethod
     def from_dict(cls, d: Optional[Dict]) -> "OcdbtConfig":
