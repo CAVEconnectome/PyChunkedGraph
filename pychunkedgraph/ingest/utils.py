@@ -17,6 +17,14 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 from rq import Queue, Retry
+from rq.registry import (
+    CanceledJobRegistry,
+    DeferredJobRegistry,
+    FailedJobRegistry,
+    FinishedJobRegistry,
+    ScheduledJobRegistry,
+    StartedJobRegistry,
+)
 from rq.worker_registration import WORKERS_BY_QUEUE_KEY
 
 from pychunkedgraph import get_logger
@@ -442,6 +450,30 @@ def queue_layer_helper(
                 )
         q.enqueue_many(job_datas)
         logger.note(f"Queued {len(job_datas)} chunks.")
+
+
+_RQ_REGISTRY_CLASSES = (
+    FailedJobRegistry,
+    StartedJobRegistry,
+    DeferredJobRegistry,
+    ScheduledJobRegistry,
+    FinishedJobRegistry,
+    CanceledJobRegistry,
+)
+
+
+def purge_layer_state(redis, layer: int) -> None:
+    """Reset per-layer state so a layer can be re-run from a previous
+    layer's backup: drop the RQ queue (deletes jobs too), wipe each RQ
+    registry by its own ``.key`` attribute (so we don't hardcode RQ's
+    internal key naming), and clear the pychunkedgraph completion set
+    ``f"{layer}c"``.
+    """
+    name = f"l{layer}"
+    Queue(name=name, connection=redis).delete(delete_jobs=True)
+    for cls in _RQ_REGISTRY_CLASSES:
+        redis.delete(cls(name=name, connection=redis).key)
+    redis.delete(f"{layer}c")
 
 
 def requeue_chunk(queue_name: str, chunk_info, atomic_fn, parent_fn):

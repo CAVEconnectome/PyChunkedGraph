@@ -21,6 +21,7 @@ from .utils import (
     job_type_guard,
     print_completion_rate,
     print_status,
+    purge_layer_state,
     queue_layer_helper,
     requeue_chunk,
 )
@@ -217,3 +218,14 @@ def rate(layer: int, span: int):
 @job_type_guard(group_name)
 def run_tests(graph_id):
     run_all(ChunkedGraph(graph_id=graph_id))
+
+
+@ingest_cli.command("purge_layer")
+@click.argument("layer", type=int)
+@click.confirmation_option(prompt="Purge ALL redis state for this layer?")
+@job_type_guard(group_name)
+def purge_layer(layer: int):
+    """Drop the per-layer RQ queue + registries + completion set so the
+    layer can be re-run from a previous layer's backup."""
+    purge_layer_state(get_redis_connection(), layer)
+    click.echo(f"purged redis state for layer {layer}")
