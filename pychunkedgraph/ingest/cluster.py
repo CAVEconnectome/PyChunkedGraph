@@ -64,19 +64,28 @@ def _post_task_completion(
 def create_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
+    mode: str = "full",
 ) -> None:
+    """One parent-chunk task. ``mode`` (bound at queue time via partial)
+    selects which halves run:
+      ``full``   : OCDBT populate (if eligible) + add_parent_chunk
+      ``ocdbt``  : only OCDBT populate (skip add_parent_chunk)
+      ``ingest`` : only add_parent_chunk (skip OCDBT populate)
+
+    ``_post_task_completion`` always runs so the layer's progress tracking
+    in redis stays consistent.
+
+    OCDBT populate runs FIRST so any failure aborts the task BEFORE graph
+    mutation; otherwise a half-built graph would force corrupt-state retries.
+    """
     imanager = _get_imanager()
 
-    # OCDBT populate runs FIRST so any failure here (coordinator missing,
-    # commit error, etc.) aborts the task BEFORE any graph mutation —
-    # otherwise an OCDBT failure could land after add_parent_chunk has
-    # already written parents, leaving the graph half-built and forcing
-    # corrupt-state retries.
-    if (
-        imanager.ocdbt_seg
-        and imanager.ocdbt_populate_base
-        and parent_layer == imanager.ocdbt_populate_layer
-    ):
+    do_ocdbt = mode in ("full", "ocdbt") and imanager.is_ocdbt_populate_layer(
+        parent_layer
+    )
+    do_ingest = mode in ("full", "ingest")
+
+    if do_ocdbt:
         ws = imanager.cg.meta.data_source.WATERSHED
         if not is_chunk_populated(ws, parent_layer, parent_coords):
             address = get_coordinator_address(imanager.redis)
@@ -84,16 +93,17 @@ def create_parent_chunk(
                 imanager, ws, parent_layer, parent_coords, coordinator_address=address
             )
 
-    add_parent_chunk(
-        imanager.cg,
-        parent_layer,
-        parent_coords,
-        get_children_chunk_coords(
-            imanager.cg_meta,
+    if do_ingest:
+        add_parent_chunk(
+            imanager.cg,
             parent_layer,
             parent_coords,
-        ),
-    )
+            get_children_chunk_coords(
+                imanager.cg_meta,
+                parent_layer,
+                parent_coords,
+            ),
+        )
 
     _post_task_completion(imanager, parent_layer, parent_coords)
 

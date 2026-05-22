@@ -65,6 +65,17 @@ class IngestionManager:
     def ocdbt_populate_layer(self) -> int:
         return int(self.ocdbt_config.get("populate_layer", 3))
 
+    def is_ocdbt_populate_layer(self, layer: int) -> bool:
+        """True iff OCDBT is enabled, base-populate is on, AND the given
+        layer matches the configured populate layer. Single guard for any
+        code that branches on 'should this layer touch OCDBT?'.
+        """
+        return (
+            self.ocdbt_seg
+            and self.ocdbt_populate_base
+            and layer == self.ocdbt_populate_layer
+        )
+
     def serialized(self, pickled=False):
         params = {
             "config": self._config,

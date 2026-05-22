@@ -5,6 +5,7 @@ cli for running ingest
 """
 
 import os
+from functools import partial
 from time import sleep
 
 from pychunkedgraph import configure_logging, DEBUG
@@ -81,10 +82,13 @@ def ingest_graph(
 ):
     """Main ingest command. Takes config from yaml, queues atomic tasks.
 
+    Purely about the bigtable graph: creates the table and enqueues L2
+    tasks. OCDBT base + fork creation happens in ``ingest layer N`` when
+    N matches ``ocdbt_populate_layer``; that's the single owner of the
+    OCDBT lifecycle.
+
     ``--retry`` reuses the existing IngestionManager from redis and skips
-    only ``cg.create()`` — everything else (OCDBT base + fork via
-    ``setup_base``, L2 enqueue) still runs, idempotently. Pair with
-    ``--skip-queue`` to perform setup without queueing any tasks.
+    ``cg.create()``. Pair with ``--skip-queue`` to skip L2 enqueue too.
     """
     redis = get_redis_connection()
     if test:
@@ -98,14 +102,6 @@ def ingest_graph(
                 f"Run without --retry to start a new job."
             )
         imanager = IngestionManager.from_pickle(imanager_pickle)
-        cg = imanager.cg
-        if imanager.ocdbt_seg:
-            # setup_base is idempotent — recreates the OCDBT base + info
-            # if absent (e.g. after `gcloud storage rm -r .../ocdbt/`),
-            # reconciles config with the on-disk meta, and forks the
-            # manifest for this CG. Bigtable is left alone.
-            resolved = setup_base(cg, OcdbtConfig.from_dict(imanager.ocdbt_config))
-            imanager.ocdbt_config = resolved.to_dict()
     else:
         if dataset is None:
             raise click.ClickException("dataset is required unless --retry is passed.")
@@ -117,10 +113,6 @@ def ingest_graph(
         )
         cg = ChunkedGraph(meta=meta, client_info=client_info)
         cg.create()
-        ocdbt_cfg = OcdbtConfig.from_dict(ocdbt_config_dict)
-        if ocdbt_cfg.enabled:
-            resolved = setup_base(cg, ocdbt_cfg)
-            ocdbt_config_dict = resolved.to_dict()
         imanager = IngestionManager(
             ingest_config,
             meta,
@@ -157,32 +149,84 @@ def pickle_imanager(graph_id: str, dataset: click.Path, raw: bool):
 
 @ingest_cli.command("layer")
 @click.argument("parent_layer", type=int)
+@click.option(
+    "--queue-only",
+    "-q",
+    is_flag=True,
+    help="Only enqueue tasks; do not start the OCDBT coordinator. "
+    "Use when a coordinator is already running in another process.",
+)
+@click.option(
+    "--ocdbt-only",
+    "-o",
+    is_flag=True,
+    help="Workers run only OCDBT populate (skip add_parent_chunk). "
+    "Requires the OCDBT populate layer.",
+)
+@click.option(
+    "--ingest-only",
+    "-i",
+    is_flag=True,
+    help="Workers run only add_parent_chunk (skip OCDBT populate). "
+    "Use when the OCDBT base is already populated for this layer.",
+)
 @job_type_guard(group_name)
-def queue_layer(parent_layer):
+def queue_layer(parent_layer, queue_only, ocdbt_only, ingest_only):
     """
     Queue all chunk tasks at a given layer.
     Must be used when all the chunks at `parent_layer - 1` have completed.
 
-    When this layer is the OCDBT populate layer, also start a
-    ``DistributedCoordinatorServer`` so every worker's commit routes through
-    one process — eliminates manifest-CAS races and orphan ``d/`` files.
-    Stays in the foreground until killed.
+    When this layer is the OCDBT populate layer, this command also owns the
+    OCDBT lifecycle: idempotently creates the base + fork via ``setup_base``
+    and starts a ``DistributedCoordinatorServer`` so every worker's commit
+    routes through one process (eliminates manifest-CAS races and orphan
+    ``d/`` files). Stays in the foreground until killed.
+
+    Flags:
+      ``--queue-only``  skips the coordinator (one is assumed running elsewhere).
+      ``--ocdbt-only``  task body = OCDBT populate only.
+      ``--ingest-only`` task body = add_parent_chunk only.
     """
     assert parent_layer > 2, "This command is for layers 3 and above."
+    if ocdbt_only and ingest_only:
+        raise click.ClickException(
+            "--ocdbt-only and --ingest-only are mutually exclusive."
+        )
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
 
-    if (
-        imanager.ocdbt_seg
-        and imanager.ocdbt_populate_base
-        and parent_layer == imanager.ocdbt_populate_layer
-    ):
+    is_populate_layer = imanager.is_ocdbt_populate_layer(parent_layer)
+    if ocdbt_only and not is_populate_layer:
+        raise click.ClickException(
+            "--ocdbt-only requires running at the OCDBT populate layer."
+        )
+
+    if is_populate_layer:
+        # Single owner of the OCDBT lifecycle: create base + fork if
+        # missing, reconcile config with on-disk meta, then re-pickle
+        # imanager so queued workers read the resolved config.
+        resolved = setup_base(imanager.cg, OcdbtConfig.from_dict(imanager.ocdbt_config))
+        imanager.ocdbt_config = resolved.to_dict()
+        imanager.redis.set(r_keys.INGESTION_MANAGER, imanager.serialized(pickled=True))
+
+    mode = "ocdbt" if ocdbt_only else ("ingest" if ingest_only else "full")
+    task_fn = (
+        partial(create_parent_chunk, mode=mode)
+        if mode != "full"
+        else create_parent_chunk
+    )
+
+    # Coordinator only matters when OCDBT populate will actually run.
+    needs_coordinator = (
+        is_populate_layer and mode in ("full", "ocdbt") and not queue_only
+    )
+    if needs_coordinator:
         with coordinator(imanager.redis):
-            queue_layer_helper(parent_layer, imanager, create_parent_chunk)
+            queue_layer_helper(parent_layer, imanager, task_fn)
             while True:
                 sleep(60)
     else:
-        queue_layer_helper(parent_layer, imanager, create_parent_chunk)
+        queue_layer_helper(parent_layer, imanager, task_fn)
 
 
 @ingest_cli.command("status")
