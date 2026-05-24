@@ -11,6 +11,7 @@ from cloudvolume import CloudVolume
 from pychunkedgraph.graph.ocdbt import (
     OcdbtConfig,
     build_cg_ocdbt_spec,
+    ensure_fork_synced,
     fork_exists,
     get_seg_source_and_destination_ocdbt,
     read_populate_meta,
@@ -195,6 +196,11 @@ class ChunkedGraphMeta:
                 f"ocdbt fork missing at {ws}/ocdbt/{self.graph_id}/ — "
                 "create it via fork_base_manifest or the seg_ocdbt notebook"
             )
+            # Refresh the fork manifest from base if it's stale and edit-free.
+            # See ensure_fork_synced docstring; without this, post-fork-creation
+            # populate writes to base are invisible through the kvstack view
+            # and reads return zeros.
+            ensure_fork_synced(ws, self.graph_id)
             _, self._ws_ocdbt_scales, self._ws_ocdbt_resolutions = (
                 get_seg_source_and_destination_ocdbt(
                     ws, self.graph_id, self.ocdbt_config

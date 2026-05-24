@@ -46,6 +46,7 @@ from .utils import (
     _read_source_scales,
     _schema_from_src,
     base_exists,
+    fork_exists,
 )
 
 logger = get_logger(__name__)
@@ -231,6 +232,57 @@ def fork_base_manifest(ws_path: str, graph_id: str, wipe_existing: bool = False)
     fork_kvs = ts.KvStore.open(fork_dir).result()
     manifest = base_kvs.read("manifest.ocdbt").result().value
     fork_kvs.write("manifest.ocdbt", manifest).result()
+
+
+def ensure_fork_synced(ws_path: str, graph_id: str) -> bool:
+    """Self-heal stale fork manifests by re-snapshotting from base.
+
+    ``setup_base`` calls ``fork_base_manifest`` once at graph creation —
+    before populate has committed most of its writes to base. Any base
+    commits after that don't propagate into the fork's manifest, so
+    kvstack-routed reads through the fork miss every chunk written to
+    base after fork creation. Symptom: meshing reads return all zeros.
+
+    This helper refreshes the fork's manifest from base whenever both
+    are true:
+      1. Fork's manifest differs from base's manifest (stale snapshot).
+      2. The fork's ``<graph_id>_d/`` data prefix is empty (no edits yet).
+
+    Edit-free is the safety guard: any SV-split write puts value/btree
+    files under that prefix BEFORE updating the fork manifest, so a
+    non-empty prefix means an edit either landed or is in flight, and
+    we must not overwrite the fork manifest in either case. With an
+    empty prefix the refresh is race-free vs concurrent populate (which
+    writes only to base, never to the fork).
+
+    Returns True if the fork manifest was refreshed.
+    """
+    if not fork_exists(ws_path, graph_id):
+        return False
+    base = _base_ocdbt_path(ws_path)
+    fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
+    base_kvs = ts.KvStore.open(base).result()
+    fork_kvs = ts.KvStore.open(fork_dir).result()
+    base_manifest = base_kvs.read("manifest.ocdbt").result().value
+    fork_manifest = fork_kvs.read("manifest.ocdbt").result().value
+    if base_manifest == fork_manifest:
+        return False
+    data_prefix = f"{graph_id}_d/"
+    edit_files = fork_kvs.list(
+        ts.KvStore.KeyRange(data_prefix, data_prefix[:-1] + chr(ord("/") + 1))
+    ).result()
+    if len(edit_files) > 0:
+        # Fork has edits; can't safely overwrite its manifest.
+        logger.warning(
+            f"fork {fork_dir} has {len(edit_files)} edit files but its "
+            f"manifest is stale vs base. Auto-refresh skipped to preserve "
+            f"edits. Call fork_base_manifest(..., wipe_existing=True) "
+            f"explicitly if you want to drop edits and re-snapshot."
+        )
+        return False
+    fork_kvs.write("manifest.ocdbt", base_manifest).result()
+    logger.note(f"refreshed fork manifest at {fork_dir} from base (no edits)")
+    return True
 
 
 def get_seg_source_and_destination_ocdbt(
