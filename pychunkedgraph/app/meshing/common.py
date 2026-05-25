@@ -15,7 +15,6 @@ from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
 from pychunkedgraph.meshing.manifest import get_children_before_start_layer
 from pychunkedgraph.meshing.manifest import ManifestCache
 
-
 __meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
 
 
@@ -180,3 +179,12 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
 def clear_manifest_cache(cg, node_id):
     node_ids = get_children_before_start_layer(cg, node_id, start_layer=2)
     ManifestCache(cg.graph_id).clear_fragments(node_ids)
+
+
+def clear_manifest_cache_all(cg) -> int:
+    """Delete every cached manifest fragment for this graph.
+
+    Returns the number of redis keys deleted across both initial and
+    dynamic caches (they share the ``<graph_id>:`` namespace).
+    """
+    return ManifestCache(cg.graph_id).clear_namespace()

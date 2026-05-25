@@ -1054,6 +1054,21 @@ class ChunkedGraph:
         assert len(layers) == 0 or np.all(layers == layers[0]), "must be same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
 
+    def get_chunk_center_voxel(self, node_or_chunk_id: basetypes.NODE_ID) -> np.ndarray:
+        """Approximate base-resolution voxel coord at the chunk's center.
+
+        Useful for debugging: feed the returned ``[x, y, z]`` to NGL's
+        position bar to navigate to where a chunk lives in the volume.
+        Layer L chunk side = ``CHUNK_SIZE * 2 ** (L - 2)`` base voxels.
+        """
+        layer = int(self.get_chunk_layer(node_or_chunk_id))
+        cx, cy, cz = self.get_chunk_coordinates(node_or_chunk_id)
+        chunk_size = np.asarray(self.meta.graph_config.CHUNK_SIZE, dtype=int) * (
+            2 ** (layer - 2)
+        )
+        origin = self.meta.voxel_bounds[:, 0] + np.array([cx, cy, cz]) * chunk_size
+        return (origin + chunk_size // 2).astype(int)
+
     def get_chunk_id(
         self,
         node_id: basetypes.NODE_ID = None,
