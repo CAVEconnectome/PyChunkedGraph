@@ -1,6 +1,11 @@
 # syntax=docker/dockerfile:1
 ARG PYTHON_VERSION=3.12
-ARG BASE_IMAGE=tiangolo/uwsgi-nginx-flask:python${PYTHON_VERSION}
+# Pin by digest. Without it, upstream rebuilds of the
+# `python3.12` tag invalidate the Stage-1 cache and pull in newer
+# transitive Python packages (e.g. importlib_metadata) that conflict
+# with our requirements.txt pins. Bump the digest manually when you
+# want to pull a fresher base.
+ARG BASE_IMAGE=tiangolo/uwsgi-nginx-flask:python${PYTHON_VERSION}@sha256:329d84f4cc50ccd14d60eb02384713b4ae8723eddefda9fda342c7c3f17cdcb1
 
 
 ######################################################
