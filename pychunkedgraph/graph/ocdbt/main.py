@@ -245,50 +245,42 @@ def fork_base_manifest(ws_path: str, graph_id: str, wipe_existing: bool = False)
 
 
 def ensure_fork_synced(ws_path: str, graph_id: str) -> bool:
-    """Self-heal stale fork manifests by re-snapshotting from base.
+    """Sync fork manifest to base — but only before the fork's first edit.
 
-    ``setup_base`` calls ``fork_base_manifest`` once at graph creation —
-    before populate has committed most of its writes to base. Any base
-    commits after that don't propagate into the fork's manifest, so
-    kvstack-routed reads through the fork miss every chunk written to
-    base after fork creation. Symptom: meshing reads return all zeros.
+    Invariant we enforce: a fresh, edit-free fork must reflect base's
+    *current* manifest at open time. ``setup_base`` calls
+    ``fork_base_manifest`` once at graph creation, possibly before
+    populate has committed most of its writes; any subsequent populate
+    commit to base would otherwise be invisible through the fork
+    (symptom: meshing reads return zeros). We close that window by
+    re-snapshotting on the first runtime open before any edit lands.
 
-    This helper refreshes the fork's manifest from base whenever both
-    are true:
-      1. Fork's manifest differs from base's manifest (stale snapshot).
-      2. The fork's ``<graph_id>_d/`` data prefix is empty (no edits yet).
+    Once the fork has any edit (anything under ``<graph_id>_d/``), the
+    function has no work to do: base is immutable post-setup, so the
+    fork manifest cannot fall behind in any way that matters — its
+    divergence from base is just the fork's own forward progress.
+    Edit files are stable, so listing the prefix is a sufficient
+    short-circuit and skips reading both manifests on every runtime
+    open.
 
-    Edit-free is the safety guard: any SV-split write puts value/btree
-    files under that prefix BEFORE updating the fork manifest, so a
-    non-empty prefix means an edit either landed or is in flight, and
-    we must not overwrite the fork manifest in either case. With an
-    empty prefix the refresh is race-free vs concurrent populate (which
-    writes only to base, never to the fork).
-
-    Returns True if the fork manifest was refreshed.
+    Returns True iff the fork manifest was refreshed.
     """
     if not fork_exists(ws_path, graph_id):
         return False
-    base = _base_ocdbt_path(ws_path)
     fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
-    base_kvs = ts.KvStore.open(base).result()
     fork_kvs = ts.KvStore.open(fork_dir).result()
-    base_manifest = base_kvs.read("manifest.ocdbt").result().value
-    fork_manifest = fork_kvs.read("manifest.ocdbt").result().value
-    if base_manifest == fork_manifest:
-        return False
     data_prefix = f"{graph_id}_d/"
     edit_files = fork_kvs.list(
         ts.KvStore.KeyRange(data_prefix, data_prefix[:-1] + chr(ord("/") + 1))
     ).result()
     if len(edit_files) > 0:
-        # Fork has edits; can't safely overwrite its manifest.
-        logger.warning(
-            f"fork {fork_dir} has {len(edit_files)} edit files but its "
-            f"manifest is stale vs base. Auto-refresh skipped to preserve "
-            f"edits. Call fork_base_manifest(..., wipe_existing=True) "
-            f"explicitly if you want to drop edits and re-snapshot."
-        )
+        # Steady state — fork has progressed forward by design.
+        return False
+    base = _base_ocdbt_path(ws_path)
+    base_kvs = ts.KvStore.open(base).result()
+    base_manifest = base_kvs.read("manifest.ocdbt").result().value
+    fork_manifest = fork_kvs.read("manifest.ocdbt").result().value
+    if base_manifest == fork_manifest:
         return False
     fork_kvs.write("manifest.ocdbt", base_manifest).result()
     logger.note(f"refreshed fork manifest at {fork_dir} from base (no edits)")
