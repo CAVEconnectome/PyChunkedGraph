@@ -113,7 +113,7 @@ Other `TENSORSTORE_*` vars exist (CA paths, S3/GCS concurrency, etc.) — grep t
 ## How this maps onto pychunkedgraph
 
 - `OcdbtConfig` (`pychunkedgraph/graph/ocdbt/meta.py`) → `compression: zstd 12`, `max_inline_value_bytes = 4 KiB`. The 4 KiB threshold keeps small metadata (info JSON, populate markers) inline while forcing every chunk value out-of-line into d/ files — this is what keeps cooperator RPCs under the 4 MiB gRPC ceiling.
-- `create_base_ocdbt` / `open_base_ocdbt` pass `config.ts_config()` so the same OCDBT config persists across opens.
+- `create_base_ocdbt` is the **only** path that embeds `config.ts_config()` in its kvstore spec — that write persists the values into `manifest.ocdbt`. Every open path (`open_base_ocdbt`, `build_cg_ocdbt_spec`) omits the `config` block: tensorstore would otherwise assert our in-code defaults against the on-disk manifest and raise `FAILED_PRECONDITION` on any drift, bricking every existing base. On-disk wins.
 - `populate_chunk` (`pychunkedgraph/ingest/ocdbt.py`) opens the base with `coordinator_address` (distributed mode).
 - `copy_ws_bbox_multiscale` uses **non-atomic** `ts.Transaction()` because of the distributed-mode constraint above.
 - `_dump_failure_to_gcs` writes JSON failure forensics when `ERROR_DUMP` env is set.

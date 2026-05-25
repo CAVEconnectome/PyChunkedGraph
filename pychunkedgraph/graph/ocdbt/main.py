@@ -126,7 +126,12 @@ def open_base_ocdbt(
     base = _base_ocdbt_path(ws_path)
     scales = _read_source_scales(ws_path)
     resolutions = [s["resolution"] for s in scales]
-    base_kvstore = {"driver": "ocdbt", "base": base, "config": config.ts_config()}
+    # No `config` block: the base already exists (created by
+    # `create_base_ocdbt`), so its on-disk manifest is authoritative.
+    # Embedding `config.ts_config()` here would assert our in-code
+    # defaults against whatever is persisted and raise
+    # FAILED_PRECONDITION on any drift.
+    base_kvstore = {"driver": "ocdbt", "base": base}
     if coordinator_address:
         base_kvstore["coordinator"] = {"address": coordinator_address}
 
@@ -193,13 +198,18 @@ def build_cg_ocdbt_spec(
         "base": _ensure_trailing_slash(fork_dir + data_prefix),
     }
 
+    # No `config` block: this spec opens an existing OCDBT (the shared
+    # base + this fork's manifest+data layers). Tensorstore validates
+    # every field of `config` against the on-disk manifest and raises
+    # FAILED_PRECONDITION on mismatch, so embedding our in-code defaults
+    # here would break any base that was created with different values
+    # (e.g. an older default for `max_inline_value_bytes`). On-disk wins.
     spec = {
         "driver": "ocdbt",
         "base": {
             "driver": "kvstack",
             "layers": [base_layer, fork_manifest_layer, fork_data_layer],
         },
-        "config": config.ts_config(),
         # Steer every kind of OCDBT write under `<graph_id>_d/` so the
         # fork_data_layer catches them.
         "value_data_prefix": data_prefix,
