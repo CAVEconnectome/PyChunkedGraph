@@ -30,6 +30,8 @@ from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
 from ..graph.ocdbt import OcdbtConfig
+from ..meshing.meta import MeshConfig
+from ..meshing.setup import setup_mesh_meta
 from ..utils.redis import get_redis_connection, keys as r_keys
 
 group_name = "ingest"
@@ -122,6 +124,29 @@ def ingest_graph(
     if not skip_queue:
         enqueue_l2_tasks(imanager, create_atomic_chunk)
     os._exit(0)
+
+
+@ingest_cli.command("mesh_meta")
+@click.argument("graph_id", type=str)
+@click.argument("dataset", type=click.Path(exists=True))
+@job_type_guard(group_name)
+def mesh_meta(graph_id: str, dataset: click.Path):
+    """Set up every mesh.* metadata field for GRAPH_ID from DATASET yaml.
+
+    Reads ``mesh_config:`` from the yaml, applies it to the graph. Run
+    once per new/copied graph, after the operator has verified initial
+    ingest (including the root layer) is complete — no automatic gate.
+    """
+    with open(dataset, "r") as stream:
+        config = yaml.safe_load(stream)
+    if "mesh_config" not in config:
+        raise click.ClickException(
+            f"{dataset} has no `mesh_config:` block — required for mesh_meta."
+        )
+    mesh_cfg = MeshConfig.from_dict(config["mesh_config"])
+    cg = ChunkedGraph(graph_id=graph_id)
+    result = setup_mesh_meta(cg, mesh_cfg)
+    click.echo(f"mesh meta written for {graph_id}: {result}")
 
 
 @ingest_cli.command("imanager")
