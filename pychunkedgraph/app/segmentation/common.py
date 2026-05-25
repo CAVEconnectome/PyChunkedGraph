@@ -106,11 +106,18 @@ def handle_info(table_id):
     combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
         "verify", False
     )
-    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", None)
+    mesh_meta = cg.meta.custom_data.get("mesh", {})
+    mesh_dir = mesh_meta.get("dir", None)
     if mesh_dir is not None:
         combined_info["mesh_dir"] = mesh_dir
     elif combined_info.get("mesh_dir", None) is not None:
         combined_info["mesh_dir"] = "graphene_meshes"
+    # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
+    # subdir explicitly. Default `"dynamic"` matches mesh_worker.py's
+    # fallback and NG's current hardcoded subdir name in graphene
+    # backend.ts (`${fragmentUrl}dynamic/<fragmentId>`). NG must read
+    # this info field before non-default values route correctly.
+    combined_info["dynamic_mesh_dir"] = mesh_meta.get("dynamic_mesh_dir", "dynamic")
     return jsonify(combined_info)
 
 

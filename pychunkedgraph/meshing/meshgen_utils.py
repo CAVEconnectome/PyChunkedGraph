@@ -145,7 +145,15 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    mesh_meta = cg.meta.custom_data.get("mesh", {})
+    info["mesh"] = mesh_meta.get("dir", "graphene_meshes")
+    # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
+    # subdir explicitly. Default `"dynamic"` matches the mesh worker's
+    # fallback and NG's current hardcoded subdir name — see the
+    # spelunker-ocdbt graphene backend (looks up
+    # `<fragmentUrl>dynamic/<fragmentId>`). NG must be patched to read
+    # this info field before non-default values route correctly.
+    info["dynamic_mesh_dir"] = mesh_meta.get("dynamic_mesh_dir", "dynamic")
     info_str = dumps(info)
     return loads(info_str)
 
