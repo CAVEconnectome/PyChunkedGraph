@@ -354,7 +354,12 @@ class TestCleanupPartialWrites:
                 "compressed_segmentation_block_size": [8, 8, 8],
             }
         ]
-        with patch.object(ocdbt_mod, "_read_source_scales", return_value=fake_scales):
+        # Patch the binding in `ocdbt.main` (where it's actually called).
+        # The package re-export in `ocdbt/__init__.py` is a separate name
+        # binding and patching it has no effect on main.py's local one.
+        with patch.object(
+            ocdbt_mod.main, "_read_source_scales", return_value=fake_scales
+        ):
             reverted = stuck_ops.cleanup_partial_writes(cg, op_id)
         assert reverted == 1
 

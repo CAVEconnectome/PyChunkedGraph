@@ -180,7 +180,7 @@ def gen_graph(request, bigtable_emulator, hbase_emulator):
             "ingest_config": {},
         }
 
-        meta, _, client_info = bootstrap("test", config=config)
+        meta, _, client_info, _ = bootstrap("test", config=config)
         graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
         graph.mock_edges = Edges([], [])
         graph.meta._ws_cv = CloudVolumeMock()
@@ -247,7 +247,7 @@ def gen_graph_with_edges(request, tmp_path, bigtable_emulator, hbase_emulator):
             "ingest_config": {},
         }
 
-        meta, _, client_info = bootstrap("test", config=config)
+        meta, _, client_info, _ = bootstrap("test", config=config)
         graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
         # No mock_edges - use real I/O via file:// protocol
         graph.meta._ws_cv = CloudVolumeMock()
