@@ -3,6 +3,7 @@
 import time
 import typing
 import datetime
+from copy import deepcopy
 from itertools import chain
 from functools import reduce
 
@@ -71,13 +72,20 @@ class ChunkedGraph:
         self._cache_service = None
         self.mock_edges = None  # hack for unit tests
 
-        # shim to update graph_id in meta for copied graphs
+        # Shim for copied bigtables: rewrite graph_id-bearing fields in one
+        # update_meta call. Bigtable row-copies preserve the source table's
+        # values for `graph_config.ID` and `custom_data["mesh"]["dynamic_mesh_dir"]`
+        # — left as-is, x0's edited meshes would alias clean's at the same
+        # fragment-id keys. `mesh.dir` (initial sharded meshes) is dataset-
+        # scoped and intentionally shared, so it's not rewritten here.
         if graph_id != self.graph_id:
             gc = self.meta.graph_config._asdict()
             gc["ID"] = graph_id
-            new_meta = ChunkedGraphMeta(
-                GraphConfig(**gc), self.meta.data_source, self.meta.custom_data
-            )
+            cd = deepcopy(self.meta.custom_data)
+            mesh = cd.get("mesh")
+            if mesh is not None and "dynamic_mesh_dir" in mesh:
+                mesh["dynamic_mesh_dir"] = f"dynamic_{graph_id}"
+            new_meta = ChunkedGraphMeta(GraphConfig(**gc), self.meta.data_source, cd)
             self.update_meta(new_meta, overwrite=True)
             self._meta = new_meta
 

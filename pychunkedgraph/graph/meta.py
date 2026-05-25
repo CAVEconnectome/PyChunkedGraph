@@ -12,6 +12,7 @@ from pychunkedgraph.graph.ocdbt import (
     OcdbtConfig,
     build_cg_ocdbt_spec,
     ensure_fork_synced,
+    fork_base_manifest,
     fork_exists,
     get_seg_source_and_destination_ocdbt,
     read_populate_meta,
@@ -192,10 +193,13 @@ class ChunkedGraphMeta:
         assert self.ocdbt_seg, "make sure this pcg has segmentation in ocdbt format"
         if self._ws_ocdbt_scales is None:
             ws = self.data_source.WATERSHED
-            assert fork_exists(ws, self.graph_id), (
-                f"ocdbt fork missing at {ws}/ocdbt/{self.graph_id}/ — "
-                "create it via fork_base_manifest or the seg_ocdbt notebook"
-            )
+            # Auto-create the fork on first open if missing — e.g. after a
+            # bigtable copy that gave us a new graph_id. Idempotent and
+            # race-safe: concurrent opens write identical base-manifest
+            # bytes to the same path. Can't race with an edit because an
+            # edit pre-supposes the fork exists.
+            if not fork_exists(ws, self.graph_id):
+                fork_base_manifest(ws, self.graph_id)
             # Refresh the fork manifest from base if it's stale and edit-free.
             # See ensure_fork_synced docstring; without this, post-fork-creation
             # populate writes to base are invisible through the kvstack view
