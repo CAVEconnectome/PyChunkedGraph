@@ -12,6 +12,7 @@ from pychunkedgraph import get_logger
 from . import attributes, exceptions, serializers
 from .types import empty_1d
 from .lineage import lineage_graph
+from .dry_run import is_dry_run
 
 logger = get_logger(__name__)
 
@@ -58,6 +59,9 @@ class RootLock:
         if not self.operation_id:
             self.operation_id = self.cg.id_client.create_operation_id()
 
+        if is_dry_run():
+            return self
+
         if self.privileged_mode:
             return self
 
@@ -83,6 +87,8 @@ class RootLock:
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
+        if is_dry_run():
+            return
         if self.lock_acquired:
             max_workers = min(8, max(1, len(self.locked_root_ids)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -139,6 +145,8 @@ class IndefiniteRootLock:
         self.future_root_ids_d = future_root_ids_d
 
     def __enter__(self):
+        if is_dry_run():
+            return self
         if self.privileged_mode:
             return self
         if not self.cg.client.renew_locks(self.root_ids, self.operation_id):
@@ -166,6 +174,8 @@ class IndefiniteRootLock:
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
+        if is_dry_run():
+            return
         if exception_type is not None:
             # Partial bigtable hierarchy writes may have landed before
             # the exception propagated. Keep the indefinite cells held
@@ -371,6 +381,8 @@ class L2ChunkLock:
         self.acquired_keys: list = []
 
     def __enter__(self):
+        if is_dry_run():
+            return self
         if self.privileged_mode:
             # Replay path: the crashed op's `IndefiniteL2ChunkLock` cells
             # are still set on these chunks (that's what's blocking new
@@ -408,6 +420,8 @@ class L2ChunkLock:
         )
 
     def __exit__(self, exception_type, exception_value, traceback):
+        if is_dry_run():
+            return
         self._release_acquired()
 
     def _release_acquired(self):
@@ -482,6 +496,8 @@ class IndefiniteL2ChunkLock:
         self.acquired_keys: list = []
 
     def __enter__(self):
+        if is_dry_run():
+            return self
         if self.privileged_mode:
             # Recovery path: crashed op's indefinite cells already exist
             # under this op_id. Populate acquired_keys so __exit__'s
@@ -507,6 +523,8 @@ class IndefiniteL2ChunkLock:
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
+        if is_dry_run():
+            return
         if exception_type is not None:
             # Partial OCDBT seg / bigtable SV-hierarchy writes may have
             # landed before the exception propagated. Leave the

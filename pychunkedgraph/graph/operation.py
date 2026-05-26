@@ -24,6 +24,7 @@ from . import edits
 from . import edits_sv
 from . import types
 from .ocdbt import write_seg_chunks
+from .dry_run import is_dry_run
 from pychunkedgraph.graph import attributes
 from .edges import Edges
 from .edges.utils import get_edges_status
@@ -448,7 +449,7 @@ class GraphEditOperation(ABC):
                 operation_ts=override_ts if override_ts else timestamp,
                 status=attributes.OperationLogs.StatusCodes.CREATED.value,
             )
-            self.cg.client.write([log_record_before_edit])
+            self._persist_rows([log_record_before_edit])
 
             try:
                 with TimeIt(f"{op_type}.apply", self.cg.graph_id, lock.operation_id):
@@ -456,7 +457,7 @@ class GraphEditOperation(ABC):
                         operation_id=lock.operation_id,
                         timestamp=override_ts if override_ts else timestamp,
                     )
-                if self.cg.meta.READ_ONLY:
+                if is_dry_run():
                     # return without persisting changes
                     return GraphEditOperation.Result(
                         operation_id=lock.operation_id,
@@ -484,7 +485,7 @@ class GraphEditOperation(ABC):
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
                     exception=repr(err),
                 )
-                self.cg.client.write([log_record_error])
+                self._persist_rows([log_record_error])
                 raise Exception(err) from err
 
             with TimeIt(f"{op_type}.write", self.cg.graph_id, lock.operation_id):
@@ -554,6 +555,12 @@ class GraphEditOperation(ABC):
             # to None via the Result namedtuple's default).
             seg_bbox=getattr(self, "seg_bboxes", None) or None,
         )
+
+    def _persist_rows(self, rows):
+        """Persist BT mutation rows; no-op under ``PCG_DRY_RUN=1``."""
+        if is_dry_run():
+            return
+        self.cg.client.write(rows)
 
 
 class MergeOperation(GraphEditOperation):
@@ -964,7 +971,7 @@ class MulticutOperation(GraphEditOperation):
                     privileged_mode=self.privileged_mode,
                 ):
                     write_seg_chunks(self.cg.meta, sv_result.seg_writes)
-                    self.cg.client.write(sv_result.bigtable_rows)
+                    self._persist_rows(sv_result.bigtable_rows)
             self.seg_bboxes = sv_result.seg_bboxes
             self.source_ids = sv_result.source_ids_fresh
             self.sink_ids = sv_result.sink_ids_fresh

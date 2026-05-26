@@ -39,6 +39,7 @@ from pychunkedgraph import get_logger
 
 from .debug import bbox_failure_payload, dump_failure_to_gcs
 from .meta import OcdbtConfig
+from ..dry_run import is_dry_run
 from .utils import (
     _base_ocdbt_path,
     _ensure_trailing_slash,
@@ -570,6 +571,8 @@ def write_seg_chunks(meta, seg_writes):
             L2 chunk's x/y/z extent and ``data`` is the 3D label block
             (shape matches the slice extents).
     """
+    if is_dry_run():
+        return
     futures = [
         meta.ws_ocdbt[voxel_slices + (slice(None),)].write(data[..., np.newaxis])
         for voxel_slices, data in seg_writes
