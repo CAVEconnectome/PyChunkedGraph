@@ -14,6 +14,7 @@ without re-running the prior stages.
 import hashlib
 import json
 import pickle
+import sys
 import tempfile
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
@@ -131,6 +132,22 @@ def count_io(cg):
         cg.client.read_log_entries = orig_read_log
         for m, fn in orig_seg_fns.items():
             m.get_local_segmentation = fn
+
+
+def profile_call(cg, name, fn, *args, **kwargs):
+    """Profile a single callable under dry-run with IO counters.
+
+    Standalone replay helper for per-stage profiling (e.g. after
+    editing a single function's source). Opens ``dry_run_scope`` +
+    ``count_io``, runs ``profiler.profile(name, with_memory=True,
+    with_rss=True, counters=counters)`` around ``fn(*args, **kwargs)``,
+    returns ``(profiler, result)``. The profiler has exactly one block.
+    """
+    profiler = HierarchicalProfiler(enabled=True)
+    with dry_run_scope(), count_io(cg) as counters:
+        with profiler.profile(name, with_memory=True, with_rss=True, counters=counters):
+            result = fn(*args, **kwargs)
+    return profiler, result
 
 
 def build_op(
@@ -300,14 +317,26 @@ def run_split_profile(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInp
         edits_sv.split_supervoxels = wrap_split_supervoxels
         edits.remove_edges = wrap_remove_edges
 
+        exec_exc: Optional[BaseException] = None
         try:
             op.execute()
+        except Exception as e:
+            exec_exc = e
+            print(
+                f"[split_profile] op.execute() raised " f"{type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
         finally:
             MulticutOperation._run_multicut = orig_run_multicut
             edits_sv.plan_sv_splits = orig_plan_sv_splits
             edits_sv.split_supervoxels = orig_split_supervoxels
             edits.remove_edges = orig_remove_edges
 
-    target = _save_run(cg, payload, profiler, inputs)
-    print(f"[split_profile] run cached at {target}")
+    # Always try to save what's been captured so far, even on exception.
+    # Wrapped so a save failure doesn't mask the original exec_exc.
+    try:
+        target = _save_run(cg, payload, profiler, inputs)
+        print(f"[split_profile] run cached at {target}")
+    except Exception as save_err:
+        print(f"[split_profile] cache save failed: {save_err}", file=sys.stderr)
     return profiler, inputs

@@ -14,6 +14,37 @@ from dataclasses import dataclass, field
 import psutil
 
 
+def _fmt_time(s: float) -> str:
+    """Auto-scale seconds → ``12.3 ms`` / ``1.23 s``."""
+    if s < 1.0:
+        return f"{s * 1000:.1f} ms"
+    return f"{s:.2f} s"
+
+
+def _fmt_bytes(n: int, *, signed: bool = False) -> str:
+    """Auto-scale bytes (binary) → ``512 B`` / ``1.5 KB`` / ``45.6 MB`` / ``1.23 GB``.
+
+    With ``signed=True``, positive values get a ``+`` prefix (for delta columns).
+    """
+    if signed:
+        sign = "+" if n > 0 else "-" if n < 0 else ""
+    else:
+        sign = "-" if n < 0 else ""
+    n = abs(int(n))
+    if n < 1024:
+        return f"{sign}{n} B"
+    if n < 1024**2:
+        return f"{sign}{n / 1024:.1f} KB"
+    if n < 1024**3:
+        return f"{sign}{n / 1024**2:.1f} MB"
+    return f"{sign}{n / 1024**3:.2f} GB"
+
+
+def _fmt_count(n: int) -> str:
+    """Thousands-separator integer: ``1234567`` → ``1,234,567``."""
+    return f"{int(n):,}"
+
+
 @dataclass
 class BlockMetrics:
     """Per-block metrics captured by HierarchicalProfiler.profile()."""
@@ -215,15 +246,18 @@ class HierarchicalProfiler:
         print("=" * 80 + "\n")
 
     def metrics_report(self, operation_id=None) -> None:
-        """Print a fixed-width table over self.blocks (memory + IO view).
+        """Print a compact, human-readable table over self.blocks.
 
-        Columns: path, elapsed_s, py_peak_MB, rss_start_MB, rss_peak_MB,
-        plus one column per counter key that appears in any block.
+        Columns: stage, wall, py_peak, rss_Δ (signed), plus one column
+        per counter key that has a non-zero value in at least one block.
         Counterpart to print_report (which covers timing-only).
         """
         if not self.enabled or not self.blocks:
             return
 
+        # Collect counter keys in first-seen order; drop ones that are
+        # zero in every block (e.g., bt_log_reads is usually 0 for SV
+        # splits and only adds noise).
         counter_keys: List[str] = []
         seen_keys: set = set()
         for b in self.blocks:
@@ -231,45 +265,48 @@ class HierarchicalProfiler:
                 if k not in seen_keys:
                     seen_keys.add(k)
                     counter_keys.append(k)
+        counter_keys = [
+            k
+            for k in counter_keys
+            if any(b.counter_deltas.get(k, 0) for b in self.blocks)
+        ]
 
-        cols = [
-            "path",
-            "elapsed_s",
-            "py_peak_MB",
-            "rss_start_MB",
-            "rss_peak_MB",
-        ] + counter_keys
-        widths = [len(c) for c in cols]
+        cols = ["stage", "wall", "py_peak", "rss_Δ"] + counter_keys
+
+        def fmt_counter(key: str, val: int) -> str:
+            if key.endswith("_bytes"):
+                return _fmt_bytes(val)
+            return _fmt_count(val)
+
         rows: List[List[str]] = []
         for b in self.blocks:
             row = [
                 b.path,
-                f"{b.elapsed_s:.3f}",
-                f"{b.py_heap_peak_bytes / 1e6:.1f}",
-                f"{b.rss_start_bytes / 1e6:.1f}",
-                f"{b.rss_peak_bytes / 1e6:.1f}",
+                _fmt_time(b.elapsed_s),
+                _fmt_bytes(b.py_heap_peak_bytes),
+                _fmt_bytes(b.rss_peak_bytes - b.rss_start_bytes, signed=True),
             ]
             for k in counter_keys:
-                row.append(str(b.counter_deltas.get(k, 0)))
+                row.append(fmt_counter(k, b.counter_deltas.get(k, 0)))
             rows.append(row)
+
+        widths = [len(c) for c in cols]
         for row in rows:
             for i, v in enumerate(row):
                 if len(v) > widths[i]:
                     widths[i] = len(v)
 
-        def fmt(values: List[str]) -> str:
+        def line(values: List[str]) -> str:
             return "  ".join(v.ljust(widths[i]) for i, v in enumerate(values))
 
-        print("\n" + "=" * 80)
-        print(
-            f"METRICS REPORT{f' (operation_id={operation_id})' if operation_id else ''}"
-        )
-        print("=" * 80)
-        print(fmt(cols))
-        print(fmt(["-" * w for w in widths]))
+        title = "metrics report"
+        if operation_id is not None:
+            title = f"{title} (operation_id={operation_id})"
+        print(title)
+        print(line(cols))
+        print(line(["-" * w for w in widths]))
         for row in rows:
-            print(fmt(row))
-        print("=" * 80 + "\n")
+            print(line(row))
 
     def reset(self):
         """Reset all timing data."""

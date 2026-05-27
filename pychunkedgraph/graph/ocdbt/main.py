@@ -266,6 +266,8 @@ def ensure_fork_synced(ws_path: str, graph_id: str) -> bool:
 
     Returns True iff the fork manifest was refreshed.
     """
+    if is_dry_run():
+        return False
     if not fork_exists(ws_path, graph_id):
         return False
     fork_dir = _ensure_trailing_slash(f"{ws_path.rstrip('/')}/ocdbt/{graph_id}")
