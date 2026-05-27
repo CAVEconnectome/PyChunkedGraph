@@ -104,21 +104,36 @@ class HierarchicalProfiler:
     profile(); see BlockMetrics for the captured fields.
     """
 
-    def __init__(self, enabled: bool = True):
+    def __init__(
+        self,
+        enabled: bool = True,
+        *,
+        with_memory: bool = True,
+        with_rss: bool = True,
+    ):
         self.enabled = enabled
         self.timings: Dict[str, List[float]] = defaultdict(list)
         self.call_counts: Dict[str, int] = defaultdict(int)
         self.stack: List[Tuple[str, float]] = []
         self.current_path: List[str] = []
         self.blocks: List[BlockMetrics] = []
+        # Per-instance defaults so inline profile() call sites stay short
+        # (no per-block kwargs). Callers can override per-call.
+        self.with_memory_default = with_memory
+        self.with_rss_default = with_rss
+        # Optional caller-set default counters dict used when profile()
+        # is called without an explicit `counters=` kwarg. Lets inline
+        # profile() blocks in production code pick up an outer harness's
+        # IO counters without needing to thread them through.
+        self.default_counters: Optional[Dict[str, int]] = None
 
     @contextmanager
     def profile(
         self,
         name: str,
         *,
-        with_memory: bool = False,
-        with_rss: bool = False,
+        with_memory: Optional[bool] = None,
+        with_rss: Optional[bool] = None,
         counters: Optional[Dict[str, int]] = None,
     ):
         """Context manager for profiling a code block.
@@ -136,6 +151,13 @@ class HierarchicalProfiler:
         if not self.enabled:
             yield
             return
+
+        if with_memory is None:
+            with_memory = self.with_memory_default
+        if with_rss is None:
+            with_rss = self.with_rss_default
+        if counters is None:
+            counters = self.default_counters
 
         full_path = ".".join(self.current_path + [name])
         self.current_path.append(name)

@@ -19,6 +19,8 @@ from skimage.morphology import (
     ball,
 )  # keep only ball; use ndi.binary_dilation everywhere
 
+from pychunkedgraph.debug.profiler import get_profiler
+
 # ---------- Fast CC wrappers ----------
 try:
     import cc3d
@@ -1270,52 +1272,55 @@ def split_supervoxel_helper(
 ):
     voxel_size = np.array(voxel_size)
     downsample = voxel_size.max() // voxel_size
+    _prof = get_profiler()
 
     # 1) Connect seed teams first
-    A_aug, B_aug, okA, okB = connect_both_seeds_via_ridge(
-        binary_seg,
-        source_coords,
-        sink_coords,
-        voxel_size=voxel_size,
-        downsample=downsample,
-        vol_order="xyz",
-        vox_order="xyz",
-        seed_order="xyz",
-        snap_method="kdtree",
-        snap_kwargs=dict(
-            use_boundary=False,  # disables boundary-only snapping for maximum safety
-            downsample=False,  # avoids losing candidates
-            method="kdtree",
-        ),
-        verbose=verbose,
-    )
+    with _prof.profile("connect_seeds"):
+        A_aug, B_aug, okA, okB = connect_both_seeds_via_ridge(
+            binary_seg,
+            source_coords,
+            sink_coords,
+            voxel_size=voxel_size,
+            downsample=downsample,
+            vol_order="xyz",
+            vox_order="xyz",
+            seed_order="xyz",
+            snap_method="kdtree",
+            snap_kwargs=dict(
+                use_boundary=False,  # disables boundary-only snapping for maximum safety
+                downsample=False,  # avoids losing candidates
+                method="kdtree",
+            ),
+            verbose=verbose,
+        )
     if not (okA and okB):
         raise RuntimeError(
             "In-mask connection failed for at least one team; skipping split."
         )
 
     # 2) Run the corridor-free splitter with same snapping settings
-    return split_supervoxel_growing(
-        binary_seg,
-        A_aug,
-        B_aug,
-        voxel_size=voxel_size,
-        vol_order="xyz",
-        vox_order="xyz",
-        seed_order="xyz",
-        halo=1,
-        gamma_neck=1.6,
-        narrow_band_rel=0.08,
-        nb_dilate=1,
-        downsample_geodesic=(1, 2, 2),
-        enforce_single_cc=True,
-        raise_if_seed_split=True,
-        raise_if_multi_cc=True,
-        verbose=verbose,
-        snap_method="kdtree",
-        snap_kwargs=dict(
-            use_boundary=False,  # match the connector for consistency
-            downsample=False,
-            method="kdtree",
-        ),
-    )
+    with _prof.profile("split_growing"):
+        return split_supervoxel_growing(
+            binary_seg,
+            A_aug,
+            B_aug,
+            voxel_size=voxel_size,
+            vol_order="xyz",
+            vox_order="xyz",
+            seed_order="xyz",
+            halo=1,
+            gamma_neck=1.6,
+            narrow_band_rel=0.08,
+            nb_dilate=1,
+            downsample_geodesic=(1, 2, 2),
+            enforce_single_cc=True,
+            raise_if_seed_split=True,
+            raise_if_multi_cc=True,
+            verbose=verbose,
+            snap_method="kdtree",
+            snap_kwargs=dict(
+                use_boundary=False,  # match the connector for consistency
+                downsample=False,
+                method="kdtree",
+            ),
+        )

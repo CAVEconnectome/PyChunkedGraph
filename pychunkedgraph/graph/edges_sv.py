@@ -38,6 +38,7 @@ import fastremap
 import numpy as np
 
 from pychunkedgraph import get_logger
+from pychunkedgraph.debug.profiler import get_profiler
 from pychunkedgraph.graph import attributes, basetypes, serializers
 from pychunkedgraph.graph.exceptions import PostconditionError
 from scipy.spatial import cKDTree
@@ -351,52 +352,61 @@ def update_edges(
     new_id_label_map: dict = None,
 ):
     old_new_map = dict(old_new_map)
+    _prof = get_profiler()
     t0 = time.time()
-    coords_by_label = build_coords_by_label(new_seg)
-    new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
-    new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
+    with _prof.profile("build_coords"):
+        coords_by_label = build_coords_by_label(new_seg)
+    with _prof.profile("kdtrees"):
+        new_ids = np.array(
+            list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID
+        )
+        new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
     logger.note(
         f"build_coords {len(coords_by_label)} labels, {len(new_ids)} fragment trees ({time.time() - t0:.2f}s)"
     )
 
     t0 = time.time()
-    _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
-    edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
+    with _prof.profile("get_subgraph"):
+        _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
+        edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
     logger.note(
         f"get_subgraph {len(edges_.get_pairs())} edges ({time.time() - t0:.2f}s)"
     )
 
-    edges = edges_.get_pairs()
-    affinities = edges_.affinities
-    areas = edges_.areas
+    with _prof.profile("edge_dedup"):
+        edges = edges_.get_pairs()
+        affinities = edges_.affinities
+        areas = edges_.areas
 
-    edges = np.sort(edges, axis=1)
-    _, edges_idx = np.unique(edges, axis=0, return_index=True)
-    edges_idx = edges_idx[edges[edges_idx, 0] != edges[edges_idx, 1]]
+        edges = np.sort(edges, axis=1)
+        _, edges_idx = np.unique(edges, axis=0, return_index=True)
+        edges_idx = edges_idx[edges[edges_idx, 0] != edges[edges_idx, 1]]
 
-    edges = edges[edges_idx]
-    affinities = affinities[edges_idx]
-    areas = areas[edges_idx]
+        edges = edges[edges_idx]
+        affinities = affinities[edges_idx]
+        areas = areas[edges_idx]
 
     t0 = time.time()
-    all_edge_svs = np.unique(edges)
-    all_roots = cg.get_roots(all_edge_svs)
-    sv_root_map = dict(zip(all_edge_svs, all_roots))
+    with _prof.profile("get_roots_inner"):
+        all_edge_svs = np.unique(edges)
+        all_roots = cg.get_roots(all_edge_svs)
+        sv_root_map = dict(zip(all_edge_svs, all_roots))
     logger.note(f"get_roots {len(all_edge_svs)} svs ({time.time() - t0:.2f}s)")
 
     t0 = time.time()
-    result = _get_new_edges(
-        (edges, affinities, areas),
-        old_new_map,
-        coords_by_label,
-        root_id,
-        sv_root_map,
-        cg,
-        new_kdtrees,
-        new_ids,
-        new_id_label_map,
-        threshold=cg.meta.sv_split_threshold,
-    )
+    with _prof.profile("_get_new_edges"):
+        result = _get_new_edges(
+            (edges, affinities, areas),
+            old_new_map,
+            coords_by_label,
+            root_id,
+            sv_root_map,
+            cg,
+            new_kdtrees,
+            new_ids,
+            new_id_label_map,
+            threshold=cg.meta.sv_split_threshold,
+        )
     logger.note(f"_get_new_edges {result[0].shape} ({time.time() - t0:.2f}s)")
 
     validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)

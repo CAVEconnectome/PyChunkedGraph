@@ -12,6 +12,7 @@ import fastremap
 import numpy as np
 
 from pychunkedgraph import get_logger
+from pychunkedgraph.debug.profiler import get_profiler
 from pychunkedgraph.graph import (
     attributes,
     cache as cache_utils,
@@ -424,8 +425,10 @@ def split_supervoxel(
     # new fragments.
     bbs_ = np.clip(bbs - 1, vol_start, vol_end)
     bbe_ = np.clip(bbe + 1, vol_start, vol_end)
+    _prof = get_profiler()
     t0 = time.time()
-    seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
+    with _prof.profile("seg_read"):
+        seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
     logger.note(f"segmentation read {seg.shape} ({time.time() - t0:.2f}s)")
 
     # Narrow the rep to pieces actually present in the bbox seg. Pieces
@@ -441,32 +444,36 @@ def split_supervoxel(
         f"({len(rep_pieces) - len(cut_supervoxels)} rep pieces outside bbox)"
     )
 
-    binary_seg = np.isin(seg, supervoxel_ids)
-    voxel_overlap_crop = _voxel_crop(bbs, bbe, bbs_, bbe_)
+    with _prof.profile("binary_seg"):
+        binary_seg = np.isin(seg, supervoxel_ids)
+        voxel_overlap_crop = _voxel_crop(bbs, bbe, bbs_, bbe_)
     t0 = time.time()
-    split_result = split_supervoxel_helper(
-        binary_seg[voxel_overlap_crop],
-        source_coords - bbs,
-        sink_coords - bbs,
-        cg.meta.resolution,
-        verbose=verbose,
-    )
+    with _prof.profile("geodesic_split"):
+        split_result = split_supervoxel_helper(
+            binary_seg[voxel_overlap_crop],
+            source_coords - bbs,
+            sink_coords - bbs,
+            cg.meta.resolution,
+            verbose=verbose,
+        )
     logger.note(f"split computation {split_result.shape} ({time.time() - t0:.2f}s)")
 
     chunks_bbox_map = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
     t0 = time.time()
-    results, change_chunks = _update_chunks(
-        cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
-    )
+    with _prof.profile("chunk_updates"):
+        results, change_chunks = _update_chunks(
+            cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
+        )
     logger.note(
         f"chunk updates {len(chunks_bbox_map)} chunks, "
         f"{len(change_chunks)} with splits ({time.time() - t0:.2f}s)"
     )
 
-    seg_cropped = seg[voxel_overlap_crop].copy()
-    new_seg, old_new_map, new_id_label_map = _parse_results(
-        results, seg_cropped, bbs, bbe
-    )
+    with _prof.profile("parse_results"):
+        seg_cropped = seg[voxel_overlap_crop].copy()
+        new_seg, old_new_map, new_id_label_map = _parse_results(
+            results, seg_cropped, bbs, bbe
+        )
     logger.note(
         f"old_new_map: {len(old_new_map)} SVs split, whole_sv: {len(cut_supervoxels)} SVs"
     )
@@ -474,31 +481,36 @@ def split_supervoxel(
     if unsplit:
         logger.note(f"unsplit SVs (kept IDs): {unsplit}")
 
-    sv_ids = fastremap.unique(seg)
-    roots = cg.get_roots(sv_ids)
-    sv_root_map = dict(zip(sv_ids, roots))
+    with _prof.profile("get_roots"):
+        sv_ids = fastremap.unique(seg)
+        roots = cg.get_roots(sv_ids)
+        sv_root_map = dict(zip(sv_ids, roots))
     root = sv_root_map[sv_id]
     logger.note(f"{sv_id} -> {root}")
 
-    root_mask = fastremap.remap(seg, sv_root_map, in_place=False) == root
-    seg[~root_mask] = 0
-    sv_ids = fastremap.unique(seg)
-    seg[voxel_overlap_crop] = new_seg
+    with _prof.profile("remap_to_root"):
+        root_mask = fastremap.remap(seg, sv_root_map, in_place=False) == root
+        seg[~root_mask] = 0
+        sv_ids = fastremap.unique(seg)
+        seg[voxel_overlap_crop] = new_seg
     t0 = time.time()
-    edges_tuple = update_edges(
-        cg,
-        root,
-        np.array([bbs, bbe]),
-        seg,
-        old_new_map,
-        new_id_label_map,
-    )
+    with _prof.profile("update_edges"):
+        edges_tuple = update_edges(
+            cg,
+            root,
+            np.array([bbs, bbe]),
+            seg,
+            old_new_map,
+            new_id_label_map,
+        )
     logger.note(f"edge update ({time.time() - t0:.2f}s)")
 
-    rows0 = copy_parents_and_add_lineage(
-        cg, operation_id, old_new_map, time_stamp=time_stamp
-    )
-    rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
+    with _prof.profile("copy_parents"):
+        rows0 = copy_parents_and_add_lineage(
+            cg, operation_id, old_new_map, time_stamp=time_stamp
+        )
+    with _prof.profile("add_new_edges"):
+        rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
     rows = rows0 + rows1
 
     # Prepare per-chunk OCDBT write payloads. The caller batches these

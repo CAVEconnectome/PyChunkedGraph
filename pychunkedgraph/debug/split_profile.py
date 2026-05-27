@@ -14,6 +14,7 @@ without re-running the prior stages.
 import hashlib
 import json
 import pickle
+import shutil
 import sys
 import tempfile
 from contextlib import contextmanager, redirect_stdout
@@ -25,8 +26,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from pychunkedgraph.app.segmentation.common import _get_sources_and_sinks
-from pychunkedgraph.debug.profiler import HierarchicalProfiler
-from pychunkedgraph.graph import edits, edits_sv
+from pychunkedgraph.debug.profiler import (
+    HierarchicalProfiler,
+    get_profiler,
+)
+from pychunkedgraph.graph import edits_sv
 from pychunkedgraph.graph import utils as _utils_pkg
 from pychunkedgraph.graph.dry_run import dry_run_scope
 from pychunkedgraph.graph.operation import Cut, MulticutOperation, SvSplitRequired
@@ -145,7 +149,7 @@ def profile_call(cg, name, fn, *args, **kwargs):
     """
     profiler = HierarchicalProfiler(enabled=True)
     with dry_run_scope(), count_io(cg) as counters:
-        with profiler.profile(name, with_memory=True, with_rss=True, counters=counters):
+        with profiler.profile(name, counters=counters):
             result = fn(*args, **kwargs)
     return profiler, result
 
@@ -226,19 +230,37 @@ def load_run(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInputs]:
     return profiler, inputs
 
 
-def run_split_profile(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInputs]:
-    """Full-flow SV-split harness: dry-run, count IO, profile stages.
+def run_split_profile(
+    cg, payload: dict, *, overwrite: bool = False
+) -> Tuple[HierarchicalProfiler, SplitInputs]:
+    """Drive an SV split under dry-run with per-stage metrics captured.
 
-    Returns ``(profiler, inputs)``. The profiler holds per-stage
-    ``BlockMetrics`` rows in ``profiler.blocks``; ``inputs`` holds the
-    intermediate value captured at each stage so the user can replay
-    a single stage standalone.
+    Returns ``(profiler, inputs)``. Uses the global profiler so inline
+    ``get_profiler().profile()`` blocks inside the SV-split call path
+    are captured automatically. ``inputs`` holds each stage's
+    intermediate values for standalone replay.
 
-    Writes the run to ``run_dir(cg, payload)`` on completion and prints
-    the cache path so the user can ``cp -r`` it to keep before the OS
-    tmp policy reclaims it.
+    ``overwrite=True`` wipes any existing cached run for this payload
+    before starting.
+
+    Always writes a cache (profiler + inputs + metrics.txt) to
+    ``run_dir(cg, payload)`` on completion — even when ``op.execute()``
+    raises — and prints the cache path.
     """
-    profiler = HierarchicalProfiler(enabled=True)
+    target_dir = run_dir(cg, payload)
+    if target_dir.exists():
+        if overwrite:
+            shutil.rmtree(target_dir)
+        else:
+            raise FileExistsError(
+                f"cached run already exists at {target_dir}; "
+                "pass overwrite=True to wipe and re-run, or "
+                "load_run(cg, payload) to read it"
+            )
+
+    profiler = get_profiler()
+    profiler.reset()
+    profiler.enabled = True
     inputs = SplitInputs()
 
     op = build_op(cg, payload)
@@ -248,26 +270,20 @@ def run_split_profile(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInp
     inputs.sink_coords = op.sink_coords
 
     with dry_run_scope(), count_io(cg) as counters:
-        # Snapshot originals before patching so the finally block can
-        # restore them even if op.execute() raises.
+        profiler.default_counters = counters
+
+        # Capture-only wrappers for SplitInputs replay — no profile()
+        # blocks. The real per-step metrics come from inline profile()
+        # blocks inside the called functions.
         orig_run_multicut = MulticutOperation._run_multicut
         orig_plan_sv_splits = edits_sv.plan_sv_splits
         orig_split_supervoxels = edits_sv.split_supervoxels
-        orig_remove_edges = edits.remove_edges
 
-        # _run_multicut is called twice (initial + post-SV-split retry).
-        # The counter distinguishes the two block names.
         mincut_call_count = [0]
 
-        # Class-method patch — MulticutOperation uses __slots__, so
-        # instance patching raises AttributeError.
         def wrap_run_multicut(self_op, operation_id):
+            result = orig_run_multicut(self_op, operation_id)
             mincut_call_count[0] += 1
-            name = f"mincut_{mincut_call_count[0]}"
-            with profiler.profile(
-                name, with_memory=True, with_rss=True, counters=counters
-            ):
-                result = orig_run_multicut(self_op, operation_id)
             if mincut_call_count[0] == 1 and isinstance(result, SvSplitRequired):
                 inputs.sv_remapping = result.sv_remapping
             elif isinstance(result, Cut):
@@ -275,53 +291,26 @@ def run_split_profile(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInp
             return result
 
         def wrap_plan_sv_splits(*a, **k):
-            with profiler.profile(
-                "plan_sv_splits",
-                with_memory=True,
-                with_rss=True,
-                counters=counters,
-            ):
-                result = orig_plan_sv_splits(*a, **k)
+            result = orig_plan_sv_splits(*a, **k)
             inputs.plan_tasks, inputs.plan_chunk_ids = result
             return result
 
         def wrap_split_supervoxels(*a, **k):
-            # split_supervoxels uses keyword-only args; operation_id and
-            # timestamp aren't otherwise exposed on the op, so capture
-            # them here for standalone replay.
             if "operation_id" in k:
                 inputs.operation_id = k["operation_id"]
             if "timestamp" in k:
                 inputs.timestamp = k["timestamp"]
-            with profiler.profile(
-                "split_supervoxels",
-                with_memory=True,
-                with_rss=True,
-                counters=counters,
-            ):
-                result = orig_split_supervoxels(*a, **k)
+            result = orig_split_supervoxels(*a, **k)
             inputs.sv_result = result
             return result
-
-        def wrap_remove_edges(*a, **k):
-            with profiler.profile(
-                "remove_edges",
-                with_memory=True,
-                with_rss=True,
-                counters=counters,
-            ):
-                return orig_remove_edges(*a, **k)
 
         MulticutOperation._run_multicut = wrap_run_multicut
         edits_sv.plan_sv_splits = wrap_plan_sv_splits
         edits_sv.split_supervoxels = wrap_split_supervoxels
-        edits.remove_edges = wrap_remove_edges
 
-        exec_exc: Optional[BaseException] = None
         try:
             op.execute()
         except Exception as e:
-            exec_exc = e
             print(
                 f"[split_profile] op.execute() raised " f"{type(e).__name__}: {e}",
                 file=sys.stderr,
@@ -330,10 +319,12 @@ def run_split_profile(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInp
             MulticutOperation._run_multicut = orig_run_multicut
             edits_sv.plan_sv_splits = orig_plan_sv_splits
             edits_sv.split_supervoxels = orig_split_supervoxels
-            edits.remove_edges = orig_remove_edges
+            profiler.default_counters = None
 
-    # Always try to save what's been captured so far, even on exception.
-    # Wrapped so a save failure doesn't mask the original exec_exc.
+    # Disable so the global profiler is a no-op for callers outside
+    # this harness (production code paths included).
+    profiler.enabled = False
+
     try:
         target = _save_run(cg, payload, profiler, inputs)
         print(f"[split_profile] run cached at {target}")
