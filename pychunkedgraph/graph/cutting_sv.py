@@ -393,6 +393,8 @@ def connect_both_seeds_via_ridge(
         if verbose:
             print(msg, flush=True)
 
+    _prof = get_profiler()
+
     def _bbox_pad_zyx(points_zyx, shape, pad=(24, 48, 48)):
         pts = np.asarray(points_zyx, int)
         if pts.size == 0:
@@ -485,8 +487,9 @@ def connect_both_seeds_via_ridge(
         # Back to ZYX
         return snapped_xyz[:, [2, 1, 0]]
 
-    A_zyx = _snap(A_in_zyx, "A")
-    B_zyx = _snap(B_in_zyx, "B")
+    with _prof.profile("snap_seeds"):
+        A_zyx = _snap(A_in_zyx, "A")
+        B_zyx = _snap(B_in_zyx, "B")
 
     if len(A_zyx) == 0 or len(B_zyx) == 0:
         log("[connect] after snapping, one side has no seeds; skipping connection")
@@ -734,6 +737,8 @@ def split_supervoxel_growing(
         if verbose:
             print(msg, flush=True)
 
+    _prof = get_profiler()
+
     # Helpers reused from the module: _cc_label_26, _largest_component_id, _to_internal_zyx_volume, _from_internal_zyx_volume
     # _seeds_to_zyx, _compute_edt, etc. are assumed available.
 
@@ -785,13 +790,25 @@ def split_supervoxel_growing(
             log(f"[touching] no label-3 components  | {perf_counter()-t0:.3f}s")
             return 0, 0
 
+        # Per label-3 component, count how many of its voxels border each
+        # side (26-conn), and assign it to the side it borders more. This
+        # is the dilate-side-mask-and-intersect-with-comp3 test, but run
+        # only inside the label-3 bounding box (+1 halo) instead of over
+        # the whole volume — the +1 halo captures the side voxels just
+        # outside the label-3 region that the dilation reaches, so the
+        # counts are identical to a full-volume dilation.
         t1 = perf_counter()
         struc = np.ones((3, 3, 3), bool)
-        N1 = ndi.binary_dilation(out_labels == 1, structure=struc) & (comp3 > 0)
-        N2 = ndi.binary_dilation(out_labels == 2, structure=struc) & (comp3 > 0)
-
-        cnt1 = np.bincount(comp3[N1], minlength=n3 + 1)
-        cnt2 = np.bincount(comp3[N2], minlength=n3 + 1)
+        nz = np.argwhere(comp3 > 0)
+        lo = np.maximum(nz.min(0) - 1, 0)
+        hi = np.minimum(nz.max(0) + 2, comp3.shape)
+        sl = tuple(slice(int(a), int(b)) for a, b in zip(lo, hi))
+        comp3_sl = comp3[sl]
+        m3_sl = comp3_sl > 0
+        N1 = ndi.binary_dilation(out_labels[sl] == 1, structure=struc) & m3_sl
+        N2 = ndi.binary_dilation(out_labels[sl] == 2, structure=struc) & m3_sl
+        cnt1 = np.bincount(comp3_sl[N1], minlength=n3 + 1)
+        cnt2 = np.bincount(comp3_sl[N2], minlength=n3 + 1)
 
         assign = np.zeros(n3 + 1, dtype=np.int16)  # 0=undecided, 1 or 2 otherwise
         assign[cnt1 > cnt2] = 1
@@ -890,8 +907,9 @@ def split_supervoxel_growing(
         )
         return snapped_xyz[:, [2, 1, 0]]
 
-    A = _snap_ZYX(A_all, "A@snap")
-    B = _snap_ZYX(B_all, "B@snap")
+    with _prof.profile("snap_seeds"):
+        A = _snap_ZYX(A_all, "A@snap")
+        B = _snap_ZYX(B_all, "B@snap")
     log(f"[seeds] A={len(A)}, B={len(B)}")
 
     out_zyx = np.zeros_like(sv_zyx, dtype=np.int16)
@@ -902,19 +920,20 @@ def split_supervoxel_growing(
 
     # Tight bbox ROI around mask with halo
     t_bbox = perf_counter()
-    Z, Y, X = sv_zyx.shape
-    coords = np.argwhere(sv_zyx)
-    z0, y0, x0 = coords.min(0)
-    z1, y1, x1 = coords.max(0) + 1
-    z0h = max(z0 - halo, 0)
-    y0h = max(y0 - halo, 0)
-    x0h = max(x0 - halo, 0)
-    z1h = min(z1 + halo, Z)
-    y1h = min(y1 + halo, Y)
-    x1h = min(x1 + halo, X)
-    sv = sv_zyx[z0h:z1h, y0h:y1h, x0h:x1h]
-    A_roi = A - np.array([z0h, y0h, x0h])
-    B_roi = B - np.array([z0h, y0h, x0h])
+    with _prof.profile("roi_crop"):
+        Z, Y, X = sv_zyx.shape
+        coords = np.argwhere(sv_zyx)
+        z0, y0, x0 = coords.min(0)
+        z1, y1, x1 = coords.max(0) + 1
+        z0h = max(z0 - halo, 0)
+        y0h = max(y0 - halo, 0)
+        x0h = max(x0 - halo, 0)
+        z1h = min(z1 + halo, Z)
+        y1h = min(y1 + halo, Y)
+        x1h = min(x1 + halo, X)
+        sv = sv_zyx[z0h:z1h, y0h:y1h, x0h:x1h]
+        A_roi = A - np.array([z0h, y0h, x0h])
+        B_roi = B - np.array([z0h, y0h, x0h])
     log(
         f"[crop] ROI shape (internal): {sv.shape} (halo {halo})  | {perf_counter()-t_bbox:.3f}s"
     )
@@ -1028,31 +1047,39 @@ def split_supervoxel_growing(
     out_zyx[z0h:z1h, y0h:y1h, x0h:x1h][sub_labels == 2] = 2
     log("[writeback] labels written to full volume")
 
-    # Enforce single CC per label
-    if enforce_single_cc:
-        keptA, movedA = _enforce_single_component(
-            out_zyx, 1, A, allow3=allow_third_label
-        )
-        keptB, movedB = _enforce_single_component(
-            out_zyx, 2, B, allow3=allow_third_label
-        )
-        log(
-            f"[single-cc] label1 kept {keptA}, moved {movedA} -> 3; label2 kept {keptB}, moved {movedB} -> 3"
-        )
-
-    # Resolve 3-touching
-    moved1, moved2 = _resolve_label3_touching_vectorized(out_zyx, A, B, sampling)
-    if moved1 or moved2:
+    # Enforce single CC per label (full res). The upsampled labeling can
+    # fragment under the foreground mask, so enforcement must run here,
+    # not on the DS grid. The label-3 resolution inside uses
+    # cc3d.contacts for adjacency instead of two full-volume dilations.
+    with _prof.profile("enforce_cc"):
         if enforce_single_cc:
-            keptA, movedA = _enforce_single_component(
-                out_zyx, 1, A, allow3=allow_third_label
-            )
-            keptB, movedB = _enforce_single_component(
-                out_zyx, 2, B, allow3=allow_third_label
-            )
+            with _prof.profile("label1"):
+                keptA, movedA = _enforce_single_component(
+                    out_zyx, 1, A, allow3=allow_third_label
+                )
+            with _prof.profile("label2"):
+                keptB, movedB = _enforce_single_component(
+                    out_zyx, 2, B, allow3=allow_third_label
+                )
             log(
-                f"[single-cc 2nd] label1 kept {keptA}, moved {movedA}; label2 kept {keptB}, moved {movedB}"
+                f"[single-cc] label1 kept {keptA}, moved {movedA} -> 3; label2 kept {keptB}, moved {movedB} -> 3"
             )
+
+        with _prof.profile("resolve3"):
+            moved1, moved2 = _resolve_label3_touching_vectorized(
+                out_zyx, A, B, sampling
+            )
+            if moved1 or moved2:
+                if enforce_single_cc:
+                    keptA, movedA = _enforce_single_component(
+                        out_zyx, 1, A, allow3=allow_third_label
+                    )
+                    keptB, movedB = _enforce_single_component(
+                        out_zyx, 2, B, allow3=allow_third_label
+                    )
+                    log(
+                        f"[single-cc 2nd] label1 kept {keptA}, moved {movedA}; label2 kept {keptB}, moved {movedB}"
+                    )
 
     # Final check
     for lab in (1, 2):

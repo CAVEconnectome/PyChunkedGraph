@@ -290,6 +290,13 @@ class HierarchicalProfiler:
         time elapsed from the first ``profile()`` block since reset.
         rss_start / rss_peak are absolute process RSS; rss_Δ is the
         new-allocation delta inside the block.
+
+        Rows are laid out as a tree: parent-first pre-order so each
+        group reads top-down (rollup, then per-step breakdown). Each
+        nesting level gets its own column (L0, L1, …); a block's name
+        sits in the column matching its depth, deeper columns blank.
+        Top-level groups keep execution order. No blank separator
+        rows.
         """
         if not self.blocks:
             return
@@ -311,8 +318,47 @@ class HierarchicalProfiler:
             and any(b.counter_deltas.get(k, 0) for b in self.blocks)
         ]
 
-        cols = [
-            "stage",
+        def fmt_counter(key: str, val: int) -> str:
+            if key.endswith("_bytes"):
+                return _fmt_bytes(val)
+            return _fmt_count(val)
+
+        # Build a parent-first pre-order over the dotted paths so each
+        # group reads top-down. self.blocks is in completion order
+        # (children before parents); order_idx preserves that as the
+        # tie-break for sibling ordering and top-level group order.
+        by_path: Dict[str, BlockMetrics] = {}
+        order_idx: Dict[str, int] = {}
+        for i, b in enumerate(self.blocks):
+            by_path[b.path] = b
+            order_idx[b.path] = i
+
+        children: Dict[str, List[str]] = defaultdict(list)
+        roots: List[str] = []
+        for b in self.blocks:
+            if "." in b.path:
+                children[b.path.rsplit(".", 1)[0]].append(b.path)
+            else:
+                roots.append(b.path)
+        roots.sort(key=lambda p: order_idx[p])
+        for kids in children.values():
+            kids.sort(key=lambda p: order_idx[p])
+
+        ordered: List[str] = []
+
+        def _visit(path: str) -> None:
+            ordered.append(path)
+            for child in children.get(path, []):
+                _visit(child)
+
+        for r in roots:
+            _visit(r)
+
+        # One name column per nesting level; a block's leaf name sits
+        # in the column matching its depth.
+        max_depth = max(p.count(".") for p in ordered)
+        level_cols = [f"L{i}" for i in range(max_depth + 1)]
+        metric_cols = [
             "wall",
             "cum_wall",
             "py_peak",
@@ -320,16 +366,15 @@ class HierarchicalProfiler:
             "rss_peak",
             "rss_Δ",
         ] + counter_keys
-
-        def fmt_counter(key: str, val: int) -> str:
-            if key.endswith("_bytes"):
-                return _fmt_bytes(val)
-            return _fmt_count(val)
+        cols = level_cols + metric_cols
 
         rows: List[List[str]] = []
-        for b in self.blocks:
-            row = [
-                b.path,
+        for path in ordered:
+            b = by_path[path]
+            depth = path.count(".")
+            level_cells = [""] * len(level_cols)
+            level_cells[depth] = path.rsplit(".", 1)[-1]
+            row = level_cells + [
                 _fmt_time(b.elapsed_s),
                 _fmt_time(getattr(b, "wall_end_s", 0.0)),
                 _fmt_bytes(b.py_heap_peak_bytes),

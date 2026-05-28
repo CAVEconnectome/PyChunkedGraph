@@ -742,6 +742,31 @@ class TestSplitSupervoxelGrowing:
         assert np.any(result == 1)
         assert np.any(result == 2)
 
+    def test_single_cc_guarantee_with_downsample(self):
+        """Each output label must remain a single connected component
+        after the DS-grid enforce_cc rewrite. raise_if_multi_cc=True so
+        the function's own guard trips if the guarantee is broken."""
+        mask, seeds_a, seeds_b = _make_dumbbell_mask(shape=(20, 30, 30))
+        result = split_supervoxel_growing(
+            mask,
+            seeds_a,
+            seeds_b,
+            voxel_size=(1.0, 1.0, 1.0),
+            vol_order="zyx",
+            vox_order="zyx",
+            seed_order="zyx",
+            downsample_geodesic=(1, 2, 2),
+            enforce_single_cc=True,
+            raise_if_multi_cc=True,
+            snap_kwargs=dict(use_boundary=False, downsample=False),
+            verbose=False,
+        )
+        assert np.any(result == 1)
+        assert np.any(result == 2)
+        for lab in (1, 2):
+            _, ncomp = _cc_label_26(result == lab)
+            assert ncomp == 1, f"label {lab} split into {ncomp} components"
+
 
 # ============================================================
 # Tests: connect_both_seeds_via_ridge

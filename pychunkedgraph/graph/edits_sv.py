@@ -479,10 +479,9 @@ def split_supervoxel(
 
     chunks_bbox_map = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
     t0 = time.time()
-    with _prof.profile("chunk_updates"):
-        results, change_chunks = _update_chunks(
-            cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
-        )
+    results, change_chunks = _update_chunks(
+        cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
+    )
     logger.note(
         f"chunk updates {len(chunks_bbox_map)} chunks, "
         f"{len(change_chunks)} with splits ({time.time() - t0:.2f}s)"
@@ -508,15 +507,14 @@ def split_supervoxel(
     root = sv_root_map[sv_id]
     logger.note(f"{sv_id} -> {root}")
 
-    with _prof.profile("remap_to_root"):
-        # Zero out every label whose root != `root`, in place. The
-        # prior implementation materialized a full-size shadow array
-        # via fastremap.remap(in_place=False) just to compare against
-        # root; mask_except achieves the same filter at C speed
-        # without the shadow allocation.
-        root_labels = [int(sv) for sv, r in sv_root_map.items() if r == root]
-        fastremap.mask_except(seg, root_labels, in_place=True)
-        seg[voxel_overlap_crop] = new_seg
+    # Zero out every label whose root != `root`, in place. The prior
+    # implementation materialized a full-size shadow array via
+    # fastremap.remap(in_place=False) just to compare against root;
+    # mask_except achieves the same filter at C speed without the
+    # shadow allocation.
+    root_labels = [int(sv) for sv, r in sv_root_map.items() if r == root]
+    fastremap.mask_except(seg, root_labels, in_place=True)
+    seg[voxel_overlap_crop] = new_seg
     t0 = time.time()
     with _prof.profile("update_edges"):
         edges_tuple = update_edges(
@@ -529,12 +527,10 @@ def split_supervoxel(
         )
     logger.note(f"edge update ({time.time() - t0:.2f}s)")
 
-    with _prof.profile("copy_parents"):
-        rows0 = copy_parents_and_add_lineage(
-            cg, operation_id, old_new_map, time_stamp=time_stamp
-        )
-    with _prof.profile("add_new_edges"):
-        rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
+    rows0 = copy_parents_and_add_lineage(
+        cg, operation_id, old_new_map, time_stamp=time_stamp
+    )
+    rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
     rows = rows0 + rows1
 
     # Prepare per-chunk OCDBT write payloads. The caller batches these
