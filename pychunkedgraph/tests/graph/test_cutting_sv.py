@@ -19,6 +19,7 @@ from pychunkedgraph.graph.cutting_sv import (
     _upsample_bool,
     _upsample_labels,
     build_kdtrees_by_label,
+    build_coords_by_label,
     pairwise_min_distance_two_sets,
     split_supervoxel_growing,
     connect_both_seeds_via_ridge,
@@ -484,6 +485,111 @@ class TestBuildKdtreesByLabel:
         vol[1, 1, 1] = np.uint64(2**60)
         trees, counts = build_kdtrees_by_label(vol)
         assert int(2**60) in trees
+
+
+# ============================================================
+# Tests: select_voxel_indices + build_coords_by_label
+# ============================================================
+def _reference_coords_by_label(vol, *, labels=None, background=0, min_points=1):
+    """Reference: brute-force np.argwhere(vol == k), restricted to labels.
+
+    Used to verify build_coords_by_label against the algorithmic
+    definition (independent of its implementation).
+    """
+    present = set(int(x) for x in np.unique(vol) if int(x) != background)
+    keys = present if labels is None else present & {int(x) for x in labels}
+    result = {}
+    for k in keys:
+        pts = np.argwhere(vol == k)
+        if pts.shape[0] < min_points:
+            continue
+        result[k] = pts.astype(np.float32)
+    return result
+
+
+def _assert_dict_equal(actual, expected):
+    assert set(actual.keys()) == set(expected.keys())
+    for k in expected:
+        a = actual[k][np.lexsort(actual[k].T[::-1])]
+        e = expected[k][np.lexsort(expected[k].T[::-1])]
+        assert a.shape == e.shape
+        np.testing.assert_array_equal(a, e)
+
+
+class TestBuildCoordsByLabel:
+    def test_matches_reference_full_scan(self):
+        rng = np.random.default_rng(0)
+        vol = rng.integers(0, 4, size=(6, 5, 7), dtype=np.uint64)
+        actual = build_coords_by_label(vol)
+        expected = _reference_coords_by_label(vol)
+        _assert_dict_equal(actual, expected)
+
+    def test_labels_filter_restricts_keys(self):
+        vol = np.zeros((5, 5, 5), dtype=np.uint64)
+        vol[1, 1, 1] = 7
+        vol[2, 3, 0] = 8
+        vol[0, 0, 3] = 9
+        out = build_coords_by_label(vol, labels=[7, 9])
+        assert set(out.keys()) == {7, 9}
+        assert 8 not in out
+
+    def test_labels_filter_matches_reference(self):
+        rng = np.random.default_rng(1)
+        vol = rng.integers(0, 5, size=(5, 6, 4), dtype=np.uint64)
+        wanted = [1, 3]
+        actual = build_coords_by_label(vol, labels=wanted)
+        expected = _reference_coords_by_label(vol, labels=wanted)
+        _assert_dict_equal(actual, expected)
+
+    def test_labels_filter_keeps_label_with_no_voxels_absent(self):
+        vol = np.zeros((3, 3, 3), dtype=np.uint64)
+        vol[1, 1, 1] = 5
+        out = build_coords_by_label(vol, labels=[5, 42])
+        assert set(out.keys()) == {5}
+
+    def test_empty_labels(self):
+        vol = np.ones((3, 3, 3), dtype=np.uint64)
+        out = build_coords_by_label(vol, labels=[])
+        assert out == {}
+
+    def test_min_points_filter(self):
+        vol = np.zeros((4, 4, 4), dtype=np.uint64)
+        vol[0, 0, 0] = 1
+        vol[1, 1, 1] = 2
+        vol[1, 1, 2] = 2
+        vol[1, 2, 1] = 2
+        out = build_coords_by_label(vol, min_points=2)
+        assert 1 not in out
+        assert 2 in out
+        assert out[2].shape == (3, 3)
+
+    def test_empty_volume(self):
+        vol = np.zeros((3, 3, 3), dtype=np.uint64)
+        assert build_coords_by_label(vol) == {}
+
+    def test_background_nonzero(self):
+        vol = np.full((4, 4, 4), 99, dtype=np.uint64)
+        vol[2, 2, 2] = 5
+        out = build_coords_by_label(vol, background=99)
+        assert set(out.keys()) == {5}
+        np.testing.assert_array_equal(out[5], np.array([[2, 2, 2]], dtype=np.float32))
+
+    def test_uint64_labels(self):
+        vol = np.zeros((4, 4, 4), dtype=np.uint64)
+        big = np.uint64(2**60)
+        vol[1, 1, 1] = big
+        out = build_coords_by_label(vol)
+        assert int(big) in out
+
+    def test_dtype_float32_default(self):
+        vol = np.zeros((3, 3, 3), dtype=np.uint64)
+        vol[0, 0, 0] = 1
+        out = build_coords_by_label(vol)
+        assert out[1].dtype == np.float32
+
+    def test_non_3d_raises(self):
+        with pytest.raises(ValueError, match="3D"):
+            build_coords_by_label(np.zeros((5, 5), dtype=np.uint64))
 
 
 # ============================================================

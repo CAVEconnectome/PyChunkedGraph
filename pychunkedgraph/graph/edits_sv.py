@@ -431,12 +431,19 @@ def split_supervoxel(
         seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
     logger.note(f"segmentation read {seg.shape} ({time.time() - t0:.2f}s)")
 
+    with _prof.profile("seg_unique"):
+        # Computed once and reused: seg is not mutated until
+        # remap_to_root, so both the cut_supervoxels narrowing below
+        # and the get_roots block downstream get the same answer
+        # without paying twice for the (seg-size) sort buffer.
+        sv_ids = fastremap.unique(seg)
+
     # Narrow the rep to pieces actually present in the bbox seg. Pieces
     # of the rep whose voxels lie outside the seed-driven bbox don't
     # appear in `seg` and so don't contribute to `binary_seg` anyway —
     # carrying them in `cut_supervoxels` is just log noise plus inflated
     # `unsplit` diff churn.
-    seg_ids = {int(x) for x in fastremap.unique(seg) if x != 0}
+    seg_ids = {int(x) for x in sv_ids if x != 0}
     cut_supervoxels = rep_pieces & seg_ids
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
     logger.note(
@@ -445,12 +452,24 @@ def split_supervoxel(
     )
 
     with _prof.profile("binary_seg"):
-        binary_seg = np.isin(seg, supervoxel_ids)
+        # OR a per-SV boolean comparison instead of np.isin: for a
+        # handful of supervoxel_ids, each `seg == sv` is a single C
+        # pass with no transient int-array buffers, vs. np.isin's
+        # internal sort+search that allocates auxiliaries the size
+        # of seg. Empty supervoxel_ids ⇒ all-False, matching np.isin.
+        # Compute the boolean only over the overlap crop — that's
+        # the only region split_supervoxel_helper consumes, so
+        # allocating a full-bbox boolean and then slicing wastes
+        # ~seg.size bytes.
         voxel_overlap_crop = _voxel_crop(bbs, bbe, bbs_, bbe_)
+        seg_overlap = seg[voxel_overlap_crop]
+        binary_seg = np.zeros(seg_overlap.shape, dtype=bool)
+        for sv in supervoxel_ids:
+            binary_seg |= seg_overlap == sv
     t0 = time.time()
     with _prof.profile("geodesic_split"):
         split_result = split_supervoxel_helper(
-            binary_seg[voxel_overlap_crop],
+            binary_seg,
             source_coords - bbs,
             sink_coords - bbs,
             cg.meta.resolution,
@@ -482,16 +501,21 @@ def split_supervoxel(
         logger.note(f"unsplit SVs (kept IDs): {unsplit}")
 
     with _prof.profile("get_roots"):
-        sv_ids = fastremap.unique(seg)
+        # sv_ids reused from the seg_unique block above (seg is not
+        # mutated between then and here).
         roots = cg.get_roots(sv_ids)
         sv_root_map = dict(zip(sv_ids, roots))
     root = sv_root_map[sv_id]
     logger.note(f"{sv_id} -> {root}")
 
     with _prof.profile("remap_to_root"):
-        root_mask = fastremap.remap(seg, sv_root_map, in_place=False) == root
-        seg[~root_mask] = 0
-        sv_ids = fastremap.unique(seg)
+        # Zero out every label whose root != `root`, in place. The
+        # prior implementation materialized a full-size shadow array
+        # via fastremap.remap(in_place=False) just to compare against
+        # root; mask_except achieves the same filter at C speed
+        # without the shadow allocation.
+        root_labels = [int(sv) for sv, r in sv_root_map.items() if r == root]
+        fastremap.mask_except(seg, root_labels, in_place=True)
         seg[voxel_overlap_crop] = new_seg
     t0 = time.time()
     with _prof.profile("update_edges"):

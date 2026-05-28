@@ -353,17 +353,7 @@ def update_edges(
 ):
     old_new_map = dict(old_new_map)
     _prof = get_profiler()
-    t0 = time.time()
-    with _prof.profile("build_coords"):
-        coords_by_label = build_coords_by_label(new_seg)
-    with _prof.profile("kdtrees"):
-        new_ids = np.array(
-            list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID
-        )
-        new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
-    logger.note(
-        f"build_coords {len(coords_by_label)} labels, {len(new_ids)} fragment trees ({time.time() - t0:.2f}s)"
-    )
+    new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
 
     t0 = time.time()
     with _prof.profile("get_subgraph"):
@@ -392,6 +382,28 @@ def update_edges(
         all_roots = cg.get_roots(all_edge_svs)
         sv_root_map = dict(zip(all_edge_svs, all_roots))
     logger.note(f"get_roots {len(all_edge_svs)} svs ({time.time() - t0:.2f}s)")
+
+    # Coords are only ever read for new fragment ids (kdtrees) and for
+    # partners queried via coords_by_label.get(...) in _get_new_edges.
+    # Partners can only come from subgraph-edge endpoints, so this
+    # union is a tight superset of every key that gets looked up.
+    t0 = time.time()
+    with _prof.profile("build_coords"):
+        # Zero out every label whose coords nothing downstream will
+        # query, in place. fastremap.point_cloud (called by
+        # build_coords_by_label) groups by every nonzero label in the
+        # vol, so trimming the input is the only way to shrink its
+        # C++ scan; the labels= kwarg only filters the result dict
+        # after the scan. Caller does not read seg after update_edges
+        # returns, so the in-place mutation is safe.
+        wanted_labels = np.union1d(new_ids, all_edge_svs)
+        fastremap.mask_except(new_seg, list(wanted_labels), in_place=True)
+        coords_by_label = build_coords_by_label(new_seg)
+    with _prof.profile("kdtrees"):
+        new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
+    logger.note(
+        f"build_coords {len(coords_by_label)} labels, {len(new_ids)} fragment trees ({time.time() - t0:.2f}s)"
+    )
 
     t0 = time.time()
     with _prof.profile("_get_new_edges"):

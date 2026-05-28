@@ -321,13 +321,13 @@ def run_split_profile(
             edits_sv.split_supervoxels = orig_split_supervoxels
             profiler.default_counters = None
 
-    # Disable so the global profiler is a no-op for callers outside
-    # this harness (production code paths included).
-    profiler.enabled = False
-
     try:
         target = _save_run(cg, payload, profiler, inputs)
         print(f"[split_profile] run cached at {target}")
     except Exception as save_err:
         print(f"[split_profile] cache save failed: {save_err}", file=sys.stderr)
+
+    # Disable so the global profiler is a no-op for callers outside
+    # this harness (production code paths included).
+    profiler.enabled = False
     return profiler, inputs

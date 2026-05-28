@@ -55,6 +55,9 @@ class BlockMetrics:
     rss_start_bytes: int = 0
     rss_peak_bytes: int = 0
     counter_deltas: Dict[str, int] = field(default_factory=dict)
+    # Wall-clock time when this block finished, measured relative to
+    # the first profile() entry since the profiler was reset.
+    wall_end_s: float = 0.0
 
 
 class _RSSSampler:
@@ -117,6 +120,9 @@ class HierarchicalProfiler:
         self.stack: List[Tuple[str, float]] = []
         self.current_path: List[str] = []
         self.blocks: List[BlockMetrics] = []
+        # perf_counter at the first profile() entry since reset.
+        # Used to stamp each block's wall_end_s for cumulative-wall view.
+        self._base_perf: Optional[float] = None
         # Per-instance defaults so inline profile() call sites stay short
         # (no per-block kwargs). Callers can override per-call.
         self.with_memory_default = with_memory
@@ -177,10 +183,13 @@ class HierarchicalProfiler:
         counters_before = dict(counters) if counters is not None else None
 
         start_time = time.perf_counter()
+        if self._base_perf is None:
+            self._base_perf = start_time
         try:
             yield
         finally:
-            elapsed = time.perf_counter() - start_time
+            end_time = time.perf_counter()
+            elapsed = end_time - start_time
             self.timings[full_path].append(elapsed)
             self.call_counts[full_path] += 1
             self.current_path.pop()
@@ -211,12 +220,13 @@ class HierarchicalProfiler:
                     rss_start_bytes=int(rss_start),
                     rss_peak_bytes=int(rss_peak),
                     counter_deltas=counter_deltas,
+                    wall_end_s=end_time - self._base_perf,
                 )
             )
 
     def print_report(self, operation_id=None):
         """Print a detailed timing breakdown."""
-        if not self.enabled or not self.timings:
+        if not self.timings:
             return
 
         print("\n" + "=" * 80)
@@ -267,19 +277,26 @@ class HierarchicalProfiler:
 
         print("=" * 80 + "\n")
 
+    # Counter keys that are uninformative for the SV-split flow and
+    # only add visual noise to the report.
+    _SKIP_COUNTERS = ("ocdbt_reads",)
+
     def metrics_report(self, operation_id=None) -> None:
         """Print a compact, human-readable table over self.blocks.
 
-        Columns: stage, wall, py_peak, rss_Δ (signed), plus one column
-        per counter key that has a non-zero value in at least one block.
-        Counterpart to print_report (which covers timing-only).
+        Columns: stage, wall, cum_wall, py_peak, rss_start, rss_peak,
+        rss_Δ (signed), plus one column per counter key that has a
+        non-zero value in at least one block. ``cum_wall`` is wall
+        time elapsed from the first ``profile()`` block since reset.
+        rss_start / rss_peak are absolute process RSS; rss_Δ is the
+        new-allocation delta inside the block.
         """
-        if not self.enabled or not self.blocks:
+        if not self.blocks:
             return
 
         # Collect counter keys in first-seen order; drop ones that are
         # zero in every block (e.g., bt_log_reads is usually 0 for SV
-        # splits and only adds noise).
+        # splits and only adds noise) or in the static skip list.
         counter_keys: List[str] = []
         seen_keys: set = set()
         for b in self.blocks:
@@ -290,10 +307,19 @@ class HierarchicalProfiler:
         counter_keys = [
             k
             for k in counter_keys
-            if any(b.counter_deltas.get(k, 0) for b in self.blocks)
+            if k not in self._SKIP_COUNTERS
+            and any(b.counter_deltas.get(k, 0) for b in self.blocks)
         ]
 
-        cols = ["stage", "wall", "py_peak", "rss_Δ"] + counter_keys
+        cols = [
+            "stage",
+            "wall",
+            "cum_wall",
+            "py_peak",
+            "rss_start",
+            "rss_peak",
+            "rss_Δ",
+        ] + counter_keys
 
         def fmt_counter(key: str, val: int) -> str:
             if key.endswith("_bytes"):
@@ -305,7 +331,10 @@ class HierarchicalProfiler:
             row = [
                 b.path,
                 _fmt_time(b.elapsed_s),
+                _fmt_time(getattr(b, "wall_end_s", 0.0)),
                 _fmt_bytes(b.py_heap_peak_bytes),
+                _fmt_bytes(b.rss_start_bytes),
+                _fmt_bytes(b.rss_peak_bytes),
                 _fmt_bytes(b.rss_peak_bytes - b.rss_start_bytes, signed=True),
             ]
             for k in counter_keys:
@@ -337,6 +366,7 @@ class HierarchicalProfiler:
         self.stack.clear()
         self.current_path.clear()
         self.blocks.clear()
+        self._base_perf = None
 
 
 # Global profiler instance - enable via environment variable

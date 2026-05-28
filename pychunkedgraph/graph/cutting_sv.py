@@ -1,7 +1,8 @@
 from time import perf_counter
 
+import fastremap
 import numpy as np
-from typing import Dict, Tuple, Optional, Sequence
+from typing import Dict, Iterable, Tuple, Optional, Sequence
 from scipy.spatial import cKDTree
 
 # EDT backends: prefer Seung-Lab edt, fallback to scipy.ndimage
@@ -1164,38 +1165,43 @@ def build_kdtrees_by_label(
 def build_coords_by_label(
     vol: np.ndarray,
     *,
+    labels: Optional[Iterable[int]] = None,
     background: int = 0,
     min_points: int = 1,
     dtype: np.dtype = np.float32,
 ) -> Dict[int, np.ndarray]:
-    """Group voxel coordinates by label without building kdtrees.
+    """Group voxel coords by label via ``fastremap.point_cloud``.
 
-    Returns mapping label -> (N, 3) coordinate array in (z, y, x) order.
+    Returns ``{label: (M_label, 3) coords in (z, y, x)}`` cast to
+    ``dtype``. ``fastremap.point_cloud`` is a C++ single-pass
+    implementation that emits ``uint16`` coords grouped by label,
+    treating ``0`` as background.
+
+    ``labels`` restricts the output dict; the underlying C++ scan
+    visits every voxel regardless (faster and lighter than a
+    label-filtered Python scan). ``min_points`` drops labels with
+    fewer than that many voxels. ``background != 0`` removes that
+    label from the result after the call.
     """
     if vol.ndim != 3:
         raise ValueError("`vol` must be a 3D array.")
-    Z, Y, X = vol.shape
+    raw = fastremap.point_cloud(vol)
+    if background != 0:
+        raw.pop(background, None)
 
-    flat = vol.ravel()
-    nz = np.flatnonzero(flat) if background == 0 else np.flatnonzero(flat != background)
-    if nz.size == 0:
-        return {}
-
-    labels = flat[nz]
-    z, y, x = np.unravel_index(nz, (Z, Y, X))
-    coords = np.column_stack((z, y, x)).astype(dtype, copy=False)
-
-    order = np.argsort(labels, kind="mergesort")
-    labels_sorted = labels[order]
-    starts = np.flatnonzero(np.r_[True, labels_sorted[1:] != labels_sorted[:-1]])
-    ends = np.r_[starts[1:], labels_sorted.size]
+    if labels is not None:
+        wanted = {int(x) for x in labels}
+        if not wanted:
+            return {}
+        items = ((k, v) for k, v in raw.items() if int(k) in wanted)
+    else:
+        items = raw.items()
 
     result: Dict[int, np.ndarray] = {}
-    for s, e in zip(starts, ends):
-        n = e - s
-        if n < min_points:
+    for k, coords in items:
+        if coords.shape[0] < min_points:
             continue
-        result[int(labels_sorted[s])] = coords[order[s:e]]
+        result[int(k)] = coords.astype(dtype, copy=False)
     return result
 
 
