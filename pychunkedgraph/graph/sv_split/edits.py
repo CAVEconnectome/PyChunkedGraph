@@ -395,7 +395,6 @@ def split_supervoxel(
     sv_remapping: dict,
     time_stamp: datetime = None,
     parent_ts: datetime = None,
-    verbose: bool = False,
 ) -> SvSplitOutcome:
     """Split one cross-chunk-connected SV into connected components.
 
@@ -476,7 +475,6 @@ def split_supervoxel(
             source_coords - bbs,
             sink_coords - bbs,
             cg.meta.resolution,
-            verbose=verbose,
         )
     logger.note(f"split computation {split_result.shape} ({time.time() - t0:.2f}s)")
 

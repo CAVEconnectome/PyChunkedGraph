@@ -20,7 +20,10 @@ from skimage.morphology import (
     ball,
 )  # keep only ball; use ndi.binary_dilation everywhere
 
+from pychunkedgraph import get_logger
 from pychunkedgraph.profiler import get_profiler
+
+logger = get_logger(__name__)
 
 # ---------- Fast CC wrappers ----------
 try:
@@ -202,7 +205,6 @@ def snap_seeds_to_segment(
     rng=None,
     return_index=False,
     leafsize=16,
-    log=lambda x: None,
     tag="snap",
     method="kdtree",  # accepted for compatibility; only 'kdtree' currently
 ):
@@ -251,7 +253,9 @@ def snap_seeds_to_segment(
     """
     t0 = perf_counter()
     if method != "kdtree":
-        log(f"[{tag}] Warning: 'method={method}' not supported; using 'kdtree'.")
+        logger.debug(
+            f"[{tag}] Warning: 'method={method}' not supported; using 'kdtree'."
+        )
 
     # Validate mask
     if mask.ndim != 3:
@@ -289,7 +293,7 @@ def snap_seeds_to_segment(
             cand = _extract_mask_boundary(window_mask, erosion_iters=erosion_iters)
             if not cand.any():
                 cand = window_mask
-                log(f"[{tag}] boundary empty → fallback to full mask")
+                logger.debug(f"[{tag}] boundary empty → fallback to full mask")
         else:
             cand = window_mask
         wc = np.where(cand)  # tuple in mask-axis order
@@ -324,12 +328,12 @@ def snap_seeds_to_segment(
                 # Window already spans the full mask and it is still empty.
                 break
             pad_phys *= 2.0
-        log(f"[{tag}] bbox candidate scan | {perf_counter()-tb:.3f}s")
+        logger.debug(f"[{tag}] bbox candidate scan | {perf_counter()-tb:.3f}s")
     else:
         points_xyz = _candidates_xyz(mask, (0, 0, 0))
-        log(f"[{tag}] candidate scan | {perf_counter()-tb:.3f}s")
+        logger.debug(f"[{tag}] candidate scan | {perf_counter()-tb:.3f}s")
 
-    log(f"[{tag}] candidate coordinates (n={len(points_xyz)})")
+    logger.debug(f"[{tag}] candidate coordinates (n={len(points_xyz)})")
 
     if points_xyz.shape[0] == 0:
         raise ValueError(
@@ -348,7 +352,9 @@ def snap_seeds_to_segment(
             rng=rng,
         )
         after = len(points_xyz)
-        log(f"[{tag}] downsample points {before} → {after} | {perf_counter()-td:.3f}s")
+        logger.debug(
+            f"[{tag}] downsample points {before} → {after} | {perf_counter()-td:.3f}s"
+        )
 
     # Scale coordinates to physical space to respect anisotropy
     vx, vy, vz = voxel_size
@@ -361,7 +367,7 @@ def snap_seeds_to_segment(
     te = perf_counter()
     tree = cKDTree(points_scaled, leafsize=leafsize)
     _, nn_indices = tree.query(seeds_scaled, k=1, workers=-1)
-    log(f"[{tag}] KDTree build+query | {perf_counter()-te:.3f}s")
+    logger.debug(f"[{tag}] KDTree build+query | {perf_counter()-te:.3f}s")
 
     # Map back to integer voxel coords (XYZ)
     snapped_xyz = points_xyz[nn_indices].astype(np.int64)
@@ -371,7 +377,9 @@ def snap_seeds_to_segment(
     snapped_xyz[:, 1] = np.clip(snapped_xyz[:, 1], 0, max_y)
     snapped_xyz[:, 2] = np.clip(snapped_xyz[:, 2], 0, max_z)
 
-    log(f"[{tag}] snapped {len(seeds_xyz)} seeds | total {perf_counter()-t0:.3f}s")
+    logger.debug(
+        f"[{tag}] snapped {len(seeds_xyz)} seeds | total {perf_counter()-t0:.3f}s"
+    )
     if return_index:
         return snapped_xyz, nn_indices
     else:
@@ -381,7 +389,7 @@ def snap_seeds_to_segment(
 # ============================================================
 # EDT wrapper (Seung-Lab edt preferred, fallback to scipy)
 # ============================================================
-def _compute_edt(mask: np.ndarray, sampling_zyx, log=lambda x: None, tag="edt"):
+def _compute_edt(mask: np.ndarray, sampling_zyx, tag="edt"):
     """
     Compute Euclidean distance transform using Seung-Lab edt if available,
     otherwise fallback to scipy.ndimage.distance_transform_edt.
@@ -392,11 +400,11 @@ def _compute_edt(mask: np.ndarray, sampling_zyx, log=lambda x: None, tag="edt"):
     t0 = perf_counter()
     if _HAVE_EDT_FAST:
         dist = _edt_fast(mask.astype(np.uint8, copy=False), anisotropy=sampling_zyx)
-        log(f"[{tag}] Seung-Lab edt | {perf_counter()-t0:.3f}s")
+        logger.debug(f"[{tag}] Seung-Lab edt | {perf_counter()-t0:.3f}s")
         return dist
     else:
         dist = ndi.distance_transform_edt(mask, sampling=sampling_zyx)
-        log(f"[{tag}] SciPy EDT | {perf_counter()-t0:.3f}s")
+        logger.debug(f"[{tag}] SciPy EDT | {perf_counter()-t0:.3f}s")
         return dist
 
 
@@ -431,12 +439,7 @@ def connect_both_seeds_via_ridge(
     refine_fullres_when_fail: bool = True,
     snap_method: str = "kdtree",
     snap_kwargs: dict | None = None,
-    verbose: bool = False,
 ):
-    def log(msg: str):
-        if verbose:
-            print(msg, flush=True)
-
     _prof = get_profiler()
 
     def _bbox_pad_zyx(points_zyx, shape, pad=(24, 48, 48)):
@@ -483,10 +486,10 @@ def connect_both_seeds_via_ridge(
         return edges
 
     t0 = perf_counter()
-    log(
+    logger.debug(
         f"[connect] vol_order={vol_order}, vox_order={vox_order}, seed_order={seed_order}"
     )
-    log(
+    logger.debug(
         f"[connect] mask shape: {binary_sv.shape}, ridge_power={ridge_power}, ds={downsample}"
     )
 
@@ -524,7 +527,6 @@ def connect_both_seeds_via_ridge(
                 sampling[1],
                 sampling[0],
             ),  # convert ZYX->XYZ spacing
-            log=log,
             tag=f"{name}@snap",
             **snap_cfg,
         )
@@ -536,7 +538,9 @@ def connect_both_seeds_via_ridge(
         B_zyx = _snap(B_in_zyx, "B")
 
     if len(A_zyx) == 0 or len(B_zyx) == 0:
-        log("[connect] after snapping, one side has no seeds; skipping connection")
+        logger.debug(
+            "[connect] after snapping, one side has no seeds; skipping connection"
+        )
         return (
             _seeds_from_zyx(A_zyx, seed_order),
             _seeds_from_zyx(B_zyx, seed_order),
@@ -549,7 +553,9 @@ def connect_both_seeds_via_ridge(
         np.vstack([A_zyx, B_zyx]), sv_zyx.shape, pad=roi_pad_zyx
     )
     roi = sv_zyx[z0:z1, y0:y1, x0:x1]
-    log(f"[connect] ROI: z[{z0}:{z1}] y[{y0}:{y1}] x[{x0}:{x1}] → shape {roi.shape}")
+    logger.debug(
+        f"[connect] ROI: z[{z0}:{z1}] y[{y0}:{y1}] x[{x0}:{x1}] → shape {roi.shape}"
+    )
 
     # Downsample ROI
     sz, sy, sx = map(int, downsample)
@@ -559,7 +565,7 @@ def connect_both_seeds_via_ridge(
     else:
         roi_ds = roi
     sampling_ds = (sampling[0] * sz, sampling[1] * sy, sampling[2] * sx)
-    log(
+    logger.debug(
         f"[connect] ROI downsampled {roi.shape} -> {roi_ds.shape} | {perf_counter()-ti_ds:.3f}s"
     )
 
@@ -582,7 +588,6 @@ def connect_both_seeds_via_ridge(
                 mask=roi_ds,
                 mask_order="zyx",
                 voxel_size=(sampling_ds[2], sampling_ds[1], sampling_ds[0]),
-                log=log,
                 tag=f"{name}@roi_ds",
                 use_boundary=False,
                 downsample=False,
@@ -592,7 +597,7 @@ def connect_both_seeds_via_ridge(
             return snapped_ds_zyx.astype(int)
         except ValueError as e:
             # If roi_ds is empty or degenerate, bail out gracefully:
-            log(
+            logger.debug(
                 f"[{name}@roi_ds] snapping failed ({e}); falling back to nearest-int grid & mask check."
             )
             approx = np.floor(seeds_ds + 0.5).astype(int)
@@ -610,7 +615,7 @@ def connect_both_seeds_via_ridge(
     okA = len(A_ds) >= 1
     okB = len(B_ds) >= 1
     if not (okA and okB):
-        log(
+        logger.debug(
             "[connect] seeds disappeared or failed to map on DS grid; consider smaller ds or use_boundary=False/downsample=False in snapping."
         )
         return (
@@ -622,9 +627,9 @@ def connect_both_seeds_via_ridge(
 
     # EDT and cost on DS ROI (Seung-Lab edt if available)
     t1 = perf_counter()
-    dist = _compute_edt(roi_ds, sampling_ds, log=log, tag="connect:EDT")
+    dist = _compute_edt(roi_ds, sampling_ds, tag="connect:EDT")
     if dist.max() <= 0:
-        log("[connect] empty EDT in ROI; skipping connection")
+        logger.debug("[connect] empty EDT in ROI; skipping connection")
         return (
             _seeds_from_zyx(A_zyx, seed_order),
             _seeds_from_zyx(B_zyx, seed_order),
@@ -635,7 +640,7 @@ def connect_both_seeds_via_ridge(
     eps = 1e-6
     cost = np.full_like(dn, 1e12, dtype=float)
     cost[roi_ds] = 1.0 / (eps + np.clip(dn[roi_ds], 0, 1) ** max(0.0, ridge_power))
-    log(f"[connect] EDT/cost ready on DS-ROI  | {perf_counter()-t1:.3f}s")
+    logger.debug(f"[connect] EDT/cost ready on DS-ROI  | {perf_counter()-t1:.3f}s")
 
     # Shortest paths via MST
     def _path_mask_ds(start, end):
@@ -645,14 +650,14 @@ def connect_both_seeds_via_ridge(
         mid = perf_counter()
         v = costs[tuple(end)]
         if not np.isfinite(v):
-            log(
+            logger.debug(
                 f"[MCP] start={tuple(start)} -> end={tuple(end)} FAILED | setup+run={mid-tmcp:.3f}s"
             )
             return None
         path = np.asarray(mcp.traceback(tuple(end)), int)
         m = np.zeros_like(roi_ds, bool)
         m[tuple(path.T)] = True
-        log(
+        logger.debug(
             f"[MCP] start={tuple(start)} -> end={tuple(end)} OK | total={perf_counter()-tmcp:.3f}s"
         )
         return m
@@ -666,14 +671,12 @@ def connect_both_seeds_via_ridge(
         for i, j in edges:
             m = _path_mask_ds(pts_ds[i], pts_ds[j])
             if m is None:
-                log(f"[connect:{team_name}] DS path FAILED for edge {i}-{j}")
+                logger.debug(f"[connect:{team_name}] DS path FAILED for edge {i}-{j}")
                 ok = False
                 if refine_fullres_when_fail:
                     # fallback full-res EDT and path
                     tfr = perf_counter()
-                    dist_fr = _compute_edt(
-                        roi, sampling, log=log, tag="connect:EDT(fullres)"
-                    )
+                    dist_fr = _compute_edt(roi, sampling, tag="connect:EDT(fullres)")
                     dnm = dist_fr / (dist_fr.max() if dist_fr.max() > 0 else 1.0)
                     cost_fr = np.full_like(dist_fr, 1e12, dtype=float)
                     cost_fr[roi] = 1.0 / (
@@ -689,11 +692,11 @@ def connect_both_seeds_via_ridge(
                         m_fr[tuple(path_fr.T)] = True
                         m = m_fr[::sz, ::sy, ::sx]
                         ok = True
-                        log(
+                        logger.debug(
                             f"[connect:{team_name}] fallback full-res path OK | {perf_counter()-tfr:.3f}s"
                         )
                     else:
-                        log(
+                        logger.debug(
                             f"[connect:{team_name}] Full-res ROI path also FAILED for edge {i}-{j}"
                         )
                         m = None
@@ -706,10 +709,10 @@ def connect_both_seeds_via_ridge(
     pB_ds, okB2 = _augment_team_ds("B", B_ds)
     okA &= okA2
     okB &= okB2
-    log(f"[connect] MST+paths built | {perf_counter()-t_aug:.3f}s")
+    logger.debug(f"[connect] MST+paths built | {perf_counter()-t_aug:.3f}s")
 
     if not (okA and okB):
-        log(
+        logger.debug(
             "[connect] connection failed for at least one team — consider smaller downsample or refine_fullres_when_fail."
         )
         return (
@@ -726,7 +729,7 @@ def connect_both_seeds_via_ridge(
     tpost = perf_counter()
     pA = ndi.binary_dilation(pA, structure=struc) & roi
     pB = ndi.binary_dilation(pB, structure=struc) & roi
-    log(f"[connect] postproc dilation on paths | {perf_counter()-tpost:.3f}s")
+    logger.debug(f"[connect] postproc dilation on paths | {perf_counter()-tpost:.3f}s")
 
     A_aug = set(map(tuple, A_zyx))
     B_aug = set(map(tuple, B_zyx))
@@ -739,7 +742,7 @@ def connect_both_seeds_via_ridge(
 
     A_aug = _seeds_from_zyx(np.array(sorted(list(A_aug)), int), seed_order)
     B_aug = _seeds_from_zyx(np.array(sorted(list(B_aug)), int), seed_order)
-    log(
+    logger.debug(
         f"[connect] done; +{len(A_aug)-len(seeds_a)} vox for A, +{len(B_aug)-len(seeds_b)} for B  | total {perf_counter()-t0:.3f}s"
     )
     return A_aug, B_aug, True, True
@@ -774,13 +777,7 @@ def split_supervoxel_growing(
     # snapping control (NEW)
     snap_method: str = "kdtree",
     snap_kwargs: dict | None = None,
-    # logging
-    verbose: bool = False,
 ):
-    def log(msg: str):
-        if verbose:
-            print(msg, flush=True)
-
     _prof = get_profiler()
 
     # Helpers reused from the module: _cc_label_26, _largest_component_id, _to_internal_zyx_volume, _from_internal_zyx_volume
@@ -794,7 +791,7 @@ def split_supervoxel_growing(
             return 0, 0
         comp, ncomp = _cc_label_26(mask)
         if ncomp <= 1:
-            log(f"[single-cc:{lab}] ncomp=1  | {perf_counter()-t:.3f}s")
+            logger.debug(f"[single-cc:{lab}] ncomp=1  | {perf_counter()-t:.3f}s")
             return 1, 0
 
         keep_ids = set()
@@ -818,7 +815,7 @@ def split_supervoxel_growing(
         moved = int(bad_mask.sum())
         if allow3 and moved:
             out_labels[bad_mask] = 3
-        log(
+        logger.debug(
             f"[single-cc:{lab}] kept={len(keep_ids)}, moved_to_3={moved}  | {perf_counter()-t:.3f}s"
         )
         return len(keep_ids), moved
@@ -829,9 +826,11 @@ def split_supervoxel_growing(
         t0 = perf_counter()
         comp3, n3 = _cc_label_26(out_labels == 3)
         n3_vox = int((out_labels == 3).sum())
-        log(f"[touching] n3 comps={n3}, vox={n3_vox}")
+        logger.debug(f"[touching] n3 comps={n3}, vox={n3_vox}")
         if n3 == 0:
-            log(f"[touching] no label-3 components  | {perf_counter()-t0:.3f}s")
+            logger.debug(
+                f"[touching] no label-3 components  | {perf_counter()-t0:.3f}s"
+            )
             return 0, 0
 
         # Per label-3 component, count how many of its voxels border each
@@ -858,7 +857,7 @@ def split_supervoxel_growing(
         assign[cnt1 > cnt2] = 1
         assign[cnt2 > cnt1] = 2
         undec = np.where(assign[1:] == 0)[0] + 1
-        log(
+        logger.debug(
             f"[touching] maj→1={int((assign==1).sum())}, maj→2={int((assign==2).sum())}, ties={len(undec)}  | {perf_counter()-t1:.3f}s"
         )
 
@@ -874,8 +873,8 @@ def split_supervoxel_growing(
             sA[tuple(np.array(seedsA).T)] = True
             sB = np.zeros_like(out_labels, bool)
             sB[tuple(np.array(seedsB).T)] = True
-            dA = _compute_edt(~sA, sampling, log=log, tag="split:EDT(dA)")
-            dB = _compute_edt(~sB, sampling, log=log, tag="split:EDT(dB)")
+            dA = _compute_edt(~sA, sampling, tag="split:EDT(dA)")
+            dB = _compute_edt(~sB, sampling, tag="split:EDT(dB)")
             closer2 = (dB < dA) & (comp3 > 0)
 
             pref2 = np.bincount(comp3[closer2], minlength=n3 + 1)
@@ -885,7 +884,7 @@ def split_supervoxel_growing(
             choose2 = pref2[tie_ids] > (total[tie_ids] - pref2[tie_ids])
             assign[tie_ids[choose2]] = 2
             assign[tie_ids[~choose2]] = 1
-            log(
+            logger.debug(
                 f"[touching] tie-break EDT done: to2={int(choose2.sum())}, to1={int((~choose2).sum())}  | {perf_counter()-t2:.3f}s"
             )
 
@@ -899,26 +898,28 @@ def split_supervoxel_growing(
             moved2 = int(mask2.sum())
             out_labels[mask2] = 2
 
-        log(
+        logger.debug(
             f"[touching] reassigned 3→1: {moved1}, 3→2: {moved2}  | total {perf_counter()-t0:.3f}s"
         )
         return moved1, moved2
 
     # ---------- begin ----------
     t0 = perf_counter()
-    log(f"[init] vol_order={vol_order}, vox_order={vox_order}, seed_order={seed_order}")
-    log(f"[init] input volume shape: {binary_sv.shape}")
+    logger.debug(
+        f"[init] vol_order={vol_order}, vox_order={vox_order}, seed_order={seed_order}"
+    )
+    logger.debug(f"[init] input volume shape: {binary_sv.shape}")
 
     # Convert input volumes and sampling into internal ZYX
     sv_zyx, _ = _to_internal_zyx_volume(binary_sv, vol_order)
     sampling = _to_zyx_sampling(voxel_size, vox_order)
-    log(f"[init] internal shape (z,y,x): {sv_zyx.shape}")
-    log(f"[init] sampling (z,y,x): {sampling}")
+    logger.debug(f"[init] internal shape (z,y,x): {sv_zyx.shape}")
+    logger.debug(f"[init] sampling (z,y,x): {sampling}")
 
     # SNAP seeds to mask using the same KDTree-based method
     A_all = _seeds_to_zyx(seeds_a, seed_order)
     B_all = _seeds_to_zyx(seeds_b, seed_order)
-    log("[snap] snapping seeds to segment mask...")
+    logger.debug("[snap] snapping seeds to segment mask...")
 
     snap_cfg = dict(
         use_boundary=True,
@@ -945,7 +946,6 @@ def split_supervoxel_growing(
                 sampling[1],
                 sampling[0],
             ),  # convert ZYX→XYZ spacing
-            log=log,
             tag=tagname,
             **snap_cfg,
         )
@@ -954,11 +954,13 @@ def split_supervoxel_growing(
     with _prof.profile("snap_seeds"):
         A = _snap_ZYX(A_all, "A@snap")
         B = _snap_ZYX(B_all, "B@snap")
-    log(f"[seeds] A={len(A)}, B={len(B)}")
+    logger.debug(f"[seeds] A={len(A)}, B={len(B)}")
 
     out_zyx = np.zeros_like(sv_zyx, dtype=np.int16)
     if A.size == 0 or B.size == 0 or not np.any(sv_zyx):
-        log("[seeds] missing seeds or empty SV; returning label=1 for entire SV")
+        logger.debug(
+            "[seeds] missing seeds or empty SV; returning label=1 for entire SV"
+        )
         out_zyx[sv_zyx] = 1
         return _from_internal_zyx_volume(out_zyx, vol_order)
 
@@ -978,19 +980,19 @@ def split_supervoxel_growing(
         sv = sv_zyx[z0h:z1h, y0h:y1h, x0h:x1h]
         A_roi = A - np.array([z0h, y0h, x0h])
         B_roi = B - np.array([z0h, y0h, x0h])
-    log(
+    logger.debug(
         f"[crop] ROI shape (internal): {sv.shape} (halo {halo})  | {perf_counter()-t_bbox:.3f}s"
     )
 
     # Build travel cost via EDT (Seung-Lab edt if available)
     t1 = perf_counter()
-    dist = _compute_edt(sv, sampling, log=log, tag="split:EDT(mask)")
+    dist = _compute_edt(sv, sampling, tag="split:EDT(mask)")
     distn = dist / dist.max() if dist.max() > 0 else dist
     eps = 1e-6
     speed = np.clip(distn ** max(gamma_neck, 0.0), eps, 1.0)
     travel_cost = np.full_like(speed, 1e12, dtype=float)
     travel_cost[sv] = 1.0 / speed[sv]
-    log(
+    logger.debug(
         f"[speed] EDT + speed map  | {perf_counter()-t1:.3f}s  (total {perf_counter()-t0:.3f}s)"
     )
 
@@ -998,7 +1000,7 @@ def split_supervoxel_growing(
     use_ds = downsample_geodesic is not None
     if use_ds:
         dz, dy, dx = map(int, downsample_geodesic)
-        log(f"[geodesic] downsample grid: {downsample_geodesic}")
+        logger.debug(f"[geodesic] downsample grid: {downsample_geodesic}")
         cost_ds = travel_cost[::dz, ::dy, ::dx]
         mask_ds = sv[::dz, ::dy, ::dx]
         sampling_ds = (sampling[0] * dz, sampling[1] * dy, sampling[2] * dx)
@@ -1014,9 +1016,9 @@ def split_supervoxel_growing(
 
         A_sub = _to_ds(A_roi)
         B_sub = _to_ds(B_roi)
-        log(f"[geodesic] seeds on DS grid: A={len(A_sub)}, B={len(B_sub)}")
+        logger.debug(f"[geodesic] seeds on DS grid: A={len(A_sub)}, B={len(B_sub)}")
         if len(A_sub) == 0 or len(B_sub) == 0:
-            log("[geodesic] DS removed all seeds; falling back to full-res")
+            logger.debug("[geodesic] DS removed all seeds; falling back to full-res")
             use_ds = False
     if not use_ds:
         cost_ds = travel_cost
@@ -1033,7 +1035,7 @@ def split_supervoxel_growing(
     TB, _ = mcpB.find_costs(B_sub, find_all_ends=False)
     TA = np.where(mask_ds, TA, np.inf)
     TB = np.where(mask_ds, TB, np.inf)
-    log(
+    logger.debug(
         f"[geodesic] TA/TB computed  | {perf_counter()-t2:.3f}s  (total {perf_counter()-t0:.3f}s)"
     )
 
@@ -1048,8 +1050,8 @@ def split_supervoxel_growing(
         band = ndi.binary_dilation(band, structure=ball(nb_dilate)) & mask_ds
     if band.sum() < 64:
         band = mask_ds.copy()
-        log("[band] tiny band -> using full ROI on current grid")
-    log(
+        logger.debug("[band] tiny band -> using full ROI on current grid")
+    logger.debug(
         f"[band] voxels: {int(band.sum())}  | {perf_counter()-t3:.3f}s  (total {perf_counter()-t0:.3f}s)"
     )
 
@@ -1069,7 +1071,7 @@ def split_supervoxel_growing(
         sub_labels_ds[z, y, x] = 1
     for z, y, x in B_sub:
         sub_labels_ds[z, y, x] = 2
-    log(
+    logger.debug(
         f"[label] DS labeling done  | {perf_counter()-t4:.3f}s  (total {perf_counter()-t0:.3f}s)"
     )
 
@@ -1081,7 +1083,7 @@ def split_supervoxel_growing(
             sub_labels[z, y, x] = 1
         for z, y, x in B_roi:
             sub_labels[z, y, x] = 2
-        log(f"[label] upsampled DS→full ROI")
+        logger.debug(f"[label] upsampled DS→full ROI")
     else:
         sub_labels = sub_labels_ds
 
@@ -1089,7 +1091,7 @@ def split_supervoxel_growing(
     out_zyx[sv_zyx] = 1
     out_zyx[z0h:z1h, y0h:y1h, x0h:x1h][sub_labels == 1] = 1
     out_zyx[z0h:z1h, y0h:y1h, x0h:x1h][sub_labels == 2] = 2
-    log("[writeback] labels written to full volume")
+    logger.debug("[writeback] labels written to full volume")
 
     # Enforce single CC per label (full res). The upsampled labeling can
     # fragment under the foreground mask, so enforcement must run here,
@@ -1105,14 +1107,22 @@ def split_supervoxel_growing(
                 keptB, movedB = _enforce_single_component(
                     out_zyx, 2, B, allow3=allow_third_label
                 )
-            log(
+            logger.debug(
                 f"[single-cc] label1 kept {keptA}, moved {movedA} -> 3; label2 kept {keptB}, moved {movedB} -> 3"
             )
 
         with _prof.profile("resolve3"):
-            moved1, moved2 = _resolve_label3_touching_vectorized(
-                out_zyx, A, B, sampling
-            )
+            # Only reassign strays if any exist. Label 3 is created solely
+            # by _enforce_single_component above; with none present,
+            # _resolve_label3_touching_vectorized would early-return after a
+            # full-volume CC scan, so the np.any check skips that scan.
+            moved1 = moved2 = 0
+            n3 = int(np.count_nonzero(out_zyx == 3))
+            logger.note(f"resolve3: label-3 stray voxels: {n3}")
+            if n3:
+                moved1, moved2 = _resolve_label3_touching_vectorized(
+                    out_zyx, A, B, sampling
+                )
             if moved1 or moved2:
                 if enforce_single_cc:
                     keptA, movedA = _enforce_single_component(
@@ -1121,7 +1131,7 @@ def split_supervoxel_growing(
                     keptB, movedB = _enforce_single_component(
                         out_zyx, 2, B, allow3=allow_third_label
                     )
-                    log(
+                    logger.debug(
                         f"[single-cc 2nd] label1 kept {keptA}, moved {movedA}; label2 kept {keptB}, moved {movedB}"
                     )
 
@@ -1133,9 +1143,9 @@ def split_supervoxel_growing(
             if raise_if_multi_cc:
                 raise ValueError(msg)
             else:
-                log(msg)
+                logger.debug(msg)
 
-    log(f"[done] total elapsed {perf_counter()-t0:.3f}s")
+    logger.debug(f"[done] total elapsed {perf_counter()-t0:.3f}s")
     return _from_internal_zyx_volume(out_zyx, vol_order)
 
 
@@ -1345,7 +1355,6 @@ def split_supervoxel_helper(
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
     voxel_size: tuple,
-    verbose: bool = False,
 ):
     voxel_size = np.array(voxel_size)
     downsample = voxel_size.max() // voxel_size
@@ -1369,7 +1378,6 @@ def split_supervoxel_helper(
                 use_bbox=True,  # window candidates to a box around the seeds; same result
                 method="kdtree",
             ),
-            verbose=verbose,
         )
     if not (okA and okB):
         raise RuntimeError(
@@ -1394,7 +1402,6 @@ def split_supervoxel_helper(
             enforce_single_cc=True,
             raise_if_seed_split=True,
             raise_if_multi_cc=True,
-            verbose=verbose,
             snap_method="kdtree",
             snap_kwargs=dict(
                 use_boundary=False,  # match the connector for consistency

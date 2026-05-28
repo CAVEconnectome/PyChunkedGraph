@@ -773,7 +773,6 @@ class TestSplitSupervoxelGrowing:
             vol_order="xyz",
             vox_order="xyz",
             seed_order="xyz",
-            verbose=False,
             snap_kwargs=dict(use_boundary=False, downsample=False),
             enforce_single_cc=True,
             raise_if_multi_cc=False,
@@ -796,7 +795,6 @@ class TestSplitSupervoxelGrowing:
             vol_order="zyx",
             vox_order="zyx",
             seed_order="zyx",
-            verbose=False,
             snap_kwargs=dict(use_boundary=False, downsample=False),
             enforce_single_cc=True,
             raise_if_multi_cc=False,
@@ -818,7 +816,6 @@ class TestSplitSupervoxelGrowing:
             vol_order="zyx",
             vox_order="zyx",
             seed_order="zyx",
-            verbose=False,
             snap_kwargs=dict(use_boundary=False, downsample=False),
         )
         assert np.all(result[mask] == 1)
@@ -835,7 +832,6 @@ class TestSplitSupervoxelGrowing:
             vox_order="zyx",
             seed_order="zyx",
             downsample_geodesic=(1, 2, 2),
-            verbose=False,
             snap_kwargs=dict(use_boundary=False, downsample=False),
             enforce_single_cc=True,
             raise_if_multi_cc=False,
@@ -861,7 +857,6 @@ class TestSplitSupervoxelGrowing:
             enforce_single_cc=True,
             raise_if_multi_cc=True,
             snap_kwargs=dict(use_boundary=False, downsample=False),
-            verbose=False,
         )
         assert np.any(result == 1)
         assert np.any(result == 2)
@@ -889,7 +884,6 @@ class TestConnectBothSeedsViaRidge:
             vox_order="xyz",
             seed_order="xyz",
             downsample=(1, 1, 1),
-            verbose=False,
             snap_kwargs=dict(use_boundary=False, downsample=False),
         )
         assert okA
@@ -913,7 +907,6 @@ class TestConnectBothSeedsViaRidge:
             vol_order="xyz",
             seed_order="xyz",
             downsample=(1, 1, 1),
-            verbose=False,
             snap_kwargs=dict(use_boundary=False, downsample=False),
         )
         assert okA
@@ -934,7 +927,6 @@ class TestConnectBothSeedsViaRidge:
             vol_order="xyz",
             seed_order="xyz",
             downsample=(1, 1, 1),
-            verbose=False,
             snap_kwargs=dict(use_boundary=False, downsample=False),
         )
         assert not okA
@@ -955,7 +947,6 @@ class TestSplitSupervoxelHelper:
             seeds_a_xyz,
             seeds_b_xyz,
             voxel_size=(1.0, 1.0, 1.0),
-            verbose=False,
         )
         assert result.shape == mask_xyz.shape
         assert np.any(result == 1)
