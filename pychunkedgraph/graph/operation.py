@@ -963,6 +963,7 @@ class MulticutOperation(GraphEditOperation):
                     sink_ids=self.sink_ids,
                     operation_id=operation_id,
                     timestamp=timestamp,
+                    parent_ts=self.parent_ts,
                 )
                 with locks.IndefiniteL2ChunkLock(
                     self.cg,

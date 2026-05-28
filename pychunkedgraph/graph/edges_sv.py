@@ -350,6 +350,7 @@ def update_edges(
     new_seg: np.ndarray,
     old_new_map: dict,
     new_id_label_map: dict = None,
+    parent_ts: datetime = None,
 ):
     old_new_map = dict(old_new_map)
     _prof = get_profiler()
@@ -376,7 +377,7 @@ def update_edges(
 
     t0 = time.time()
     all_edge_svs = np.unique(edges)
-    all_roots = cg.get_roots(all_edge_svs)
+    all_roots = cg.get_roots(all_edge_svs, time_stamp=parent_ts)
     sv_root_map = dict(zip(all_edge_svs, all_roots))
     logger.note(f"get_roots {len(all_edge_svs)} svs ({time.time() - t0:.2f}s)")
 

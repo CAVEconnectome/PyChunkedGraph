@@ -246,6 +246,7 @@ def split_supervoxels(
     sink_ids: np.ndarray,
     operation_id: int,
     timestamp: datetime = None,
+    parent_ts: datetime = None,
 ) -> SplitResult:
     """Pure planner for the SV-split step. Returns a `SplitResult` with
     all the data the caller needs to persist under locks.
@@ -288,6 +289,7 @@ def split_supervoxels(
             operation_id,
             sv_remapping=sv_remapping,
             time_stamp=timestamp,
+            parent_ts=parent_ts,
         )
         seg_bboxes.append(out.seg_bbox)
         source_ids_fresh[task.src_mask] = out.src_new_ids
@@ -392,6 +394,7 @@ def split_supervoxel(
     *,
     sv_remapping: dict,
     time_stamp: datetime = None,
+    parent_ts: datetime = None,
     verbose: bool = False,
 ) -> SvSplitOutcome:
     """Split one cross-chunk-connected SV into connected components.
@@ -502,7 +505,7 @@ def split_supervoxel(
     with _prof.profile("get_roots"):
         # sv_ids reused from the seg_unique block above (seg is not
         # mutated between then and here).
-        roots = cg.get_roots(sv_ids)
+        roots = cg.get_roots(sv_ids, time_stamp=parent_ts)
         sv_root_map = dict(zip(sv_ids, roots))
     root = sv_root_map[sv_id]
     logger.note(f"{sv_id} -> {root}")
@@ -524,6 +527,7 @@ def split_supervoxel(
             seg,
             old_new_map,
             new_id_label_map,
+            parent_ts=parent_ts,
         )
     logger.note(f"edge update ({time.time() - t0:.2f}s)")
 
