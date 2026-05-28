@@ -5,10 +5,10 @@ from functools import reduce
 import numpy as np
 import fastremap
 
-from ..app.app_utils import handle_supervoxel_id_lookup
-from ..graph import attributes
-from ..graph.chunkedgraph import ChunkedGraph
-from ..graph.edges import Edges
+from pychunkedgraph.app.app_utils import handle_supervoxel_id_lookup
+from pychunkedgraph.graph import attributes
+from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
+from pychunkedgraph.graph.edges import Edges
 
 
 def get_subgraph_edges(cg: ChunkedGraph, root_id, bbox):
@@ -338,8 +338,6 @@ def trace_stale_sv(cg: ChunkedGraph, sv_id, bbox=None, root_id=None):
             ).values()
         )[0]
         chunk_ids = np.unique(cg.get_chunk_ids_from_node_ids(l2ids))
-
-        from ..io.edges import get_chunk_edges
 
         chunk_edges_d = cg.read_chunk_edges(chunk_ids)
         chunk_edges_all = reduce(

@@ -553,7 +553,7 @@ def propagate_to_coarser_scales(dst_scales, resolutions, base_slices):
 def write_seg_chunks(meta, seg_writes):
     """Write a flat batch of pre-sliced L2 chunks to OCDBT in parallel.
 
-    ``seg_writes`` is the aggregated output of ``edits_sv.split_supervoxels``
+    ``seg_writes`` is the aggregated output of ``sv_split.edits.split_supervoxels``
     across every rep in an operation — each pair is one L2 chunk's worth
     of ``(voxel_slices, data)``. Flattening across reps matters: one
     ``write_seg_chunks`` call fires every chunk write in one parallel

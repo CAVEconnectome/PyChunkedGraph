@@ -27,7 +27,7 @@ from pychunkedgraph.graph import (
 )
 from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.graph.misc import get_contact_sites
-from pychunkedgraph.debug.sv_split import check_unsplit_sv_bridges
+from pychunkedgraph.graph.sv_split.debug import check_unsplit_sv_bridges
 from pychunkedgraph.graph.operation import GraphEditOperation
 from pychunkedgraph.graph import basetypes
 from pychunkedgraph.meshing import mesh_analysis

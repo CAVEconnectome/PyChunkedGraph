@@ -1,10 +1,10 @@
-"""Tests for pychunkedgraph.graph.cutting_sv"""
+"""Tests for pychunkedgraph.graph.sv_split.cutting"""
 
 import numpy as np
 import pytest
 from scipy.spatial import cKDTree
 
-from pychunkedgraph.graph.cutting_sv import (
+from pychunkedgraph.graph.sv_split.cutting import (
     _cc_label_26,
     _largest_component_id,
     _to_zyx_sampling,

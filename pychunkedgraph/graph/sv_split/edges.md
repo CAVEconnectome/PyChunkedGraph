@@ -14,7 +14,7 @@ inputs from voxel-level split
   ├─ old_new_map       which old SVs got split, and into which new IDs
   └─ new_id_label_map  for each new ID, which side of the cut it's on
 
-update_edges (edges_sv.py):
+update_edges (sv_split/edges.py):
   1. fetch atomic subgraph inside bbox, rooted at the rep's root
   2. dedupe edges, drop self-loops
   3. group by partner-root vs split-root  →  active / inactive
@@ -25,7 +25,7 @@ update_edges (edges_sv.py):
   5. validate (no cross-label inf bridges, no self-loops, completeness)
   6. return new (edges, affinities, areas)
 
-add_new_edges (edges_sv.py):
+add_new_edges (sv_split/edges.py):
   1. duplicate bidirectional, group by L2 parent chunk
   2. per chunk: append to SplitEdges (history) and rewrite
      CompactedSplitEdges (snapshot, with stale rows filtered)
@@ -130,3 +130,10 @@ Both writes use `time_stamp=task.operation_ts`, so all rows from one op land at 
 - No inf-affinity edge crosses cut-sides through an unsplit partner.
 - Every cross-chunk piece of the rep that the bbox didn't include keeps its old ID and its existing edges resolve unchanged (because no edge in those rows references the now-split SVs at endpoints — the routing only touches edges whose endpoints are in the bbox or its 1-voxel shell).
 - `SplitEdges` and `CompactedSplitEdges` agree at the latest timestamp: the compacted snapshot is the result of replaying the history through the stale-edge filter.
+
+## Related docs
+
+- [Overview](README.md)
+- [Algorithm](algorithm.md) — the cut that produces the labeling this step consumes.
+- [Design](design.md)
+- [Recovery](recovery.md)

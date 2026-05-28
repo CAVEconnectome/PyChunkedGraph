@@ -439,7 +439,7 @@ class TestPropagateToCoarserScales:
 class TestWriteSegChunks:
     """`write_seg_chunks` now takes a flat list of (slices, data) pairs.
 
-    `edits_sv.split_supervoxels` is responsible for producing this list
+    `sv_split.edits.split_supervoxels` is responsible for producing this list
     across all reps so the outer rep loop is a pure data gather —
     tensorstore writes fire in one parallel batch.
     """

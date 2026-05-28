@@ -115,11 +115,11 @@ The split flow closes both:
 
 For each cross-chunk representative being split, take the envelope of the chunks its cross-chunk-connected pieces live in — the exact chunks whose voxels will be rewritten. Expand by one voxel (= at most one L2 chunk of margin in each direction), because the edge-routing step reads a 1-voxel shell outside the rewritten region to see neighboring supervoxels' labels. Union the per-representative chunk sets, sort deterministically so workers with overlapping sets never acquire in opposite orders, lock once.
 
-The envelope comes from the supervoxels' own chunk coordinates — no coordinate padding, no resolution-axis assumption. The chunks locked are exactly the chunks the split will touch, plus the 1-chunk margin the shell read requires.
+The chunks locked are exactly the chunks the split will touch, plus the 1-chunk margin the shell read requires.
 
 ### How the write scope is kept minimal
 
-Only chunks that actually receive new supervoxel IDs get written to storage. Gap chunks that happen to sit inside an envelope but contain no cross-chunk-connected pieces, and neighbor chunks read only for the edge-routing shell, are never written. The segmentation backend is append-only, so writing unchanged bytes would inflate the on-disk delta for no real change. Writing exactly the changed chunks keeps the delta proportional to the user's edit.
+Only chunks that actually receive new supervoxel IDs get written to storage. Gap chunks that happen to sit inside an envelope but contain no cross-chunk-connected pieces, and neighbor chunks read only for the edge-routing shell, are never written. The segmentation backend is append-only, so writing unchanged bytes would inflate the on-disk delta for no real change.
 
 ### Why the post-split ID refresh is safe without an extra read
 
@@ -129,7 +129,7 @@ The in-memory segmentation block produced by the split is bitwise identical to w
 
 ### Worker crash mid-write
 
-A worker that dies — or raises from the persist block — inside the indefinite L2 chunk lock's scope leaves the lock cells set and the op-log row's `L2ChunkLockScope` populated with the exact chunks being written. Future ops on any of those chunks refuse to start — the crashed state is isolated, not amplified. An operator runs the recovery flow described in [sv_splitting_recovery.md](sv_splitting_recovery.md) to revert the partial writes and replay the op.
+A worker that dies — or raises from the persist block — inside the indefinite L2 chunk lock's scope leaves the lock cells set and the op-log row's `L2ChunkLockScope` populated with the exact chunks being written. Future ops on any of those chunks refuse to start — the crashed state is isolated, not amplified. An operator runs the recovery flow described in [recovery.md](recovery.md) to revert the partial writes and replay the op.
 
 ## Invariants
 
@@ -138,3 +138,10 @@ A worker that dies — or raises from the persist block — inside the indefinit
 - Supervoxel-level writes touch only chunks whose voxels actually changed. Gap chunks between cross-chunk-connected pieces and neighbor chunks read for edge routing are untouched.
 - After the commit, readers at the operation's timestamp see new supervoxel IDs in the cut region and new roots reflecting the cut.
 - Coarser MIP levels are eventually consistent with the base scale, lagging at most until the async downsample worker processes the operation's pubsub message.
+
+## Related docs
+
+- [Algorithm](algorithm.md) — the voxel-level geodesic cut.
+- [Design](design.md) — rationale behind the cut.
+- [Edges](edges.md) — edge re-routing after the cut.
+- [Recovery](recovery.md) — replay / recovery of interrupted splits.

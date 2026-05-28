@@ -1,11 +1,11 @@
-"""Tests for pychunkedgraph.graph.edits_sv"""
+"""Tests for pychunkedgraph.graph.sv_split.edits"""
 
 import numpy as np
 import pytest
 from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
-from pychunkedgraph.graph.edits_sv import (
+from pychunkedgraph.graph.sv_split.edits import (
     _coords_bbox,
     _voxel_crop,
     _parse_results,

@@ -64,3 +64,10 @@ If the replay itself fails — for example, the operator's judgment about the wo
 - Cleanup only touches chunks in the stuck op's scope. Neighbor state and any concurrent ops' changes are preserved byte-for-byte.
 - The replay sees a consistent world: pre-op values on the stuck op's own chunks (from the cleanup), current state on every other chunk (from the latest manifest).
 - After successful replay, the op-log row is at `SUCCESS`, all indefinite cells previously held by that op are released, and the affected chunks are available to new ops. The op's original intent — the edit the user asked for — is realized with a fresh set of supervoxel IDs.
+
+## Related docs
+
+- [Overview](README.md)
+- [Algorithm](algorithm.md)
+- [Design](design.md) — why reads are pinned to `parent_ts`.
+- [Edges](edges.md)

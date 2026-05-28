@@ -1,4 +1,4 @@
-"""Comprehensive tests for pychunkedgraph.graph.edges_sv — edge routing after SV split."""
+"""Comprehensive tests for pychunkedgraph.graph.sv_split.edges — edge routing after SV split."""
 
 import numpy as np
 import pytest
@@ -6,7 +6,7 @@ from scipy.spatial import cKDTree
 
 from pychunkedgraph.graph import basetypes
 from pychunkedgraph.graph.exceptions import PostconditionError
-from pychunkedgraph.graph.edges_sv import (
+from pychunkedgraph.graph.sv_split.edges import (
     _get_new_edges,
     _match_by_label,
     _match_by_proximity,

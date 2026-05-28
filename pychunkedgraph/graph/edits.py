@@ -12,7 +12,7 @@ import fastremap
 import numpy as np
 
 from pychunkedgraph import get_logger
-from pychunkedgraph.debug.profiler import HierarchicalProfiler, get_profiler
+from pychunkedgraph.profiler import HierarchicalProfiler, get_profiler
 
 from . import types
 from pychunkedgraph.graph import attributes

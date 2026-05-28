@@ -26,11 +26,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from pychunkedgraph.app.segmentation.common import _get_sources_and_sinks
-from pychunkedgraph.debug.profiler import (
-    HierarchicalProfiler,
-    get_profiler,
-)
-from pychunkedgraph.graph import edits_sv
+from pychunkedgraph.profiler import HierarchicalProfiler, get_profiler
+from . import edits
 from pychunkedgraph.graph import utils as _utils_pkg
 from pychunkedgraph.graph.dry_run import dry_run_scope
 from pychunkedgraph.graph.operation import Cut, MulticutOperation, SvSplitRequired
@@ -115,7 +112,7 @@ def count_io(cg):
     # SV-split flow. The source module is _utils_generic; the others
     # imported it by name at module load time, so they hold separate
     # references that need their own swap.
-    seg_modules = [_utils_generic, _utils_pkg, edits_sv, _utils_id_helpers]
+    seg_modules = [_utils_generic, _utils_pkg, edits, _utils_id_helpers]
     orig_seg_fns = {m: m.get_local_segmentation for m in seg_modules}
 
     def wrap_get_local_seg(meta, bbox_start, bbox_end, mip=0):
@@ -276,8 +273,8 @@ def run_split_profile(
         # blocks. The real per-step metrics come from inline profile()
         # blocks inside the called functions.
         orig_run_multicut = MulticutOperation._run_multicut
-        orig_plan_sv_splits = edits_sv.plan_sv_splits
-        orig_split_supervoxels = edits_sv.split_supervoxels
+        orig_plan_sv_splits = edits.plan_sv_splits
+        orig_split_supervoxels = edits.split_supervoxels
 
         mincut_call_count = [0]
 
@@ -305,8 +302,8 @@ def run_split_profile(
             return result
 
         MulticutOperation._run_multicut = wrap_run_multicut
-        edits_sv.plan_sv_splits = wrap_plan_sv_splits
-        edits_sv.split_supervoxels = wrap_split_supervoxels
+        edits.plan_sv_splits = wrap_plan_sv_splits
+        edits.split_supervoxels = wrap_split_supervoxels
 
         try:
             op.execute()
@@ -317,8 +314,8 @@ def run_split_profile(
             )
         finally:
             MulticutOperation._run_multicut = orig_run_multicut
-            edits_sv.plan_sv_splits = orig_plan_sv_splits
-            edits_sv.split_supervoxels = orig_split_supervoxels
+            edits.plan_sv_splits = orig_plan_sv_splits
+            edits.split_supervoxels = orig_split_supervoxels
             profiler.default_counters = None
 
     try:

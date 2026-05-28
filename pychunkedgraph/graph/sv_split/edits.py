@@ -12,7 +12,7 @@ import fastremap
 import numpy as np
 
 from pychunkedgraph import get_logger
-from pychunkedgraph.debug.profiler import get_profiler
+from pychunkedgraph.profiler import get_profiler
 from pychunkedgraph.graph import (
     attributes,
     cache as cache_utils,
@@ -20,8 +20,8 @@ from pychunkedgraph.graph import (
     serializers,
 )
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
-from pychunkedgraph.graph.cutting_sv import split_supervoxel_helper
-from pychunkedgraph.graph.edges_sv import update_edges, add_new_edges
+from .cutting import split_supervoxel_helper
+from .edges import update_edges, add_new_edges
 from pychunkedgraph.graph.utils import get_local_segmentation
 
 if TYPE_CHECKING:

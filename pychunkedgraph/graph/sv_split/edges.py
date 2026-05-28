@@ -38,11 +38,11 @@ import fastremap
 import numpy as np
 
 from pychunkedgraph import get_logger
-from pychunkedgraph.debug.profiler import get_profiler
+from pychunkedgraph.profiler import get_profiler
 from pychunkedgraph.graph import attributes, basetypes, serializers
 from pychunkedgraph.graph.exceptions import PostconditionError
 from scipy.spatial import cKDTree
-from pychunkedgraph.graph.cutting_sv import build_coords_by_label
+from .cutting import build_coords_by_label
 from pychunkedgraph.graph.edges import Edges
 
 if TYPE_CHECKING:

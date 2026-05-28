@@ -20,7 +20,7 @@ from skimage.morphology import (
     ball,
 )  # keep only ball; use ndi.binary_dilation everywhere
 
-from pychunkedgraph.debug.profiler import get_profiler
+from pychunkedgraph.profiler import get_profiler
 
 # ---------- Fast CC wrappers ----------
 try:

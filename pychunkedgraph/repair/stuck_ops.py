@@ -16,8 +16,8 @@ the stuck op's chunks, current on everyone else's), writes fresh SV
 IDs, and `IndefiniteL2ChunkLock`'s privileged-mode exit deletes the
 crashed op's pre-existing cells.
 
-See `docs/sv_splitting_recovery.md` for the full architecture and
-correctness argument.
+See `pychunkedgraph/graph/sv_split/recovery.md` for the full
+architecture and correctness argument.
 """
 
 import argparse

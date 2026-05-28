@@ -3,7 +3,6 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
-import os
 import threading
 import time
 import tracemalloc
@@ -13,36 +12,7 @@ from dataclasses import dataclass, field
 
 import psutil
 
-
-def _fmt_time(s: float) -> str:
-    """Auto-scale seconds → ``12.3 ms`` / ``1.23 s``."""
-    if s < 1.0:
-        return f"{s * 1000:.1f} ms"
-    return f"{s:.2f} s"
-
-
-def _fmt_bytes(n: int, *, signed: bool = False) -> str:
-    """Auto-scale bytes (binary) → ``512 B`` / ``1.5 KB`` / ``45.6 MB`` / ``1.23 GB``.
-
-    With ``signed=True``, positive values get a ``+`` prefix (for delta columns).
-    """
-    if signed:
-        sign = "+" if n > 0 else "-" if n < 0 else ""
-    else:
-        sign = "-" if n < 0 else ""
-    n = abs(int(n))
-    if n < 1024:
-        return f"{sign}{n} B"
-    if n < 1024**2:
-        return f"{sign}{n / 1024:.1f} KB"
-    if n < 1024**3:
-        return f"{sign}{n / 1024**2:.1f} MB"
-    return f"{sign}{n / 1024**3:.2f} GB"
-
-
-def _fmt_count(n: int) -> str:
-    """Thousands-separator integer: ``1234567`` → ``1,234,567``."""
-    return f"{int(n):,}"
+from .utils import _fmt_time, _fmt_bytes, _fmt_count
 
 
 @dataclass
@@ -412,23 +382,3 @@ class HierarchicalProfiler:
         self.current_path.clear()
         self.blocks.clear()
         self._base_perf = None
-
-
-# Global profiler instance - enable via environment variable
-PROFILER_ENABLED = os.environ.get("PCG_PROFILER_ENABLED", "0") == "1"
-_profiler: HierarchicalProfiler = None
-
-
-def get_profiler() -> HierarchicalProfiler:
-    """Get or create the global profiler instance."""
-    global _profiler
-    if _profiler is None:
-        _profiler = HierarchicalProfiler(enabled=PROFILER_ENABLED)
-    return _profiler
-
-
-def reset_profiler():
-    """Reset the global profiler."""
-    global _profiler
-    if _profiler is not None:
-        _profiler.reset()

@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 from . import locks
 from . import edits
-from . import edits_sv
+from . import sv_split
 from . import types
 from .ocdbt import write_seg_chunks
 from .dry_run import is_dry_run
@@ -941,7 +941,7 @@ class MulticutOperation(GraphEditOperation):
             #     only. A worker death inside it leaves the indefinite
             #     cell set on every chunk row in scope, blocking future
             #     ops until operator replay clears them.
-            tasks, chunk_ids = edits_sv.plan_sv_splits(
+            tasks, chunk_ids = sv_split.edits.plan_sv_splits(
                 self.cg,
                 sv_remapping=result.sv_remapping,
                 source_ids=self.source_ids,
@@ -955,7 +955,7 @@ class MulticutOperation(GraphEditOperation):
                 operation_id,
                 privileged_mode=self.privileged_mode,
             ):
-                sv_result = edits_sv.split_supervoxels(
+                sv_result = sv_split.edits.split_supervoxels(
                     self.cg,
                     tasks=tasks,
                     sv_remapping=result.sv_remapping,
