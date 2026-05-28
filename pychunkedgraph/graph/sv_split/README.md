@@ -38,7 +38,7 @@ Resolve coords → current supervoxel IDs at those pixels
 │  │  L2 CHUNK LOCK (spatial; sparse set + 1-chunk margin)         │   │
 │  │                                                               │   │
 │  │  for each cross-chunk rep linking source to sink:             │   │
-│  │      bbs/bbe ◄ envelope of rep's pieces' chunk coords         │   │
+│  │      bbs/bbe ◄ envelope of src+sink seeds + 1-chunk margin   │   │
 │  │      read seg in [bbs-1, bbe+1]                               │   │
 │  │          (1-voxel shell → anchor voxels for edge routing)     │   │
 │  │      compute voxel-level cut between seeds                    │   │
@@ -113,7 +113,7 @@ The split flow closes both:
 
 ### How the spatial lock set is computed
 
-For each cross-chunk representative being split, take the envelope of the chunks its cross-chunk-connected pieces live in — the exact chunks whose voxels will be rewritten. Expand by one voxel (= at most one L2 chunk of margin in each direction), because the edge-routing step reads a 1-voxel shell outside the rewritten region to see neighboring supervoxels' labels. Union the per-representative chunk sets, sort deterministically so workers with overlapping sets never acquire in opposite orders, lock once.
+For each cross-chunk representative being split, the read/cut region is the base-voxel envelope of that rep's source and sink seed coordinates, padded by one CG chunk on each side. The cut surface lives between the seeds, so pieces of the rep far from both seeds never participate — the seed envelope is the region that gets read and rewritten, not the rep's full piece-set envelope, which for an SV cut across many chunks can be orders of magnitude larger. To derive the lock set, expand that envelope by one voxel (because the edge-routing step reads a 1-voxel shell outside the rewritten region to see neighboring supervoxels' labels), map it to the overlapping L2 chunks, union the per-representative chunk sets, and sort deterministically so workers with overlapping sets never acquire in opposite orders.
 
 The chunks locked are exactly the chunks the split will touch, plus the 1-chunk margin the shell read requires.
 

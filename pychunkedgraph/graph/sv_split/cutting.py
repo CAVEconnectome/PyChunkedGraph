@@ -197,6 +197,8 @@ def snap_seeds_to_segment(
     downsample_mode="stride",  # 'stride' or 'random'
     downsample_stride=2,  # used if mode='stride'
     downsample_target=None,  # used if mode='random'
+    use_bbox=False,
+    bbox_pad_phys=None,  # physical pad per side; None -> derived from voxel_size
     rng=None,
     return_index=False,
     leafsize=16,
@@ -223,6 +225,14 @@ def snap_seeds_to_segment(
         downsample_mode   : 'stride' or 'random' for boundary sampling.
         downsample_stride : If stride mode, use every Nth boundary voxel.
         downsample_target : If random mode, target number of boundary points to keep.
+        use_bbox          : If True, restrict the candidate scan to a bounding box around
+                            the seeds instead of the whole mask. The nearest true voxel is
+                            always near a seed, so this returns the identical snapped voxel
+                            while building a far smaller KDTree. The box grows until it
+                            contains a true voxel, so it never changes the result.
+        bbox_pad_phys     : Physical pad (same units as voxel_size) added on each side of
+                            the seed bbox. None -> derived from voxel_size. Only a starting
+                            size; the grow loop makes it correctness-independent.
         rng               : Optional np.random.Generator for reproducible random sampling.
         return_index      : If True, also return indices of nearest boundary points.
         leafsize          : cKDTree leafsize parameter.
@@ -252,33 +262,74 @@ def snap_seeds_to_segment(
     if mask_order not in ("zyx", "xyz"):
         raise ValueError("mask_order must be 'zyx' or 'xyz'")
 
-    # Optional boundary extraction for speed
-    tb = perf_counter()
-    if use_boundary:
-        candidate_mask = _extract_mask_boundary(mask, erosion_iters=erosion_iters)
-        # Fallback to full mask if boundary is empty
-        if not candidate_mask.any():
-            candidate_mask = mask
-            log(f"[{tag}] boundary empty → fallback to full mask")
-    else:
-        candidate_mask = mask
-    log(f"[{tag}] candidate extraction | {perf_counter()-tb:.3f}s")
+    # Prepare seeds array (needed up-front for the bbox window below)
+    seeds_xyz = np.asarray(seeds_xyz, dtype=np.float64)
+    if seeds_xyz.ndim == 1:
+        seeds_xyz = seeds_xyz[None, :]
+    if seeds_xyz.shape[1] != 3:
+        raise ValueError("seeds_xyz must be shape (N, 3)")
 
-    # Obtain candidate voxel coordinates in XYZ order
-    tc = perf_counter()
+    # Full-mask voxel bounds (XYZ), used for the final clip regardless of windowing.
     if mask_order == "zyx":
-        # mask shape is (Z, Y, X), np.where -> (z, y, x)
-        zc, yc, xc = np.where(candidate_mask)
-        points_xyz = np.stack([xc, yc, zc], axis=1)
         max_x, max_y, max_z = mask.shape[2] - 1, mask.shape[1] - 1, mask.shape[0] - 1
     else:
-        # mask shape is (X, Y, Z), np.where -> (x, y, z)
-        xc, yc, zc = np.where(candidate_mask)
-        points_xyz = np.stack([xc, yc, zc], axis=1)
         max_x, max_y, max_z = mask.shape[0] - 1, mask.shape[1] - 1, mask.shape[2] - 1
-    log(
-        f"[{tag}] candidate coordinates | {perf_counter()-tc:.3f}s (n={len(points_xyz)})"
-    )
+
+    # Axis order of `mask` as XYZ indices: voxel (x, y, z) lives at mask[idx].
+    ax_xyz = (2, 1, 0) if mask_order == "zyx" else (0, 1, 2)
+
+    def _candidates_xyz(window_mask, origin_xyz):
+        """np.where over a (cropped) mask → candidate voxel coords in XYZ.
+
+        `origin_xyz` is the XYZ coordinate of the crop's [0,0,0] corner,
+        added back so coords are global. Honors use_boundary exactly as
+        the full-mask path does.
+        """
+        if use_boundary:
+            cand = _extract_mask_boundary(window_mask, erosion_iters=erosion_iters)
+            if not cand.any():
+                cand = window_mask
+                log(f"[{tag}] boundary empty → fallback to full mask")
+        else:
+            cand = window_mask
+        wc = np.where(cand)  # tuple in mask-axis order
+        pts = np.stack([wc[ax_xyz[0]], wc[ax_xyz[1]], wc[ax_xyz[2]]], axis=1)
+        return pts + np.asarray(origin_xyz, dtype=pts.dtype)
+
+    tb = perf_counter()
+    if use_bbox and seeds_xyz.shape[0] > 0:
+        # Per-axis voxel pad derived from physical pad / voxel_size (anisotropy
+        # correct, no hardcoded axis). The window grows until it contains a true
+        # voxel, so the pad is only a starting size — never a correctness bound.
+        vsize_xyz = np.asarray(voxel_size, dtype=np.float64)
+        if bbox_pad_phys is None:
+            bbox_pad_phys = float(vsize_xyz.max())
+        seed_min_xyz = np.floor(seeds_xyz.min(axis=0)).astype(np.int64)
+        seed_max_xyz = np.ceil(seeds_xyz.max(axis=0)).astype(np.int64)
+        full_max_xyz = np.array([max_x, max_y, max_z], dtype=np.int64)
+        pad_phys = float(bbox_pad_phys)
+        points_xyz = np.empty((0, 3), dtype=np.int64)
+        while True:
+            pad_vox = np.ceil(pad_phys / vsize_xyz).astype(np.int64)
+            lo_xyz = np.maximum(seed_min_xyz - pad_vox, 0)
+            hi_xyz = np.minimum(seed_max_xyz + pad_vox, full_max_xyz)
+            # Slice the mask in its own axis order.
+            lo_mask = lo_xyz[list(ax_xyz)]
+            hi_mask = hi_xyz[list(ax_xyz)]
+            sl = tuple(slice(int(lo_mask[a]), int(hi_mask[a]) + 1) for a in range(3))
+            points_xyz = _candidates_xyz(mask[sl], lo_xyz)
+            if points_xyz.shape[0] > 0:
+                break
+            if np.all(lo_xyz == 0) and np.all(hi_xyz == full_max_xyz):
+                # Window already spans the full mask and it is still empty.
+                break
+            pad_phys *= 2.0
+        log(f"[{tag}] bbox candidate scan | {perf_counter()-tb:.3f}s")
+    else:
+        points_xyz = _candidates_xyz(mask, (0, 0, 0))
+        log(f"[{tag}] candidate scan | {perf_counter()-tb:.3f}s")
+
+    log(f"[{tag}] candidate coordinates (n={len(points_xyz)})")
 
     if points_xyz.shape[0] == 0:
         raise ValueError(
@@ -298,13 +349,6 @@ def snap_seeds_to_segment(
         )
         after = len(points_xyz)
         log(f"[{tag}] downsample points {before} → {after} | {perf_counter()-td:.3f}s")
-
-    # Prepare seeds array
-    seeds_xyz = np.asarray(seeds_xyz, dtype=np.float64)
-    if seeds_xyz.ndim == 1:
-        seeds_xyz = seeds_xyz[None, :]
-    if seeds_xyz.shape[1] != 3:
-        raise ValueError("seeds_xyz must be shape (N, 3)")
 
     # Scale coordinates to physical space to respect anisotropy
     vx, vy, vz = voxel_size
@@ -1322,6 +1366,7 @@ def split_supervoxel_helper(
             snap_kwargs=dict(
                 use_boundary=False,  # disables boundary-only snapping for maximum safety
                 downsample=False,  # avoids losing candidates
+                use_bbox=True,  # window candidates to a box around the seeds; same result
                 method="kdtree",
             ),
             verbose=verbose,
@@ -1354,6 +1399,7 @@ def split_supervoxel_helper(
             snap_kwargs=dict(
                 use_boundary=False,  # match the connector for consistency
                 downsample=False,
+                use_bbox=True,  # window candidates to a box around the seeds; same result
                 method="kdtree",
             ),
         )

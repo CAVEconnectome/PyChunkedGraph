@@ -392,6 +392,108 @@ class TestSnapSeedsToSegment:
             )
 
 
+class TestSnapSeedsBboxEquivalence:
+    """use_bbox=True must return the identical snapped voxel as the
+    full-mask scan. The bbox restriction is purely a candidate-set
+    optimization; a different nearest voxel would be a correctness
+    regression, which is exactly what these cases probe."""
+
+    def _both(self, seeds, mask, *, mask_order, voxel_size, bbox_pad_phys):
+        full = snap_seeds_to_segment(
+            seeds,
+            mask,
+            mask_order=mask_order,
+            voxel_size=voxel_size,
+            use_boundary=False,
+            downsample=False,
+            use_bbox=False,
+        )
+        boxed = snap_seeds_to_segment(
+            seeds,
+            mask,
+            mask_order=mask_order,
+            voxel_size=voxel_size,
+            use_boundary=False,
+            downsample=False,
+            use_bbox=True,
+            bbox_pad_phys=bbox_pad_phys,
+        )
+        return full, boxed
+
+    def test_seed_outside_isotropic(self):
+        mask = np.zeros((30, 30, 30), dtype=bool)
+        mask[10:20, 10:20, 10:20] = True
+        seeds = np.array([[0.0, 0.0, 0.0]])  # outside; nearest is a corner
+        full, boxed = self._both(
+            seeds,
+            mask,
+            mask_order="zyx",
+            voxel_size=(1.0, 1.0, 1.0),
+            bbox_pad_phys=2.0,  # smaller than the seed->mask gap, forces grow
+        )
+        np.testing.assert_array_equal(full, boxed)
+
+    def test_anisotropic_voxel_size(self):
+        # Anisotropy means the nearest voxel by physical distance need not
+        # be the nearest by index distance; the bbox pad is in voxels per
+        # axis, so this is the case most likely to expose a wrong window.
+        mask = np.zeros((40, 40, 10), dtype=bool)
+        mask[15:25, 15:25, 3:7] = True
+        seeds = np.array([[0.0, 0.0, 0.0]])
+        full, boxed = self._both(
+            seeds,
+            mask,
+            mask_order="zyx",
+            voxel_size=(8.0, 8.0, 40.0),
+            bbox_pad_phys=8.0,
+        )
+        np.testing.assert_array_equal(full, boxed)
+
+    def test_multiple_far_apart_seeds(self):
+        mask = np.zeros((30, 30, 30), dtype=bool)
+        mask[2:6, 2:6, 2:6] = True
+        mask[24:28, 24:28, 24:28] = True
+        seeds = np.array([[0.0, 0.0, 0.0], [29.0, 29.0, 29.0]])
+        full, boxed = self._both(
+            seeds,
+            mask,
+            mask_order="zyx",
+            voxel_size=(1.0, 1.0, 1.0),
+            bbox_pad_phys=1.0,
+        )
+        np.testing.assert_array_equal(full, boxed)
+
+    def test_xyz_mask_order(self):
+        mask_xyz = np.zeros((20, 24, 16), dtype=bool)
+        mask_xyz[6:14, 6:18, 4:12] = True
+        seeds = np.array([[0.0, 0.0, 0.0]])
+        full, boxed = self._both(
+            seeds,
+            mask_xyz,
+            mask_order="xyz",
+            voxel_size=(1.0, 1.0, 1.0),
+            bbox_pad_phys=2.0,
+        )
+        np.testing.assert_array_equal(full, boxed)
+
+    def test_irregular_shape_grow_loop(self):
+        # Dumbbell: two blobs joined by a thin neck. A seed near one blob
+        # with a tiny pad starts with an empty window and must grow.
+        mask = np.zeros((40, 20, 20), dtype=bool)
+        mask[2:10, 6:14, 6:14] = True
+        mask[30:38, 6:14, 6:14] = True
+        mask[10:30, 9:11, 9:11] = True  # neck
+        seeds = np.array([[10.0, 10.0, 1.0]])  # outside, off the z=0 end
+        full, boxed = self._both(
+            seeds,
+            mask,
+            mask_order="zyx",
+            voxel_size=(1.0, 1.0, 1.0),
+            bbox_pad_phys=1.0,
+        )
+        np.testing.assert_array_equal(full, boxed)
+
+
 # ============================================================
 # Tests: EDT
 # ============================================================

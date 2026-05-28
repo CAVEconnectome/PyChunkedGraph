@@ -9,6 +9,28 @@ The cut is a **geodesic region grow**, not a voxel graph-mincut: each voxel is
 assigned to whichever seed is nearer in geodesic (anisotropy-aware) travel
 cost across the supervoxel's interior.
 
+## In plain terms
+
+The cut works on a boolean mask of the one supervoxel being split: a voxel is
+*true* if it belongs to that supervoxel and *false* otherwise. Call the true
+voxels "the supervoxel's voxels".
+
+1. **Snap the seeds.** The user clicks a source point and a sink point. Those
+   clicks need not land exactly on one of the supervoxel's voxels, so each seed
+   is moved to the nearest true voxel. This keeps the next step starting inside
+   the object.
+2. **Flood from each seed.** From the source seed, compute the cheapest path to
+   every true voxel, where travelling through the thick interior is cheap and
+   skimming the thin surface is expensive; do the same from the sink seed.
+3. **Assign each voxel to its nearer seed.** A voxel goes to the source side if
+   the source seed reaches it more cheaply, otherwise the sink side. The cut
+   surface is simply where the two floods meet — it naturally lands at the
+   object's thinnest neck.
+4. **Clean up.** Make sure each side is a single connected piece, reassigning
+   any stray fragments to the side they border most.
+
+The rest of this document is the precise version of those four steps.
+
 ## Inputs
 
 - `coords` — `(N, 3)` global voxel coordinates of the supervoxel.
