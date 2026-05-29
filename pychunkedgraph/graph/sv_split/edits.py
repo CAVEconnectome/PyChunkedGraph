@@ -488,10 +488,12 @@ def split_supervoxel(
         f"{len(change_chunks)} with splits ({time.time() - t0:.2f}s)"
     )
 
+    # Write fresh SV IDs into seg's crop in place (a view, no full-crop
+    # copy). _parse_results only writes; it never reads crop values.
     with _prof.profile("parse_results"):
-        seg_cropped = seg[voxel_overlap_crop].copy()
+        new_seg = seg[voxel_overlap_crop]
         new_seg, old_new_map, new_id_label_map = _parse_results(
-            results, seg_cropped, bbs, bbe
+            results, new_seg, bbs, bbe
         )
     logger.note(
         f"old_new_map: {len(old_new_map)} SVs split, whole_sv: {len(cut_supervoxels)} SVs"
@@ -500,22 +502,43 @@ def split_supervoxel(
     if unsplit:
         logger.note(f"unsplit SVs (kept IDs): {unsplit}")
 
+    # The OCDBT write payloads and the src/sink lookups must see the
+    # unmasked crop (neighbour SV IDs preserved) plus the fresh IDs.
+    # Capture them before the mask below zeros non-root labels, and
+    # before update_edges mutates seg in place. .copy() per changed
+    # chunk detaches each payload from seg; changed chunks only, so the
+    # copies stay proportional to the edit. The caller batches them into
+    # one parallel tensorstore write — no serial per-task loop.
+    seg_write_pairs: List[Tuple[Tuple[slice, slice, slice], np.ndarray]] = []
+    for _, chunk_bbox in change_chunks:
+        lo, hi = chunk_bbox[0], chunk_bbox[1]
+        local_lo = lo - bbs
+        local_hi = hi - bbs
+        data = new_seg[
+            local_lo[0] : local_hi[0],
+            local_lo[1] : local_hi[1],
+            local_lo[2] : local_hi[2],
+        ].copy()
+        voxel_slices = tuple(slice(int(s), int(e)) for s, e in zip(lo, hi))
+        seg_write_pairs.append((voxel_slices, data))
+
+    local_src = (np.asarray(source_coords, dtype=int) - bbs).astype(int)
+    local_sink = (np.asarray(sink_coords, dtype=int) - bbs).astype(int)
+    src_new_ids = new_seg[tuple(local_src.T)].copy()
+    sink_new_ids = new_seg[tuple(local_sink.T)].copy()
+
     with _prof.profile("get_roots"):
-        # sv_ids reused from the seg_unique block above (seg is not
-        # mutated between then and here).
         roots = cg.get_roots(sv_ids, time_stamp=parent_ts)
         sv_root_map = dict(zip(sv_ids, roots))
     root = sv_root_map[sv_id]
     logger.note(f"{sv_id} -> {root}")
 
-    # Zero out every label whose root != `root`, in place. The prior
-    # implementation materialized a full-size shadow array via
-    # fastremap.remap(in_place=False) just to compare against root;
-    # mask_except achieves the same filter at C speed without the
-    # shadow allocation.
+    # Zero every label whose root != `root`, in place. update_edges only
+    # reads labels in its own wanted-set, so masking the crop's
+    # non-root neighbours here does not change its output.
     root_labels = [int(sv) for sv, r in sv_root_map.items() if r == root]
     fastremap.mask_except(seg, root_labels, in_place=True)
-    seg[voxel_overlap_crop] = new_seg
+
     t0 = time.time()
     with _prof.profile("update_edges"):
         edges_tuple = update_edges(
@@ -535,30 +558,6 @@ def split_supervoxel(
     rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
     rows = rows0 + rows1
 
-    # Prepare per-chunk OCDBT write payloads. The caller batches these
-    # across all tasks into one parallel tensorstore write — no serial
-    # per-task loop.
-    seg_write_pairs: List[Tuple[Tuple[slice, slice, slice], np.ndarray]] = []
-    for _, chunk_bbox in change_chunks:
-        lo, hi = chunk_bbox[0], chunk_bbox[1]
-        local_lo = lo - bbs
-        local_hi = hi - bbs
-        data = new_seg[
-            local_lo[0] : local_hi[0],
-            local_lo[1] : local_hi[1],
-            local_lo[2] : local_hi[2],
-        ]
-        voxel_slices = tuple(slice(int(s), int(e)) for s, e in zip(lo, hi))
-        seg_write_pairs.append((voxel_slices, data))
-
-    # Per-coord fresh IDs: bit-identical to what a post-write seg read
-    # would return — new_seg is what the caller is about to write, and
-    # the caller holds the L2 chunk lock when it does, so the storage
-    # round-trip would see the same bytes.
-    local_src = (np.asarray(source_coords, dtype=int) - bbs).astype(int)
-    local_sink = (np.asarray(sink_coords, dtype=int) - bbs).astype(int)
-    src_new_ids = new_seg[tuple(local_src.T)]
-    sink_new_ids = new_seg[tuple(local_sink.T)]
     return SvSplitOutcome(
         seg_bbox=(bbs, bbe),
         src_new_ids=src_new_ids,
