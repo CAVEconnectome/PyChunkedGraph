@@ -170,11 +170,9 @@ def _compute_chunk_id(
 ) -> np.uint64:
     s_bits_per_dim = meta.bitmasks[layer]
     if not (x < 2**s_bits_per_dim and y < 2**s_bits_per_dim and z < 2**s_bits_per_dim):
-        raise ValueError(
-            f"Coordinate is out of range \
+        raise ValueError(f"Coordinate is out of range \
             layer: {layer} bits/dim {s_bits_per_dim}. \
-            [{x}, {y}, {z}]; max = {2 ** s_bits_per_dim}."
-        )
+            [{x}, {y}, {z}]; max = {2 ** s_bits_per_dim}.")
     layer_offset = 64 - meta.graph_config.LAYER_ID_BITS
     x_offset = layer_offset - s_bits_per_dim
     y_offset = x_offset - s_bits_per_dim
@@ -241,7 +239,9 @@ def get_bounding_children_chunks(
 
 
 @lru_cache()
-def get_l2chunkids_along_boundary(cg_meta, mlayer: int, coord_a, coord_b, padding: int = 0):
+def get_l2chunkids_along_boundary(
+    cg_meta, mlayer: int, coord_a, coord_b, padding: int = 0
+):
     """
     Gets L2 Chunk IDs along opposing faces for larger chunks.
     If padding is enabled, more faces of L2 chunks are padded on both sides.
@@ -284,17 +284,23 @@ def get_l2chunkids_along_boundary(cg_meta, mlayer: int, coord_a, coord_b, paddin
     return l2chunk_ids_a, l2chunk_ids_b
 
 
-def chunks_overlapping_bbox(bbox_min, bbox_max, chunk_size) -> dict:
+def chunks_overlapping_bbox(bbox_min, bbox_max, chunk_size, origin=0) -> dict:
     """
     Find octree chunks overlapping with a bounding box in 3D
     and return a dictionary mapping chunk indices to clipped bounding boxes.
+
+    `origin` is the voxel coordinate of chunk index (0, 0, 0). Pass
+    `meta.voxel_bounds[:, 0]` so the lattice aligns to the dataset's
+    chunks; the default 0 leaves the lattice anchored at the volume
+    origin.
     """
     bbox_min = np.asarray(bbox_min, dtype=int)
     bbox_max = np.asarray(bbox_max, dtype=int)
     chunk_size = np.asarray(chunk_size, dtype=int)
+    origin = np.asarray(origin, dtype=int)
 
-    start_idx = np.floor_divide(bbox_min, chunk_size).astype(int)
-    end_idx = np.floor_divide(bbox_max, chunk_size).astype(int)
+    start_idx = np.floor_divide(bbox_min - origin, chunk_size).astype(int)
+    end_idx = np.floor_divide(bbox_max - origin, chunk_size).astype(int)
 
     ix = np.arange(start_idx[0], end_idx[0] + 1)
     iy = np.arange(start_idx[1], end_idx[1] + 1)
@@ -302,7 +308,7 @@ def chunks_overlapping_bbox(bbox_min, bbox_max, chunk_size) -> dict:
     grid = np.stack(np.meshgrid(ix, iy, iz, indexing="ij"), axis=-1, dtype=int)
     grid = grid.reshape(-1, 3)
 
-    chunk_min = grid * chunk_size
+    chunk_min = grid * chunk_size + origin
     chunk_max = chunk_min + chunk_size
     clipped_min = np.maximum(chunk_min, bbox_min)
     clipped_max = np.minimum(chunk_max, bbox_max)

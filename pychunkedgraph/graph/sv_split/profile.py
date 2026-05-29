@@ -17,6 +17,7 @@ import pickle
 import shutil
 import sys
 import tempfile
+import traceback
 from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
@@ -227,6 +228,16 @@ def load_run(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInputs]:
     return profiler, inputs
 
 
+def load_traceback(cg, payload: dict) -> Optional[str]:
+    """Return the saved traceback for a run, or ``None`` if it succeeded.
+
+    ``run_split_profile`` writes ``traceback.txt`` only when
+    ``op.execute()`` raised; its absence means the run completed.
+    """
+    tb_path = run_dir(cg, payload) / "traceback.txt"
+    return tb_path.read_text() if tb_path.exists() else None
+
+
 def run_split_profile(
     cg, payload: dict, *, overwrite: bool = False
 ) -> Tuple[HierarchicalProfiler, SplitInputs]:
@@ -305,6 +316,7 @@ def run_split_profile(
         edits.plan_sv_splits = wrap_plan_sv_splits
         edits.split_supervoxels = wrap_split_supervoxels
 
+        tb_text = None
         try:
             op.execute()
         except Exception as e:
@@ -312,6 +324,7 @@ def run_split_profile(
                 f"[split_profile] op.execute() raised " f"{type(e).__name__}: {e}",
                 file=sys.stderr,
             )
+            tb_text = traceback.format_exc()
         finally:
             MulticutOperation._run_multicut = orig_run_multicut
             edits.plan_sv_splits = orig_plan_sv_splits
@@ -320,6 +333,8 @@ def run_split_profile(
 
     try:
         target = _save_run(cg, payload, profiler, inputs)
+        if tb_text is not None:
+            (target / "traceback.txt").write_text(tb_text)
         print(f"[split_profile] run cached at {target}")
     except Exception as save_err:
         print(f"[split_profile] cache save failed: {save_err}", file=sys.stderr)
