@@ -6,6 +6,14 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import DracoPy
 from cloudvolume import CloudVolume
+from cloudfiles.exceptions import DecompressionError, IntegrityError
+from cloudvolume.exceptions import SpecViolation
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
 from pychunkedgraph.graph.chunks import utils as chunk_utils
@@ -38,6 +46,12 @@ def _get_cv(info):
     return _CV
 
 
+@retry(
+    retry=retry_if_exception_type((DecompressionError, IntegrityError, SpecViolation)),
+    stop=stop_after_attempt(7),
+    wait=wait_random_exponential(0.5, 60.0),
+    reraise=True,
+)
 def _fetch_fragments(cv, meta, labels, mesh_subdir=None):
     """Byte-range fetch of just ``labels``' draco bytes from a sharded mesh dir,
     grouped by layer. Goes straight to the sharded reader (the inner call of
