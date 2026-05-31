@@ -1,5 +1,6 @@
 from taskqueue import RegisteredTask
 from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing.stitch import chunk_initial_sharded_stitching_task_mp
 import numpy as np
 
 
@@ -14,16 +15,10 @@ class MeshTask(RegisteredTask):
         layer = self.layer
         if layer == 2:
             result = meshgen.chunk_initial_mesh_task(
-                cg_name,
-                chunk_id,
-                None,
-                mip=mip,
-                sharded=True,
-                cache=self.cache
+                cg_name, chunk_id, None, mip=mip, sharded=True, cache=self.cache
             )
         else:
-            result = meshgen.chunk_initial_sharded_stitching_task(
+            result = chunk_initial_sharded_stitching_task_mp(
                 cg_name, chunk_id, mip, cache=self.cache
             )
         print(result)
-
