@@ -257,6 +257,7 @@ def merge_draco_meshes_across_boundaries_pure(
             unique_chunk_aligned, inverse_to_chunk_aligned = np.unique(
                 chunk_aligned, return_inverse=True, axis=0
             )
+            del chunk_aligned
             index_remaps.append(
                 (
                     chunk_aligned_index,
@@ -264,10 +265,14 @@ def merge_draco_meshes_across_boundaries_pure(
                     + inverse_to_chunk_aligned.reshape(-1).astype(np.uint32),
                 )
             )
+            del inverse_to_chunk_aligned
             vertices = np.concatenate((not_chunk_aligned, unique_chunk_aligned))
+            del not_chunk_aligned, unique_chunk_aligned
         else:
+            del chunk_aligned
             vertices = not_chunk_aligned
         faces = _remap_faces(faces, vertexct[-1], index_remaps)
+        del index_remaps
 
     if return_zmesh_object:
         return zmesh.Mesh(vertices, faces.reshape(-1, 3), None)

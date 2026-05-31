@@ -6,6 +6,13 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import DracoPy
 from cloudvolume import CloudVolume
+from cloudfiles.exceptions import DecompressionError, IntegrityError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
 from pychunkedgraph.graph.chunks import utils as chunk_utils
@@ -38,6 +45,12 @@ def _get_cv(info):
     return _CV
 
 
+@retry(
+    retry=retry_if_exception_type((DecompressionError, IntegrityError)),
+    stop=stop_after_attempt(7),
+    wait=wait_random_exponential(0.5, 60.0),
+    reraise=True,
+)
 def _fetch_fragments(cv, meta, labels, mesh_subdir=None):
     """Byte-range fetch of just ``labels``' draco bytes from a sharded mesh dir,
     grouped by layer. Goes straight to the sharded reader (the inner call of
@@ -81,7 +94,7 @@ def _stitch_one(
     old_fragments = []
     first_options = None
     for child_node_id in descendants:
-        raw = fragment_bytes.get(int(child_node_id))
+        raw = fragment_bytes.pop(int(child_node_id), None)
         if raw is None:
             continue
         with prof.profile("decode"):
@@ -106,6 +119,7 @@ def _stitch_one(
         new_fragment = su.merge_draco_meshes_across_boundaries_pure(
             old_fragments, boundary
         )
+    old_fragments.clear()
     vx_ct = len(new_fragment["vertices"])
     try:
         with prof.profile("encode"):
@@ -115,6 +129,7 @@ def _stitch_one(
     except Exception:
         print(f"failed to merge {parent_id}")
         return (int(parent_id), None, vx_ct, True, n_missing)
+    del new_fragment
 
     return (int(parent_id), new_fragment_b, vx_ct, False, n_missing)
 

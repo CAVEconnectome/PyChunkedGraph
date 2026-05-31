@@ -270,12 +270,14 @@ def chunk_initial_sharded_stitching_task_mp(
             acc.n_missing_fragments,
         )
 
+    merged_meshes = acc.merged_meshes
+    acc.merged_meshes = None
     shard_bytes, synth_s, upload_s = _write_shard(
         cv,
         sharding_spec,
         layer,
         chunk_id,
-        acc.merged_meshes,
+        merged_meshes,
         out_subdir,
         cache_string,
     )
