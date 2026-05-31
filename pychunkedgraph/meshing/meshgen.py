@@ -39,8 +39,13 @@ REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 def decode_draco_mesh_buffer(fragment):
     try:
         mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
-        vertices = np.array(mesh_object.points)
-        faces = np.array(mesh_object.faces)
+        # asarray, not array: points/faces are already ndarrays, so this is
+        # zero-copy and aliases mesh_object's buffers. Callers mutate
+        # "vertices" in place (transform_draco_vertices) but never read
+        # mesh_object.points again, and each decode allocates its own buffer,
+        # so the alias is safe.
+        vertices = np.asarray(mesh_object.points)
+        faces = np.asarray(mesh_object.faces)
     except ValueError as exc:
         raise ValueError("Not a valid draco mesh") from exc
 
@@ -1250,6 +1255,10 @@ def chunk_stitch_remeshing_task(
 def chunk_initial_sharded_stitching_task(
     cg_name, chunk_id, mip, cg=None, high_padding=1, cache=True
 ):
+    """DEPRECATED: single-threaded sharded stitch. ``meshing.meshing_sqs.MeshTask``
+    now dispatches ``meshing.stitch.chunk_initial_sharded_stitching_task_mp``
+    (parallel, mesh-equivalent output) instead. Kept as the reference
+    implementation the parallel path is gated against."""
     start_existence_check_time = time.time()
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
