@@ -1,3 +1,33 @@
+import os
+from typing import Optional
+
+
+def cgroup_peak_bytes() -> Optional[int]:
+    """Peak memory of the whole control group (cgroup) in bytes, or ``None`` when
+    not running under a memory cgroup (e.g. a dev box or macOS).
+
+    This is the high-water mark the kernel tracks for the entire cgroup — the
+    parent process plus every forked worker plus page cache it accounts — which
+    is exactly the figure a Kubernetes pod's memory limit / OOM killer enforces.
+    Use it to size pod memory requests/limits for the stitching job, since an
+    in-process per-worker RSS reading cannot see the concurrent whole-pod total.
+
+    Reads cgroup v2 ``memory.peak`` first, then the v1
+    ``memory.max_usage_in_bytes`` fallback. Returns ``None`` if neither is
+    readable so callers can degrade gracefully.
+    """
+    for path in (
+        "/sys/fs/cgroup/memory.peak",  # cgroup v2 (the container's own cgroup root)
+        "/sys/fs/cgroup/memory/memory.max_usage_in_bytes",  # cgroup v1
+    ):
+        try:
+            with open(path) as handle:
+                return int(handle.read().strip())
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def _fmt_time(s: float) -> str:
     """Auto-scale seconds → ``12.3 ms`` / ``1.23 s``."""
     if s < 1.0:
