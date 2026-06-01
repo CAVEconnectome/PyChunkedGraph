@@ -22,6 +22,7 @@ from pychunkedgraph.graph import get_default_client_info
 from .cache import CacheService
 from .meta import ChunkedGraphMeta, GraphConfig
 from pychunkedgraph.graph import basetypes
+from .sv_lookup import utils as sv_lookup_utils
 from .utils import id_helpers
 from pychunkedgraph.graph import serializers
 from pychunkedgraph.graph import get_valid_timestamp
@@ -167,7 +168,7 @@ class ChunkedGraph:
         """Determines atomic id given a coordinate."""
         if self.get_chunk_layer(parent_id) == 1:
             return parent_id
-        return id_helpers.get_atomic_id_from_coord(
+        return sv_lookup_utils.get_atomic_id_from_coord(
             self.meta,
             self.get_root,
             x,
@@ -201,7 +202,7 @@ class ChunkedGraph:
             if layer == 1
             else self.get_node_timestamps([parent_id], return_numpy=False)[0]
         )
-        return id_helpers.get_atomic_ids_from_coords(
+        return sv_lookup_utils.get_atomic_ids_from_coords(
             self.meta,
             coordinates,
             parent_id,
