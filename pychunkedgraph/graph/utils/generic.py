@@ -17,6 +17,30 @@ import numpy as np
 import pandas as pd
 
 from ..chunks import utils as chunk_utils
+from ..exceptions import PreconditionError
+
+
+def assert_same_root(sv_ids: np.ndarray, roots: np.ndarray, *, source: str) -> np.ndarray:
+    """Raise PreconditionError if `roots` spans more than one root.
+
+    Required root = the most common root. Offenders are the supervoxels
+    whose root differs from it. `source` tags the call site so the same
+    error wording fired from different places is greppable.
+    """
+    root_ids, root_counts = np.unique(roots, return_counts=True)
+    if len(root_ids) > 1:
+        required_root = int(root_ids[np.argmax(root_counts)])
+        offenders = {
+            int(sv): int(r)
+            for sv, r in zip(sv_ids.tolist(), roots.tolist())
+            if int(r) != required_root
+        }
+        raise PreconditionError(
+            f"[{source}] Supervoxels must belong to the same object "
+            f"(required root {required_root}). "
+            f"sv_id->root for offenders: {offenders}"
+        )
+    return root_ids
 
 
 def compute_indices_pandas(data) -> pd.Series:

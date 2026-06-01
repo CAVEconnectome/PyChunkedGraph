@@ -34,7 +34,7 @@ from .cache import CacheService
 from .cutting import Cut, SvSplitRequired, run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .utils.generic import get_bounding_box as get_bbox
+from .utils.generic import get_bounding_box as get_bbox, assert_same_root
 from pychunkedgraph.graph import get_valid_timestamp
 from ..logging.log_db import TimeIt
 
@@ -645,8 +645,8 @@ class MergeOperation(GraphEditOperation):
         root_ids = set(roots)
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError(
-                f"Supervoxels must belong to different objects. "
-                f"sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
+                f"[MergeOperation._apply] Supervoxels must belong to different "
+                f"objects. sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
             )
 
         atomic_edges = self.added_edges
@@ -774,24 +774,16 @@ class SplitOperation(GraphEditOperation):
     def _update_root_ids(self) -> np.ndarray:
         sv_ids = self.removed_edges.ravel()
         roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
-        root_ids = np.unique(roots)
-        if len(root_ids) > 1:
-            raise PreconditionError(
-                f"Supervoxels must belong to the same object. "
-                f"sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
-            )
-        return root_ids
+        return assert_same_root(
+            sv_ids, roots, source="SplitOperation._update_root_ids"
+        )
 
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         sv_ids = self.removed_edges.ravel()
         roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
-        if len(set(roots)) > 1:
-            raise PreconditionError(
-                f"Supervoxels must belong to the same object. "
-                f"sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
-            )
+        assert_same_root(sv_ids, roots, source="SplitOperation._apply")
 
         with TimeIt("remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
@@ -915,20 +907,11 @@ class MulticutOperation(GraphEditOperation):
         roots = self.cg.get_roots(
             sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
         )
-        root_ids, root_counts = np.unique(roots, return_counts=True)
-        if len(root_ids) > 1:
-            required_root = int(root_ids[np.argmax(root_counts)])
-            offenders = {
-                int(sv): int(r)
-                for sv, r in zip(sink_and_source_ids.tolist(), roots.tolist())
-                if int(r) != required_root
-            }
-            raise PreconditionError(
-                f"Supervoxels must belong to the same segment (required root "
-                f"{required_root}). sv_id->root for supervoxels in other "
-                f"segments: {offenders}"
-            )
-        return root_ids
+        return assert_same_root(
+            sink_and_source_ids,
+            roots,
+            source="MulticutOperation._update_root_ids",
+        )
 
     def _apply(
         self, *, operation_id, timestamp
@@ -1019,13 +1002,13 @@ class MulticutOperation(GraphEditOperation):
             assert_roots=True,
             time_stamp=self.parent_ts,
         )
-        root_ids = set(roots)
-        if len(root_ids) > 1:
-            raise PreconditionError(
-                f"Supervoxels must belong to the same object. "
-                f"sources={self.source_ids.tolist()} sinks={self.sink_ids.tolist()} "
-                f"sv_id->root: {dict(zip(sink_and_source_ids.tolist(), roots.tolist()))}"
-            )
+        root_ids = set(
+            assert_same_root(
+                sink_and_source_ids,
+                roots,
+                source="MulticutOperation._run_multicut",
+            ).tolist()
+        )
 
         bbox = get_bbox(
             self.source_coords,

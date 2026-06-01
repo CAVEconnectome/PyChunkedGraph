@@ -12,7 +12,7 @@ from typing import Iterable
 
 from .utils import flatgraph
 from pychunkedgraph.graph import basetypes
-from .utils.generic import get_bounding_box
+from .utils.generic import get_bounding_box, assert_same_root
 from .edges import Edges
 from .exceptions import PreconditionError, SupervoxelSplitRequiredError
 from .exceptions import PostconditionError
@@ -749,13 +749,11 @@ def run_split_preview(
 ):
     sink_and_source_ids = np.concatenate([source_ids, sink_ids])
     roots = cg.get_roots(sink_and_source_ids, assert_roots=True)
-    root_ids = set(roots)
-    if len(root_ids) > 1:
-        raise PreconditionError(
-            f"Supervoxels must belong to the same object. "
-            f"sources={list(source_ids)} sinks={list(sink_ids)} "
-            f"sv_id->root: {dict(zip(sink_and_source_ids.tolist(), roots.tolist()))}"
-        )
+    root_ids = set(
+        assert_same_root(
+            sink_and_source_ids, roots, source="run_split_preview"
+        ).tolist()
+    )
 
     bbox = get_bounding_box(source_coords, sink_coords, bb_offset)
     l2id_agglomeration_d, edges = cg.get_subgraph(
