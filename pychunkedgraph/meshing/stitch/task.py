@@ -1,13 +1,16 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
 import os
+import gc
 import math
 import time
+import ctypes
+import ctypes.util
 import multiprocessing as mp
 
 import numpy as np
 from tqdm import tqdm
-from cloudfiles import CloudFiles
+from cloudfiles import CloudFiles, reset_connection_pools
 from cloudvolume import CloudVolume
 from cloudvolume.datasource.precomputed.sharding import ShardingSpecification
 
@@ -22,6 +25,17 @@ from pychunkedgraph.profiler import HierarchicalProfiler, cgroup_peak_bytes
 from pychunkedgraph.scheduling import WorkItem, lpt_partition, n_bins_for
 
 logger = get_logger(__name__)
+
+_LIBC = ctypes.CDLL(ctypes.util.find_library("c"))
+_MALLOC_TRIM = getattr(_LIBC, "malloc_trim", None)
+
+
+def _malloc_trim():
+    """Return freed heap arenas to the OS. ``gc.collect()`` drops Python refs but
+    glibc retains the fragmented small-allocation arenas; ``malloc_trim`` releases
+    them. Glibc-only — a no-op where the symbol is absent (e.g. macOS libc)."""
+    if _MALLOC_TRIM is not None:
+        _MALLOC_TRIM(0)
 
 
 def _multi_child_parents(cg, chunk_id):
@@ -196,7 +210,11 @@ def chunk_initial_sharded_stitching_task_mp(
     # done cloud I/O trips s2n's pthread_atfork guard ("fork() detected") and
     # kills the child. mp.Pool forks eagerly at construction (unlike
     # ProcessPoolExecutor, which forks lazily on first submit).
-    pool = None if n_processes == 1 else mp.Pool(n_processes)
+    pool = (
+        None
+        if n_processes == 1
+        else mp.Pool(n_processes, initializer=reset_connection_pools)
+    )
 
     try:
         if cg is None:
@@ -281,6 +299,12 @@ def chunk_initial_sharded_stitching_task_mp(
         out_subdir,
         cache_string,
     )
+    # Reclaim this chunk's mesh-buffer heap before returning so a direct caller
+    # looping over chunks (no per-chunk fork) does not accumulate it. gc frees the
+    # Python refs; _malloc_trim returns the freed glibc arenas to the OS.
+    del merged_meshes
+    gc.collect()
+    _malloc_trim()
     total_time = time.time() - start_time
     # Whole-cgroup peak: parent + all forked workers + the synthesize tail (the
     # parent-side high-water moment). This is what a k8s pod's memory limit
