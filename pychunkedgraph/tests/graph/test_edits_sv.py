@@ -300,6 +300,7 @@ class TestCopyParentsAndAddLineage:
 class TestCoordsBbox:
     def _make_cg(self, chunk_size=(64, 64, 64), volume=(1024, 1024, 1024)):
         cg = MagicMock()
+        cg.meta.resolution = np.array([4, 4, 40], dtype=float)
         cg.meta.graph_config.CHUNK_SIZE = list(chunk_size)
         cg.meta.voxel_bounds = np.array(
             [[0, volume[0]], [0, volume[1]], [0, volume[2]]]

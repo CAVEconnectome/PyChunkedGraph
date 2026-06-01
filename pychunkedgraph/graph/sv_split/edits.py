@@ -20,7 +20,9 @@ from pychunkedgraph.graph import (
     serializers,
 )
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
-from .cutting import split_supervoxel_helper
+from pychunkedgraph.graph.exceptions import PostconditionError
+from .bbox_cluster import tight_bbox
+from .cutting import connect_both_seeds_via_ridge, split_supervoxel_growing
 from .edges import update_edges, add_new_edges
 from pychunkedgraph.graph.utils import get_local_segmentation
 
@@ -258,7 +260,7 @@ def plan_sv_splits(
         source_coords=source_coords,
         sink_coords=sink_coords,
     ):
-        bbs, bbe = _coords_bbox(cg, src_coords_rep, sink_coords_rep)
+        bbs, bbe = tight_bbox(cg, src_coords_rep, sink_coords_rep)
         tasks.append(
             SvSplitTask(
                 sv_id=sv_id,
@@ -442,7 +444,7 @@ def _parse_results(results, seg, bbs, bbe):
     return seg, old_new_map, new_id_label_map
 
 
-def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe):
+def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe, *, sv_id=None):
     """Read seg over [bbs-1, bbe+1] and return its distinct SV IDs.
 
     The 1-voxel shell gives update_edges anchor voxels from neighbouring
@@ -456,7 +458,7 @@ def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe):
     t0 = time.time()
     with _prof.profile("seg_read"):
         seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
-    logger.note(f"segmentation read {seg.shape} ({time.time() - t0:.2f}s)")
+    logger.note(f"{sv_id}: segmentation read {seg.shape} ({time.time() - t0:.2f}s)")
 
     with _prof.profile("seg_unique"):
         # Unique per chunk on the segment-id field only. Segment IDs are
@@ -498,10 +500,73 @@ def _select_cut_supervoxels(sv_id, sv_ids, rep_pieces):
     cut_supervoxels = rep_pieces & seg_ids
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
     logger.note(
-        f"whole sv {sv_id} -> {supervoxel_ids.tolist()} "
-        f"({len(rep_pieces) - len(cut_supervoxels)} rep pieces outside bbox)"
+        f"{sv_id}: whole_sv in_bbox={len(cut_supervoxels)} "
+        f"outside_bbox={len(rep_pieces) - len(cut_supervoxels)} "
+        f"pieces={supervoxel_ids.tolist()}"
     )
     return cut_supervoxels, supervoxel_ids
+
+
+_SNAP_KWARGS = dict(
+    use_boundary=False,
+    downsample=False,
+    use_bbox=True,
+    method="kdtree",
+)
+
+
+def split_supervoxel_helper(ctx: _SplitCtx, binary_seg: np.ndarray):
+    """Run the geodesic SV cut for one task.
+
+    Wraps ``connect_both_seeds_via_ridge`` + ``split_supervoxel_growing``
+    with the SV-split-flow defaults; threads ``ctx.sv_id`` so per-task
+    logs inside ``split_supervoxel_growing`` are individually tagged.
+    """
+    voxel_size = np.array(ctx.cg.meta.resolution)
+    downsample = voxel_size.max() // voxel_size
+    _prof = get_profiler()
+    src = ctx.source_coords - ctx.bbs
+    sink = ctx.sink_coords - ctx.bbs
+    t0 = time.time()
+    with _prof.profile("connect_seeds"):
+        A_aug, B_aug, okA, okB = connect_both_seeds_via_ridge(
+            binary_seg,
+            src,
+            sink,
+            voxel_size=voxel_size,
+            downsample=downsample,
+            vol_order="xyz",
+            vox_order="xyz",
+            seed_order="xyz",
+            snap_method="kdtree",
+            snap_kwargs=dict(_SNAP_KWARGS),
+        )
+    logger.note(f"{ctx.sv_id}: connect_seeds ({time.time() - t0:.2f}s)")
+    if not (okA and okB):
+        raise RuntimeError(
+            "In-mask connection failed for at least one team; skipping split."
+        )
+    with _prof.profile("split_growing"):
+        return split_supervoxel_growing(
+            binary_seg,
+            A_aug,
+            B_aug,
+            voxel_size=voxel_size,
+            vol_order="xyz",
+            vox_order="xyz",
+            seed_order="xyz",
+            halo=1,
+            gamma_neck=1.6,
+            narrow_band_rel=0.08,
+            nb_dilate=1,
+            downsample_geodesic=(1, 2, 2),
+            enforce_single_cc=True,
+            raise_if_seed_split=True,
+            raise_if_multi_cc=True,
+            snap_method="kdtree",
+            snap_kwargs=dict(_SNAP_KWARGS),
+            sv_id=ctx.sv_id,
+        )
 
 
 def _compute_split(ctx: _SplitCtx, supervoxel_ids):
@@ -520,15 +585,57 @@ def _compute_split(ctx: _SplitCtx, supervoxel_ids):
         for sv in supervoxel_ids:
             binary_seg |= seg_overlap == sv
     t0 = time.time()
-    with _prof.profile("geodesic_split"):
-        split_result = split_supervoxel_helper(
-            binary_seg,
-            ctx.source_coords - ctx.bbs,
-            ctx.sink_coords - ctx.bbs,
-            ctx.cg.meta.resolution,
-        )
-    logger.note(f"split computation {split_result.shape} ({time.time() - t0:.2f}s)")
+    logger.note(f"{ctx.sv_id}: split computation starting shape={binary_seg.shape}")
+    split_result = split_supervoxel_helper(ctx, binary_seg)
+    logger.note(
+        f"{ctx.sv_id}: split computation done shape={split_result.shape} "
+        f"({time.time() - t0:.2f}s)"
+    )
     return split_result, voxel_overlap_crop
+
+
+def _pick_fresh_source_sink_ids(
+    old_new_map: dict,
+    new_id_label_map: dict,
+    n_source: int,
+    n_sink: int,
+    *,
+    sv_id,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Pick a label-1 and a label-2 fragment from the same old SV (same chunk)
+    and broadcast to ``n_source`` / ``n_sink`` length arrays.
+
+    Same-chunk fragments are directly connected by a 0.001 inter-fragment
+    bridge in ``add_new_edges``, giving the retry multicut a guaranteed
+    one-hop path between sources and sinks irrespective of what extends
+    beyond the local-subgraph bbox. Falls back to any label-1 / label-2
+    only if no old SV produced both sides (degenerate cut).
+    """
+    src_frag = sink_frag = None
+    for old_sv in sorted(old_new_map):
+        new_ids = sorted(old_new_map[old_sv])
+        l1 = [n for n in new_ids if new_id_label_map.get(n) == 1]
+        l2 = [n for n in new_ids if new_id_label_map.get(n) == 2]
+        if l1 and l2:
+            src_frag, sink_frag = l1[0], l2[0]
+            break
+    if src_frag is None:
+        src_frag = next(
+            (n for n in sorted(new_id_label_map) if new_id_label_map[n] == 1), None
+        )
+    if sink_frag is None:
+        sink_frag = next(
+            (n for n in sorted(new_id_label_map) if new_id_label_map[n] == 2), None
+        )
+    if src_frag is None or sink_frag is None:
+        raise PostconditionError(
+            f"cut for sv {sv_id} produced no fragments on "
+            f"{'source' if src_frag is None else 'sink'} side"
+        )
+    return (
+        np.full(n_source, src_frag, dtype=basetypes.NODE_ID),
+        np.full(n_sink, sink_frag, dtype=basetypes.NODE_ID),
+    )
 
 
 def _apply_and_capture(
@@ -553,7 +660,7 @@ def _apply_and_capture(
         cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
     )
     logger.note(
-        f"chunk updates {len(chunks_bbox_map)} chunks, "
+        f"{ctx.sv_id}: chunk updates {len(chunks_bbox_map)} chunks, "
         f"{len(change_chunks)} with splits ({time.time() - t0:.2f}s)"
     )
 
@@ -563,12 +670,12 @@ def _apply_and_capture(
             results, new_seg, bbs, bbe
         )
     _assert_same_chunk(cg, old_new_map)
-    logger.note(
-        f"old_new_map: {len(old_new_map)} SVs split, whole_sv: {len(cut_supervoxels)} SVs"
-    )
     unsplit = cut_supervoxels - set(old_new_map.keys())
+    logger.note(
+        f"{ctx.sv_id}: split_svs={len(old_new_map)} unsplit_kept={len(unsplit)}"
+    )
     if unsplit:
-        logger.note(f"unsplit SVs (kept IDs): {unsplit}")
+        logger.debug(f"{ctx.sv_id}: unsplit kept IDs: {unsplit}")
 
     # .copy() per changed chunk detaches each payload from seg before the
     # mask / update_edges mutate it; changed chunks only, so the copies
@@ -587,10 +694,13 @@ def _apply_and_capture(
         voxel_slices = tuple(slice(int(s), int(e)) for s, e in zip(lo, hi))
         seg_write_pairs.append((voxel_slices, data))
 
-    local_src = (np.asarray(ctx.source_coords, dtype=int) - bbs).astype(int)
-    local_sink = (np.asarray(ctx.sink_coords, dtype=int) - bbs).astype(int)
-    src_new_ids = new_seg[tuple(local_src.T)].copy()
-    sink_new_ids = new_seg[tuple(local_sink.T)].copy()
+    src_new_ids, sink_new_ids = _pick_fresh_source_sink_ids(
+        old_new_map,
+        new_id_label_map,
+        len(ctx.source_coords),
+        len(ctx.sink_coords),
+        sv_id=ctx.sv_id,
+    )
     return _ApplyResult(
         old_new_map=old_new_map,
         new_id_label_map=new_id_label_map,
@@ -611,7 +721,6 @@ def _route_edges_and_rows(ctx: _SplitCtx, old_new_map, new_id_label_map):
         roots = cg.get_roots(ctx.sv_ids, time_stamp=ctx.parent_ts)
         sv_root_map = dict(zip(ctx.sv_ids, roots))
     root = sv_root_map[ctx.sv_id]
-    logger.note(f"{ctx.sv_id} -> {root}")
 
     t0 = time.time()
     with _prof.profile("update_edges"):
@@ -623,8 +732,11 @@ def _route_edges_and_rows(ctx: _SplitCtx, old_new_map, new_id_label_map):
             old_new_map,
             new_id_label_map,
             parent_ts=ctx.parent_ts,
+            sv_id=ctx.sv_id,
         )
-    logger.note(f"edge update ({time.time() - t0:.2f}s)")
+    logger.note(
+        f"{ctx.sv_id} -> {root} new_edges {edges_tuple[0].shape} ({time.time() - t0:.2f}s)"
+    )
 
     rows0 = copy_parents_and_add_lineage(
         cg, ctx.operation_id, old_new_map, time_stamp=ctx.time_stamp
@@ -658,13 +770,13 @@ def split_supervoxel(
     bbs = task.bbs
     bbe = task.bbe
 
-    logger.note(f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}")
-    logger.note(f"bbox: {(bbs, bbe)}")
+    t_start = time.time()
+    logger.note(f"[sv_split:start] {sv_id} bbox=({bbs}, {bbe})")
 
     rep = sv_remapping.get(sv_id, sv_id)
     rep_pieces = {int(sv) for sv, r in sv_remapping.items() if r == rep}
 
-    seg, sv_ids, bbs_, bbe_ = _read_seg_and_ids(cg, bbs, bbe)
+    seg, sv_ids, bbs_, bbe_ = _read_seg_and_ids(cg, bbs, bbe, sv_id=sv_id)
     ctx = _SplitCtx(
         cg=cg,
         seg=seg,
@@ -685,6 +797,7 @@ def split_supervoxel(
     applied = _apply_and_capture(ctx, voxel_overlap_crop, split_result, cut_supervoxels)
     rows = _route_edges_and_rows(ctx, applied.old_new_map, applied.new_id_label_map)
 
+    logger.note(f"[sv_split:end] {sv_id} elapsed={time.time() - t_start:.2f}s")
     return SvSplitOutcome(
         seg_bbox=(bbs, bbe),
         src_new_ids=applied.src_new_ids,

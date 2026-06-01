@@ -777,6 +777,7 @@ def split_supervoxel_growing(
     # snapping control (NEW)
     snap_method: str = "kdtree",
     snap_kwargs: dict | None = None,
+    sv_id=None,
 ):
     _prof = get_profiler()
 
@@ -966,32 +967,32 @@ def split_supervoxel_growing(
 
     # Tight bbox ROI around mask with halo
     t_bbox = perf_counter()
-    with _prof.profile("roi_crop"):
-        Z, Y, X = sv_zyx.shape
-        coords = np.argwhere(sv_zyx)
-        z0, y0, x0 = coords.min(0)
-        z1, y1, x1 = coords.max(0) + 1
-        z0h = max(z0 - halo, 0)
-        y0h = max(y0 - halo, 0)
-        x0h = max(x0 - halo, 0)
-        z1h = min(z1 + halo, Z)
-        y1h = min(y1 + halo, Y)
-        x1h = min(x1 + halo, X)
-        sv = sv_zyx[z0h:z1h, y0h:y1h, x0h:x1h]
-        A_roi = A - np.array([z0h, y0h, x0h])
-        B_roi = B - np.array([z0h, y0h, x0h])
+    Z, Y, X = sv_zyx.shape
+    coords = np.argwhere(sv_zyx)
+    z0, y0, x0 = coords.min(0)
+    z1, y1, x1 = coords.max(0) + 1
+    z0h = max(z0 - halo, 0)
+    y0h = max(y0 - halo, 0)
+    x0h = max(x0 - halo, 0)
+    z1h = min(z1 + halo, Z)
+    y1h = min(y1 + halo, Y)
+    x1h = min(x1 + halo, X)
+    sv = sv_zyx[z0h:z1h, y0h:y1h, x0h:x1h]
+    A_roi = A - np.array([z0h, y0h, x0h])
+    B_roi = B - np.array([z0h, y0h, x0h])
     logger.debug(
         f"[crop] ROI shape (internal): {sv.shape} (halo {halo})  | {perf_counter()-t_bbox:.3f}s"
     )
 
     # Build travel cost via EDT (Seung-Lab edt if available)
     t1 = perf_counter()
-    dist = _compute_edt(sv, sampling, tag="split:EDT(mask)")
-    distn = dist / dist.max() if dist.max() > 0 else dist
-    eps = 1e-6
-    speed = np.clip(distn ** max(gamma_neck, 0.0), eps, 1.0)
-    travel_cost = np.full_like(speed, 1e12, dtype=float)
-    travel_cost[sv] = 1.0 / speed[sv]
+    with _prof.profile("edt_mask"):
+        dist = _compute_edt(sv, sampling, tag="split:EDT(mask)")
+        distn = dist / dist.max() if dist.max() > 0 else dist
+        eps = 1e-6
+        speed = np.clip(distn ** max(gamma_neck, 0.0), eps, 1.0)
+        travel_cost = np.full_like(speed, 1e12, dtype=float)
+        travel_cost[sv] = 1.0 / speed[sv]
     logger.debug(
         f"[speed] EDT + speed map  | {perf_counter()-t1:.3f}s  (total {perf_counter()-t0:.3f}s)"
     )
@@ -1029,12 +1030,13 @@ def split_supervoxel_growing(
 
     # Geodesic arrival times
     t2 = perf_counter()
-    mcpA = MCP_Geometric(cost_ds, sampling=sampling_ds)
-    TA, _ = mcpA.find_costs(A_sub, find_all_ends=False)
-    mcpB = MCP_Geometric(cost_ds, sampling=sampling_ds)
-    TB, _ = mcpB.find_costs(B_sub, find_all_ends=False)
-    TA = np.where(mask_ds, TA, np.inf)
-    TB = np.where(mask_ds, TB, np.inf)
+    with _prof.profile("geodesic_arrival"):
+        mcpA = MCP_Geometric(cost_ds, sampling=sampling_ds)
+        TA, _ = mcpA.find_costs(A_sub, find_all_ends=False)
+        mcpB = MCP_Geometric(cost_ds, sampling=sampling_ds)
+        TB, _ = mcpB.find_costs(B_sub, find_all_ends=False)
+        TA = np.where(mask_ds, TA, np.inf)
+        TB = np.where(mask_ds, TB, np.inf)
     logger.debug(
         f"[geodesic] TA/TB computed  | {perf_counter()-t2:.3f}s  (total {perf_counter()-t0:.3f}s)"
     )
@@ -1118,7 +1120,7 @@ def split_supervoxel_growing(
             # full-volume CC scan, so the np.any check skips that scan.
             moved1 = moved2 = 0
             n3 = int(np.count_nonzero(out_zyx == 3))
-            logger.note(f"resolve3: label-3 stray voxels: {n3}")
+            logger.note(f"{sv_id}: resolve3 label-3 stray voxels {n3}")
             if n3:
                 moved1, moved2 = _resolve_label3_touching_vectorized(
                     out_zyx, A, B, sampling
@@ -1350,63 +1352,3 @@ def pairwise_min_distance_two_sets(
     return D
 
 
-def split_supervoxel_helper(
-    binary_seg: np.ndarray,
-    source_coords: np.ndarray,
-    sink_coords: np.ndarray,
-    voxel_size: tuple,
-):
-    voxel_size = np.array(voxel_size)
-    downsample = voxel_size.max() // voxel_size
-    _prof = get_profiler()
-
-    # 1) Connect seed teams first
-    with _prof.profile("connect_seeds"):
-        A_aug, B_aug, okA, okB = connect_both_seeds_via_ridge(
-            binary_seg,
-            source_coords,
-            sink_coords,
-            voxel_size=voxel_size,
-            downsample=downsample,
-            vol_order="xyz",
-            vox_order="xyz",
-            seed_order="xyz",
-            snap_method="kdtree",
-            snap_kwargs=dict(
-                use_boundary=False,  # disables boundary-only snapping for maximum safety
-                downsample=False,  # avoids losing candidates
-                use_bbox=True,  # window candidates to a box around the seeds; same result
-                method="kdtree",
-            ),
-        )
-    if not (okA and okB):
-        raise RuntimeError(
-            "In-mask connection failed for at least one team; skipping split."
-        )
-
-    # 2) Run the corridor-free splitter with same snapping settings
-    with _prof.profile("split_growing"):
-        return split_supervoxel_growing(
-            binary_seg,
-            A_aug,
-            B_aug,
-            voxel_size=voxel_size,
-            vol_order="xyz",
-            vox_order="xyz",
-            seed_order="xyz",
-            halo=1,
-            gamma_neck=1.6,
-            narrow_band_rel=0.08,
-            nb_dilate=1,
-            downsample_geodesic=(1, 2, 2),
-            enforce_single_cc=True,
-            raise_if_seed_split=True,
-            raise_if_multi_cc=True,
-            snap_method="kdtree",
-            snap_kwargs=dict(
-                use_boundary=False,  # match the connector for consistency
-                downsample=False,
-                use_bbox=True,  # window candidates to a box around the seeds; same result
-                method="kdtree",
-            ),
-        )

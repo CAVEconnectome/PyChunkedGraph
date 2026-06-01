@@ -23,7 +23,6 @@ from pychunkedgraph.graph.sv_split.cutting import (
     pairwise_min_distance_two_sets,
     split_supervoxel_growing,
     connect_both_seeds_via_ridge,
-    split_supervoxel_helper,
 )
 
 
@@ -932,22 +931,3 @@ class TestConnectBothSeedsViaRidge:
         assert not okA
 
 
-# ============================================================
-# Tests: split_supervoxel_helper
-# ============================================================
-class TestSplitSupervoxelHelper:
-    def test_basic_split(self):
-        mask, seeds_a_zyx, seeds_b_zyx = _make_dumbbell_mask(shape=(20, 30, 30))
-        mask_xyz = np.transpose(mask, (2, 1, 0))
-        seeds_a_xyz = seeds_a_zyx[:, [2, 1, 0]]
-        seeds_b_xyz = seeds_b_zyx[:, [2, 1, 0]]
-
-        result = split_supervoxel_helper(
-            mask_xyz,
-            seeds_a_xyz,
-            seeds_b_xyz,
-            voxel_size=(1.0, 1.0, 1.0),
-        )
-        assert result.shape == mask_xyz.shape
-        assert np.any(result == 1)
-        assert np.any(result == 2)
