@@ -915,12 +915,18 @@ class MulticutOperation(GraphEditOperation):
         roots = self.cg.get_roots(
             sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
         )
-        root_ids = np.unique(roots)
+        root_ids, root_counts = np.unique(roots, return_counts=True)
         if len(root_ids) > 1:
+            required_root = int(root_ids[np.argmax(root_counts)])
+            offenders = {
+                int(sv): int(r)
+                for sv, r in zip(sink_and_source_ids.tolist(), roots.tolist())
+                if int(r) != required_root
+            }
             raise PreconditionError(
-                f"Supervoxels must belong to the same segment. "
-                f"sources={self.source_ids.tolist()} sinks={self.sink_ids.tolist()} "
-                f"sv_id->root: {dict(zip(sink_and_source_ids.tolist(), roots.tolist()))}"
+                f"Supervoxels must belong to the same segment (required root "
+                f"{required_root}). sv_id->root for supervoxels in other "
+                f"segments: {offenders}"
             )
         return root_ids
 

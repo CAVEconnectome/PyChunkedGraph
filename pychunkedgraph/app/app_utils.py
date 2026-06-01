@@ -6,17 +6,15 @@ from time import mktime
 from functools import wraps
 
 import numpy as np
-import networkx as nx
 import requests
 from flask import current_app, json, request
-from scipy import spatial
 from werkzeug.datastructures import ImmutableMultiDict
 
 from pychunkedgraph import __version__
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph import get_default_client_info
 from pychunkedgraph.graph import exceptions as cg_exceptions
-from pychunkedgraph.graph.utils.generic import lookup_svs_from_seg
+from pychunkedgraph.graph.sv_lookup import resolve_supervoxels_at_coords
 
 PCG_CACHE = {}
 
@@ -215,61 +213,12 @@ def tobinary_multiples(arr):
 def handle_supervoxel_id_lookup(
     cg, coordinates: Sequence[Sequence[int]], node_ids: Sequence[np.uint64]
 ) -> Sequence[np.uint64]:
+    """Resolve voxel coordinates to current supervoxel ids.
+
+    Thin app-layer wrapper. The 2D/3D resolution contract lives in
+    :func:`pychunkedgraph.graph.sv_lookup.resolve_supervoxels_at_coords`.
     """
-    Helper to lookup supervoxel ids.
-    This takes care of grouping coordinates.
-    """
-
-    def ccs(coordinates_nm_):
-        graph = nx.Graph()
-        dist_mat = spatial.distance.cdist(coordinates_nm_, coordinates_nm_)
-        for edge in np.array(np.where(dist_mat < 1000)).T:
-            graph.add_edge(*edge)
-        ccs = [np.array(list(cc)) for cc in nx.connected_components(graph)]
-        return ccs
-
-    coordinates = np.array(coordinates, dtype=int)
-    if len(coordinates.shape) != 2:
-        raise cg_exceptions.BadRequest(
-            f"Could not determine supervoxel ID for coordinates "
-            f"{coordinates} - Validation stage."
-        )
-
-    # OCDBT: always read the current segmentation at the click coords,
-    # regardless of node_ids layer.
-    #   - 2D slice click: NG sends `node_id` = L1 SV from the slice view.
-    #     That slice can be stale after an SV split; the seg read returns
-    #     the current SV at that voxel (which may have a different root).
-    #   - 3D mesh click: NG sends `node_id` = root; no L1 SV is attached,
-    #     so we have to look it up against current seg anyway.
-    # `node_ids` are not used as a constraint here. Stale UI surfaces
-    # downstream as "different roots" with the sv_id->root diagnostic
-    # mapping added in operation.py / cutting.py.
-    if cg.meta.ocdbt_seg:
-        return lookup_svs_from_seg(cg.meta, coordinates)
-
-    coordinates_nm = coordinates * cg.meta.resolution
-    max_dist_steps = np.array([4, 8, 14, 28], dtype=float) * np.mean(cg.meta.resolution)
-    node_ids = np.array(node_ids, dtype=np.uint64)
-    atomic_ids = np.zeros(len(coordinates), dtype=np.uint64)
-    for node_id in np.unique(node_ids):
-        node_id_m = node_ids == node_id
-        for cc in ccs(coordinates_nm[node_id_m]):
-            m_ids = np.where(node_id_m)[0][cc]
-
-            for max_dist_nm in max_dist_steps:
-                atomic_ids_sub = cg.get_atomic_ids_from_coords(
-                    coordinates[m_ids], parent_id=node_id, max_dist_nm=max_dist_nm
-                )
-                if atomic_ids_sub is not None:
-                    break
-            if atomic_ids_sub is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinates} - Lookup stage."
-                )
-            atomic_ids[m_ids] = atomic_ids_sub
-    return atomic_ids
+    return resolve_supervoxels_at_coords(cg, coordinates, node_ids)
 
 
 def get_username_dict(user_ids, auth_token) -> dict:
