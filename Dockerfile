@@ -58,6 +58,7 @@ COPY --from=conda-deps /app/venv /app/venv
 COPY --from=bigtable-emulator /go/bin/emulator /app/venv/bin/cbtemulator
 COPY override/gcloud /app/venv/bin/gcloud
 COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
+COPY override/nginx.conf /app/nginx.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 RUN pip install --no-cache-dir --no-deps --force-reinstall zstandard>=0.23.0 \
   && mkdir -p /home/nginx/.cloudvolume/secrets \
