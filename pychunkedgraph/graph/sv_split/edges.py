@@ -351,6 +351,8 @@ def update_edges(
     old_new_map: dict,
     new_id_label_map: dict = None,
     parent_ts: datetime = None,
+    *,
+    sv_id=None,
 ):
     old_new_map = dict(old_new_map)
     _prof = get_profiler()
@@ -359,9 +361,8 @@ def update_edges(
     t0 = time.time()
     _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
     edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
-    logger.note(
-        f"get_subgraph {len(edges_.get_pairs())} edges ({time.time() - t0:.2f}s)"
-    )
+    n_subgraph = len(edges_.get_pairs())
+    t_subgraph = time.time() - t0
 
     edges = edges_.get_pairs()
     affinities = edges_.affinities
@@ -379,7 +380,8 @@ def update_edges(
     all_edge_svs = np.unique(edges)
     all_roots = cg.get_roots(all_edge_svs, time_stamp=parent_ts)
     sv_root_map = dict(zip(all_edge_svs, all_roots))
-    logger.note(f"get_roots {len(all_edge_svs)} svs ({time.time() - t0:.2f}s)")
+    n_roots = len(all_edge_svs)
+    t_roots = time.time() - t0
 
     # Coords are only ever read for new fragment ids (kdtrees) and for
     # partners queried via coords_by_label.get(...) in _get_new_edges.
@@ -398,9 +400,8 @@ def update_edges(
         fastremap.mask_except(new_seg, list(wanted_labels), in_place=True)
         coords_by_label = build_coords_by_label(new_seg)
     new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
-    logger.note(
-        f"build_coords {len(coords_by_label)} labels, {len(new_ids)} fragment trees ({time.time() - t0:.2f}s)"
-    )
+    n_labels = len(coords_by_label)
+    t_coords = time.time() - t0
 
     t0 = time.time()
     result = _get_new_edges(
@@ -415,7 +416,13 @@ def update_edges(
         new_id_label_map,
         threshold=cg.meta.sv_split_threshold,
     )
-    logger.note(f"_get_new_edges {result[0].shape} ({time.time() - t0:.2f}s)")
+    t_new = time.time() - t0
+
+    logger.note(
+        f"{sv_id} update_edges: subgraph={n_subgraph}/{t_subgraph:.2f}s "
+        f"roots={n_roots}/{t_roots:.2f}s coords={n_labels}/{t_coords:.2f}s "
+        f"_get_new_edges/{t_new:.2f}s"
+    )
 
     validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)
     return result
@@ -455,8 +462,6 @@ def add_new_edges(
     time_stamp: datetime = None,
 ):
     edges_, affinities_, areas_ = edges_tuple
-    logger.note(f"new edges: {edges_.shape}")
-
     nodes = fastremap.unique(edges_)
     chunks = cg.get_chunk_ids_from_node_ids(cg.get_parents(nodes))
     node_chunks = dict(zip(nodes, chunks))
