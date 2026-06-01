@@ -27,6 +27,17 @@ Eager `del` of merge/decoded-fragment intermediates (in `worker._stitch_one` and
 `utils.merge_draco_meshes_across_boundaries_pure`) trims only a few GB — not enough
 to close the gap on its own.
 
+## Fork-per-chunk invariant — keep the consumer single-threaded
+
+`MeshTask.execute` forks each chunk into a child that exits (clean grpc/s2n/heap
+per chunk). The fork is only deadlock-safe while the consumer process is
+single-threaded at fork time — the prod consumer (`meshing/mesh_worker.py`,
+`TaskQueue(..., n_threads=0)`) is. Do not give the consumer worker threads
+(`n_threads>0`) or otherwise spawn a background thread before `execute`: forking a
+multi-threaded process can leave the child holding a lock no thread will release.
+The inner stitch `mp.Pool` must keep forking before any cloud I/O in the child
+(`task.py` comment at the pool construction) for the same s2n-atfork reason.
+
 ## Future levers (neither done; parent term is the bigger one)
 
 - **Stream the shard via a tmp dir.** Workers write each encoded mesh to a
