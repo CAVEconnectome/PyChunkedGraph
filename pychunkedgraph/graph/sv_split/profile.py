@@ -4,7 +4,7 @@ Drives an SV-split operation end-to-end under ``PCG_DRY_RUN=1`` so no
 BT or OCDBT state is mutated, captures per-stage timing + memory + IO
 metrics into a ``HierarchicalProfiler`` (one ``BlockMetrics`` row per
 stage), and snapshots each stage's intermediate result into a
-``SplitInputs`` dataclass that's persisted alongside the profiler.
+``RunRecord`` dataclass that's persisted alongside the profiler.
 
 The persisted run lets the user iterate on a single heavy stage in
 isolation (e.g. profile just ``split_supervoxels`` after editing it)
@@ -33,17 +33,17 @@ from pychunkedgraph.graph import utils as _utils_pkg
 from pychunkedgraph.graph.dry_run import dry_run_scope
 from pychunkedgraph.graph.operation import Cut, MulticutOperation, SvSplitRequired
 from pychunkedgraph.graph.utils import generic as _utils_generic
-from pychunkedgraph.graph.utils import id_helpers as _utils_id_helpers
+from pychunkedgraph.graph.sv_lookup import utils as _sv_lookup_utils
 
 _CACHE_ROOT = Path(tempfile.gettempdir()) / "pcg_split_profile"
 
 
 @dataclass
-class SplitInputs:
-    """Per-stage inputs/outputs captured during a ``run_split_profile`` run.
+class RunRecord:
+    """Per-stage record/outputs captured during a ``run_split_profile`` run.
 
     Persisted to disk alongside the profiler so single-stage replays
-    can reuse the inputs without re-running prior stages. Every field
+    can reuse the record without re-running prior stages. Every field
     matches the exact value at the corresponding call site in
     ``MulticutOperation._apply``.
     """
@@ -59,6 +59,7 @@ class SplitInputs:
     plan_chunk_ids: Any = None
     sv_result: Any = None
     cut: Any = None
+    result: Any = None
 
 
 def _payload_canonical(payload: dict) -> str:
@@ -113,7 +114,7 @@ def count_io(cg):
     # SV-split flow. The source module is _utils_generic; the others
     # imported it by name at module load time, so they hold separate
     # references that need their own swap.
-    seg_modules = [_utils_generic, _utils_pkg, edits, _utils_id_helpers]
+    seg_modules = [_utils_generic, _utils_pkg, edits, _sv_lookup_utils]
     orig_seg_fns = {m: m.get_local_segmentation for m in seg_modules}
 
     def wrap_get_local_seg(meta, bbox_start, bbox_end, mip=0):
@@ -192,7 +193,7 @@ def _save_run(
     cg,
     payload: dict,
     profiler: HierarchicalProfiler,
-    inputs: SplitInputs,
+    record: RunRecord,
 ) -> Path:
     """Write run artifacts under ``run_dir``; raise on payload-hash collision."""
     target = run_dir(cg, payload)
@@ -206,8 +207,8 @@ def _save_run(
                 "existing payload != incoming payload"
             )
     target.mkdir(parents=True, exist_ok=True)
-    with open(target / "inputs.pkl", "wb") as f:
-        pickle.dump(inputs, f)
+    with open(target / "record.pkl", "wb") as f:
+        pickle.dump(record, f)
     with open(target / "profiler.pkl", "wb") as f:
         pickle.dump(profiler, f)
     buf = StringIO()
@@ -218,40 +219,53 @@ def _save_run(
     return target
 
 
-def load_run(cg, payload: dict) -> Tuple[HierarchicalProfiler, SplitInputs]:
+def load_run(cg, payload: dict) -> Tuple[HierarchicalProfiler, RunRecord]:
     """Restore a prior ``run_split_profile`` result from disk."""
     target = run_dir(cg, payload)
     with open(target / "profiler.pkl", "rb") as f:
         profiler = pickle.load(f)
-    with open(target / "inputs.pkl", "rb") as f:
-        inputs = pickle.load(f)
-    return profiler, inputs
+    with open(target / "record.pkl", "rb") as f:
+        record = pickle.load(f)
+    return profiler, record
+
+
+def _clean_traceback(tb_text: str) -> str:
+    """Strip caret-pointer lines (e.g. ``    ^^^^``) and blank lines."""
+    lines = []
+    for line in tb_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if set(stripped) <= {"^"}:
+            continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def load_traceback(cg, payload: dict) -> Optional[str]:
-    """Return the saved traceback for a run, or ``None`` if it succeeded.
+    """Return the saved traceback for a run (cleaned), or ``None`` if it succeeded.
 
     ``run_split_profile`` writes ``traceback.txt`` only when
     ``op.execute()`` raised; its absence means the run completed.
     """
     tb_path = run_dir(cg, payload) / "traceback.txt"
-    return tb_path.read_text() if tb_path.exists() else None
+    return _clean_traceback(tb_path.read_text()) if tb_path.exists() else None
 
 
 def run_split_profile(
     cg, payload: dict, *, overwrite: bool = False
-) -> Tuple[HierarchicalProfiler, SplitInputs]:
+) -> Tuple[HierarchicalProfiler, RunRecord]:
     """Drive an SV split under dry-run with per-stage metrics captured.
 
-    Returns ``(profiler, inputs)``. Uses the global profiler so inline
+    Returns ``(profiler, record)``. Uses the global profiler so inline
     ``get_profiler().profile()`` blocks inside the SV-split call path
-    are captured automatically. ``inputs`` holds each stage's
+    are captured automatically. ``record`` holds each stage's
     intermediate values for standalone replay.
 
     ``overwrite=True`` wipes any existing cached run for this payload
     before starting.
 
-    Always writes a cache (profiler + inputs + metrics.txt) to
+    Always writes a cache (profiler + record + metrics.txt) to
     ``run_dir(cg, payload)`` on completion — even when ``op.execute()``
     raises — and prints the cache path.
     """
@@ -269,18 +283,18 @@ def run_split_profile(
     profiler = get_profiler()
     profiler.reset()
     profiler.enabled = True
-    inputs = SplitInputs()
+    record = RunRecord()
 
     op = build_op(cg, payload)
-    inputs.source_ids_pre = op.source_ids.copy()
-    inputs.sink_ids_pre = op.sink_ids.copy()
-    inputs.source_coords = op.source_coords
-    inputs.sink_coords = op.sink_coords
+    record.source_ids_pre = op.source_ids.copy()
+    record.sink_ids_pre = op.sink_ids.copy()
+    record.source_coords = op.source_coords
+    record.sink_coords = op.sink_coords
 
     with dry_run_scope(), count_io(cg) as counters:
         profiler.default_counters = counters
 
-        # Capture-only wrappers for SplitInputs replay — no profile()
+        # Capture-only wrappers for RunRecord replay — no profile()
         # blocks. The real per-step metrics come from inline profile()
         # blocks inside the called functions.
         orig_run_multicut = MulticutOperation._run_multicut
@@ -293,23 +307,23 @@ def run_split_profile(
             result = orig_run_multicut(self_op, operation_id)
             mincut_call_count[0] += 1
             if mincut_call_count[0] == 1 and isinstance(result, SvSplitRequired):
-                inputs.sv_remapping = result.sv_remapping
+                record.sv_remapping = result.sv_remapping
             elif isinstance(result, Cut):
-                inputs.cut = result
+                record.cut = result
             return result
 
         def wrap_plan_sv_splits(*a, **k):
             result = orig_plan_sv_splits(*a, **k)
-            inputs.plan_tasks, inputs.plan_chunk_ids = result
+            record.plan_tasks, record.plan_chunk_ids = result
             return result
 
         def wrap_split_supervoxels(*a, **k):
             if "operation_id" in k:
-                inputs.operation_id = k["operation_id"]
+                record.operation_id = k["operation_id"]
             if "timestamp" in k:
-                inputs.timestamp = k["timestamp"]
+                record.timestamp = k["timestamp"]
             result = orig_split_supervoxels(*a, **k)
-            inputs.sv_result = result
+            record.sv_result = result
             return result
 
         MulticutOperation._run_multicut = wrap_run_multicut
@@ -318,12 +332,8 @@ def run_split_profile(
 
         tb_text = None
         try:
-            op.execute()
-        except Exception as e:
-            print(
-                f"[split_profile] op.execute() raised " f"{type(e).__name__}: {e}",
-                file=sys.stderr,
-            )
+            record.result = op.execute()
+        except Exception:
             tb_text = traceback.format_exc()
         finally:
             MulticutOperation._run_multicut = orig_run_multicut
@@ -332,14 +342,20 @@ def run_split_profile(
             profiler.default_counters = None
 
     try:
-        target = _save_run(cg, payload, profiler, inputs)
+        target = _save_run(cg, payload, profiler, record)
         if tb_text is not None:
             (target / "traceback.txt").write_text(tb_text)
-        print(f"[split_profile] run cached at {target}")
+        artifact = target / ("traceback.txt" if tb_text else "metrics.txt")
+        print(f"[split_profile] run cached at {artifact}")
     except Exception as save_err:
         print(f"[split_profile] cache save failed: {save_err}", file=sys.stderr)
+
+    if tb_text:
+        print("result:", _clean_traceback(tb_text).splitlines()[-1])
+    else:
+        print("result:", record.result)
 
     # Disable so the global profiler is a no-op for callers outside
     # this harness (production code paths included).
     profiler.enabled = False
-    return profiler, inputs
+    return profiler, record
