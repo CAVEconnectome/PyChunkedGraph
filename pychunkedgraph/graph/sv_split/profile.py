@@ -18,7 +18,7 @@ import shutil
 import sys
 import tempfile
 import traceback
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
@@ -253,14 +253,20 @@ def load_traceback(cg, payload: dict) -> Optional[str]:
 
 
 def run_split_profile(
-    cg, payload: dict, *, overwrite: bool = False
+    cg, payload: dict, *, overwrite: bool = False, dry_run: bool = True
 ) -> Tuple[HierarchicalProfiler, RunRecord]:
-    """Drive an SV split under dry-run with per-stage metrics captured.
+    """Drive an SV split with per-stage metrics captured.
 
     Returns ``(profiler, record)``. Uses the global profiler so inline
     ``get_profiler().profile()`` blocks inside the SV-split call path
     are captured automatically. ``record`` holds each stage's
     intermediate values for standalone replay.
+
+    ``dry_run=True`` (default) wraps the op in ``dry_run_scope`` +
+    ``edge_writeback_overlay`` so persistence is intercepted while the
+    retry multicut still sees post-split topology in memory.
+    ``dry_run=False`` lets every write land normally and skips the
+    in-memory overlay.
 
     ``overwrite=True`` wipes any existing cached run for this payload
     before starting.
@@ -291,7 +297,8 @@ def run_split_profile(
     record.source_coords = op.source_coords
     record.sink_coords = op.sink_coords
 
-    with dry_run_scope(), count_io(cg) as counters:
+    dry_ctx = dry_run_scope() if dry_run else nullcontext()
+    with dry_ctx, count_io(cg) as counters:
         profiler.default_counters = counters
 
         # Capture-only wrappers for RunRecord replay — no profile()

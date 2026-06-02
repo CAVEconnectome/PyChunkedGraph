@@ -1139,6 +1139,7 @@ class ChunkedGraph:
                 return self.client.read_node(
                     op_id, properties=attributes.OperationLogs.Status
                 )[-1].timestamp
+        return datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
 
     def get_operation_ids(self, node_ids: typing.Sequence):
         response = self.client.read_nodes(node_ids=node_ids)

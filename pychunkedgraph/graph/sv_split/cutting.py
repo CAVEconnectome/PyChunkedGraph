@@ -1119,8 +1119,11 @@ def split_supervoxel_growing(
             # _resolve_label3_touching_vectorized would early-return after a
             # full-volume CC scan, so the np.any check skips that scan.
             moved1 = moved2 = 0
-            n3 = int(np.count_nonzero(out_zyx == 3))
-            logger.note(f"{sv_id}: resolve3 label-3 stray voxels {n3}")
+            counts = np.bincount(out_zyx.ravel(), minlength=4)
+            n1, n2, n3 = int(counts[1]), int(counts[2]), int(counts[3])
+            logger.note(
+                f"{sv_id}: resolve3 label-1 {n1} label-2 {n2} label-3 stray {n3}"
+            )
             if n3:
                 moved1, moved2 = _resolve_label3_touching_vectorized(
                     out_zyx, A, B, sampling
