@@ -20,7 +20,6 @@ from pychunkedgraph.graph import (
 )
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
 from pychunkedgraph.graph.exceptions import PostconditionError
-from .bbox_cluster import tight_bbox
 from .cutting import connect_both_seeds_via_ridge, split_supervoxel_growing
 from .edges import update_edges, add_new_edges
 from .state import (
@@ -178,7 +177,7 @@ def plan_sv_splits(
         source_coords=source_coords,
         sink_coords=sink_coords,
     ):
-        bbs, bbe = tight_bbox(cg, src_coords_rep, sink_coords_rep)
+        bbs, bbe = _coords_bbox(cg, src_coords_rep, sink_coords_rep)
         tasks.append(
             SvSplitTask(
                 sv_id=sv_id,
