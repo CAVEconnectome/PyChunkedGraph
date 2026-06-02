@@ -3,7 +3,6 @@ Manage new supervoxels after a supervoxel split.
 """
 
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from collections import defaultdict
 from typing import TYPE_CHECKING, List, Tuple
@@ -24,100 +23,19 @@ from pychunkedgraph.graph.exceptions import PostconditionError
 from .bbox_cluster import tight_bbox
 from .cutting import connect_both_seeds_via_ridge, split_supervoxel_growing
 from .edges import update_edges, add_new_edges
+from .state import (
+    ApplyResult,
+    SplitCtx,
+    SplitResult,
+    SvSplitOutcome,
+    SvSplitTask,
+)
 from pychunkedgraph.graph.utils import get_local_segmentation
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
 
 logger = get_logger(__name__)
-
-
-@dataclass
-class SvSplitTask:
-    """One SV-split task per cross-chunk rep.
-
-    Produced by `plan_sv_splits` (pure, no IO), consumed by
-    `split_supervoxel`. `src_mask`/`sink_mask` are positional masks
-    back into the caller's `source_ids`/`sink_ids` arrays so the
-    aggregator can splice the per-task fresh IDs in at the right
-    positions.
-    """
-
-    sv_id: int
-    src_coords: np.ndarray
-    sink_coords: np.ndarray
-    src_mask: np.ndarray
-    sink_mask: np.ndarray
-    bbs: np.ndarray
-    bbe: np.ndarray
-
-
-@dataclass
-class _SplitCtx:
-    """Per-task context shared across the split stage helpers.
-
-    Holds the inputs that every stage threads through unchanged. `seg` is
-    mutated in place across stages (fresh IDs written, then root mask);
-    the reference is stable, so storing it here is sound.
-    """
-
-    cg: "ChunkedGraph"
-    seg: np.ndarray
-    bbs: np.ndarray
-    bbe: np.ndarray
-    bbs_: np.ndarray
-    bbe_: np.ndarray
-    sv_id: int
-    sv_ids: np.ndarray
-    source_coords: np.ndarray
-    sink_coords: np.ndarray
-    operation_id: int
-    time_stamp: datetime
-    parent_ts: datetime
-
-
-@dataclass
-class _ApplyResult:
-    """Outputs of `_apply_and_capture` consumed by the orchestrator."""
-
-    old_new_map: dict
-    new_id_label_map: dict
-    seg_write_pairs: List[Tuple[Tuple[slice, slice, slice], np.ndarray]]
-    src_new_ids: np.ndarray
-    sink_new_ids: np.ndarray
-
-
-@dataclass
-class SvSplitOutcome:
-    """Output of `split_supervoxel` for one task. Aggregated into
-    `SplitResult` by `split_supervoxels`."""
-
-    seg_bbox: Tuple[np.ndarray, np.ndarray]
-    src_new_ids: np.ndarray
-    sink_new_ids: np.ndarray
-    # Per-chunk OCDBT write payloads for this task.
-    seg_write_pairs: List[Tuple[Tuple[slice, slice, slice], np.ndarray]]
-    bigtable_rows: list
-
-
-@dataclass
-class SplitResult:
-    """Pure planner output of `split_supervoxels`.
-
-    The caller (`MulticutOperation._apply`) performs the actual writes
-    under the L2 chunk locks:
-    - `seg_writes` is fed to `write_seg_chunks` as one flat parallel batch.
-    - `bigtable_rows` is written via `cg.client.write` in one batch.
-    """
-
-    seg_bboxes: List[Tuple[np.ndarray, np.ndarray]]
-    source_ids_fresh: np.ndarray
-    sink_ids_fresh: np.ndarray
-    # Flat list across all tasks: (voxel_slices, data_block) per OCDBT
-    # chunk write. `voxel_slices` is a 3-tuple of `slice` objects; the
-    # caller appends the channel slice and writes to `meta.ws_ocdbt`.
-    seg_writes: List[Tuple[Tuple[slice, slice, slice], np.ndarray]]
-    bigtable_rows: list
 
 
 def _coords_bbox(
@@ -515,7 +433,7 @@ _SNAP_KWARGS = dict(
 )
 
 
-def split_supervoxel_helper(ctx: _SplitCtx, binary_seg: np.ndarray):
+def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
     """Run the geodesic SV cut for one task.
 
     Wraps ``connect_both_seeds_via_ridge`` + ``split_supervoxel_growing``
@@ -569,7 +487,7 @@ def split_supervoxel_helper(ctx: _SplitCtx, binary_seg: np.ndarray):
         )
 
 
-def _compute_split(ctx: _SplitCtx, supervoxel_ids):
+def _compute_split(ctx: SplitCtx, supervoxel_ids):
     """Build the binary mask over the overlap crop and run the cut.
 
     Returns (split_result, voxel_overlap_crop).
@@ -639,7 +557,7 @@ def _pick_fresh_source_sink_ids(
 
 
 def _apply_and_capture(
-    ctx: _SplitCtx, voxel_overlap_crop, split_result, cut_supervoxels
+    ctx: SplitCtx, voxel_overlap_crop, split_result, cut_supervoxels
 ):
     """Apply fresh IDs to seg's crop and capture the write/lookup outputs.
 
@@ -648,7 +566,7 @@ def _apply_and_capture(
     then captures the OCDBT write payloads and the src/sink id lookups
     while the crop still holds unmasked neighbour IDs. Everything here
     runs before the root mask, which would otherwise zero the neighbour
-    IDs the write must preserve. Returns an `_ApplyResult`.
+    IDs the write must preserve. Returns an `ApplyResult`.
     """
     cg, seg, bbs, bbe = ctx.cg, ctx.seg, ctx.bbs, ctx.bbe
     _prof = get_profiler()
@@ -701,7 +619,7 @@ def _apply_and_capture(
         len(ctx.sink_coords),
         sv_id=ctx.sv_id,
     )
-    return _ApplyResult(
+    return ApplyResult(
         old_new_map=old_new_map,
         new_id_label_map=new_id_label_map,
         seg_write_pairs=seg_write_pairs,
@@ -710,7 +628,7 @@ def _apply_and_capture(
     )
 
 
-def _route_edges_and_rows(ctx: _SplitCtx, old_new_map, new_id_label_map):
+def _route_edges_and_rows(ctx: SplitCtx, old_new_map, new_id_label_map):
     """Resolve the split's root, route edges, build bigtable rows.
 
     Returns the flat list of bigtable rows.
@@ -777,7 +695,7 @@ def split_supervoxel(
     rep_pieces = {int(sv) for sv, r in sv_remapping.items() if r == rep}
 
     seg, sv_ids, bbs_, bbe_ = _read_seg_and_ids(cg, bbs, bbe, sv_id=sv_id)
-    ctx = _SplitCtx(
+    ctx = SplitCtx(
         cg=cg,
         seg=seg,
         bbs=bbs,

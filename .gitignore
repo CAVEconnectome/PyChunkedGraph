@@ -122,3 +122,4 @@ venv.bak/
 *.rdb
 /protobuf*
 .DS_Store
+*debug.py
