@@ -40,6 +40,7 @@ import numpy as np
 from pychunkedgraph import get_logger
 from pychunkedgraph.profiler import get_profiler
 from pychunkedgraph.graph import attributes, basetypes, serializers
+from pychunkedgraph.graph.chunks import utils as chunk_utils
 from pychunkedgraph.graph.exceptions import PostconditionError
 from scipy.spatial import cKDTree
 from .cutting import build_coords_by_label
@@ -137,9 +138,13 @@ def _expand_partners(active_partners, active_affs, active_areas, old_new_map):
     return partners, affs, areas
 
 
-def _compute_partner_distances(new_kdtrees, partner_coords):
-    """Compute min distance from each new fragment kdtree to a partner's voxel coords."""
-    partner_tree = cKDTree(partner_coords)
+def _compute_partner_distances(new_kdtrees, partner_coords, partner_tree=None):
+    """Min distance from each new fragment to a partner's voxel coords.
+
+    `partner_tree` may be supplied pre-built; otherwise built from `partner_coords`.
+    """
+    if partner_tree is None:
+        partner_tree = cKDTree(partner_coords)
     distances = np.empty(len(new_kdtrees), dtype=float)
     for i, kt in enumerate(new_kdtrees):
         if kt.n <= partner_tree.n:
@@ -150,12 +155,12 @@ def _compute_partner_distances(new_kdtrees, partner_coords):
     return distances
 
 
-def _compute_boundary_distances(cg, new_kdtrees, partner, old_chunk, chunk_size):
+def _compute_boundary_distances(new_kdtrees, partner_chunk, old_chunk, chunk_size):
     """Compute distance from each new fragment to a partner's chunk boundary.
+
     Used for active partners outside the bbox that have no kdtree entry.
-    old_chunk and chunk_size should be precomputed by the caller.
+    `partner_chunk`, `old_chunk`, `chunk_size` are precomputed by the caller.
     """
-    partner_chunk = cg.get_chunk_coordinates(partner)
     diff = partner_chunk.astype(int) - old_chunk.astype(int)
     axis = np.argmax(np.abs(diff))
     if diff[axis] > 0:
@@ -180,9 +185,17 @@ def _get_new_edges(
     edge_batches, aff_batches, area_batches = [], [], []
     edges, affinities, areas = edges_info
 
+    # `new_kdtrees[id_to_idx[nid]]` retrieves the precomputed tree for any
+    # new fragment id — every per-old subset draws from this one pool.
+    id_to_idx = {int(nid): i for i, nid in enumerate(new_ids_arr)}
+    # Partner trees are pure functions of the partner's voxel coords;
+    # cache across the whole call so a partner shared by multiple olds
+    # builds its tree once.
+    partner_tree_cache: dict = {}
+
     for old, new in old_new_map.items():
         new_ids = np.array(list(new), dtype=basetypes.NODE_ID)
-        edges_m = np.any(edges == old, axis=1)
+        edges_m = (edges[:, 0] == old) | (edges[:, 1] == old)
         selected_edges = edges[edges_m]
         sel_m = selected_edges != old
         assert np.all(np.sum(sel_m, axis=1) == 1)
@@ -215,19 +228,43 @@ def _get_new_edges(
             partners[active_m], edge_affs[active_m], edge_areas[active_m], old_new_map
         )
         if len(active_partners) > 0:
-            # Build kdtrees for this old SV's fragments only
-            frag_kdtrees = [cKDTree(coords_by_label[int(nid)]) for nid in new_ids]
+            frag_kdtrees = [new_kdtrees[id_to_idx[int(nid)]] for nid in new_ids]
             old_chunk = cg.get_chunk_coordinates(new_ids[0]) if cg else None
             chunk_size = cg.meta.graph_config.CHUNK_SIZE if cg else None
+            # Pre-resolve chunk coords for partners that will hit the
+            # boundary-distance fallback (no in-bbox voxel coords). One
+            # batched bit-shift beats N scalar calls and removes `cg` from
+            # `_compute_boundary_distances`.
+            boundary_partners = [
+                int(p) for p in active_partners if coords_by_label.get(int(p)) is None
+            ]
+            if boundary_partners and cg is not None:
+                boundary_arr = np.array(boundary_partners, dtype=np.uint64)
+                boundary_coords = chunk_utils.get_chunk_coordinates_multiple(
+                    cg.meta, boundary_arr
+                )
+                partner_chunk_map = {
+                    p: boundary_coords[i] for i, p in enumerate(boundary_partners)
+                }
+            else:
+                partner_chunk_map = {}
             for k, partner in enumerate(active_partners):
-                partner_coords = coords_by_label.get(int(partner))
+                partner_int = int(partner)
+                partner_coords = coords_by_label.get(partner_int)
                 if partner_coords is not None:
+                    pt = partner_tree_cache.get(partner_int)
+                    if pt is None:
+                        pt = cKDTree(partner_coords)
+                        partner_tree_cache[partner_int] = pt
                     act_dist_row = _compute_partner_distances(
-                        frag_kdtrees, partner_coords
+                        frag_kdtrees, partner_coords, partner_tree=pt
                     )
                 else:
                     act_dist_row = _compute_boundary_distances(
-                        cg, frag_kdtrees, partner, old_chunk, chunk_size
+                        frag_kdtrees,
+                        partner_chunk_map[partner_int],
+                        old_chunk,
+                        chunk_size,
                     )
                 e, a, ar = _match_partner(
                     new_ids,
