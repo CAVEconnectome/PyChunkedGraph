@@ -448,12 +448,16 @@ def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
     #   - min_grid_per_axis ensures ≥ N cells per axis post-downsample so
     #     narrow_band_rel has room to refine and small SVs fall back to
     #     full-res rather than collapsing the geodesic grid.
+    # binary_seg.shape is xyz (seg_overlap is xyz from ctx.seg); zip downsample
+    # and shape both in xyz, then reverse the final tuple to zyx for the
+    # geodesic call's axis convention.
     max_axis_ds = 3
     min_grid_per_axis = 16
-    ds_zyx = tuple(
+    ds_xyz = tuple(
         max(1, min(int(s), max_axis_ds, dim // min_grid_per_axis))
-        for s, dim in zip(downsample[::-1], binary_seg.shape)
+        for s, dim in zip(downsample, binary_seg.shape)
     )
+    ds_zyx = ds_xyz[::-1]
     _prof = get_profiler()
     src = ctx.source_coords - ctx.bbs
     sink = ctx.sink_coords - ctx.bbs
