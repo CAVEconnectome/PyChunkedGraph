@@ -351,10 +351,16 @@ def validate_split_edges(edges, affinities, old_new_map, new_id_label_map=None):
                             for f in p_frags
                             if int(f) in new_id_label_map
                         }
-                        if len(labels) > 1:
+                        # Only {1, 2} forces a source↔sink uncuttable path
+                        # through the partner. Bridges that include label-3
+                        # (unresolved fragment, no seed) ride to whichever
+                        # seeded side the inf-cluster ends up on — a valid
+                        # cut. The label is a routing hint, not a cut
+                        # constraint; the mincut decides side membership.
+                        if {1, 2}.issubset(labels):
                             raise PostconditionError(
                                 f"Inf-affinity edge to unsplit partner {p} bridges "
-                                f"fragments with different labels {labels}. "
+                                f"source-side and sink-side fragments {labels}. "
                                 f"This creates an uncuttable bridge in mincut."
                             )
 
