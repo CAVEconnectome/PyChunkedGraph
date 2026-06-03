@@ -778,6 +778,7 @@ def split_supervoxel_growing(
     snap_method: str = "kdtree",
     snap_kwargs: dict | None = None,
     sv_id=None,
+    op_id=None,
 ):
     _prof = get_profiler()
 
@@ -1122,7 +1123,7 @@ def split_supervoxel_growing(
             counts = np.bincount(out_zyx.ravel(), minlength=4)
             n1, n2, n3 = int(counts[1]), int(counts[2]), int(counts[3])
             logger.note(
-                f"{sv_id}: resolve3 label-1 {n1} label-2 {n2} label-3 stray {n3}"
+                f"<{op_id}> {sv_id}: resolve3 label-1 {n1} label-2 {n2} label-3 stray {n3}"
             )
             if n3:
                 moved1, moved2 = _resolve_label3_touching_vectorized(
@@ -1353,5 +1354,3 @@ def pairwise_min_distance_two_sets(
             # d can be scalar if one tree has 1 point; np.min handles both
             D[i, j] = float(np.min(d))
     return D
-
-

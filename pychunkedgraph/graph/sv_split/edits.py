@@ -361,7 +361,7 @@ def _parse_results(results, seg, bbs, bbe):
     return seg, old_new_map, new_id_label_map
 
 
-def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe, *, sv_id=None):
+def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe, *, sv_id=None, op_id=None):
     """Read seg over [bbs-1, bbe+1] and return its distinct SV IDs.
 
     The 1-voxel shell gives update_edges anchor voxels from neighbouring
@@ -375,7 +375,7 @@ def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe, *, sv_id=None):
     t0 = time.time()
     with _prof.profile("seg_read"):
         seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
-    logger.note(f"{sv_id}: segmentation read {seg.shape} ({time.time() - t0:.2f}s)")
+    logger.note(f"<{op_id}> {sv_id}: read {seg.shape} ({time.time() - t0:.2f}s)")
 
     with _prof.profile("seg_unique"):
         # Unique per chunk on the segment-id field only. Segment IDs are
@@ -406,7 +406,7 @@ def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe, *, sv_id=None):
     return seg, sv_ids, bbs_, bbe_
 
 
-def _select_cut_supervoxels(sv_id, sv_ids, rep_pieces):
+def _select_cut_supervoxels(sv_id, sv_ids, rep_pieces, *, op_id=None):
     """Narrow the rep to the pieces actually present in the bbox seg.
 
     Rep pieces whose voxels lie outside the seed-driven bbox don't appear
@@ -417,7 +417,7 @@ def _select_cut_supervoxels(sv_id, sv_ids, rep_pieces):
     cut_supervoxels = rep_pieces & seg_ids
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
     logger.note(
-        f"{sv_id}: whole_sv in_bbox={len(cut_supervoxels)} "
+        f"<{op_id}> {sv_id}: whole_sv in_bbox={len(cut_supervoxels)} "
         f"outside_bbox={len(rep_pieces) - len(cut_supervoxels)} "
         f"pieces={supervoxel_ids.tolist()}"
     )
@@ -458,7 +458,9 @@ def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
             snap_method="kdtree",
             snap_kwargs=dict(_SNAP_KWARGS),
         )
-    logger.note(f"{ctx.sv_id}: connect_seeds ({time.time() - t0:.2f}s)")
+    logger.note(
+        f"<{ctx.operation_id}> {ctx.sv_id}: connect_seeds ({time.time() - t0:.2f}s)"
+    )
     if not (okA and okB):
         raise RuntimeError(
             "In-mask connection failed for at least one team; skipping split."
@@ -483,6 +485,7 @@ def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
             snap_method="kdtree",
             snap_kwargs=dict(_SNAP_KWARGS),
             sv_id=ctx.sv_id,
+            op_id=ctx.operation_id,
         )
 
 
@@ -502,11 +505,13 @@ def _compute_split(ctx: SplitCtx, supervoxel_ids):
         for sv in supervoxel_ids:
             binary_seg |= seg_overlap == sv
     t0 = time.time()
-    logger.note(f"{ctx.sv_id}: split computation starting shape={binary_seg.shape}")
+    logger.note(
+        f"<{ctx.operation_id}> {ctx.sv_id}: split computation starting shape={binary_seg.shape}"
+    )
     split_result = split_supervoxel_helper(ctx, binary_seg)
     logger.note(
-        f"{ctx.sv_id}: split computation done shape={split_result.shape} "
-        f"({time.time() - t0:.2f}s)"
+        f"<{ctx.operation_id}> {ctx.sv_id}: split computation done "
+        f"shape={split_result.shape} ({time.time() - t0:.2f}s)"
     )
     return split_result, voxel_overlap_crop
 
@@ -577,7 +582,7 @@ def _apply_and_capture(
         cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
     )
     logger.note(
-        f"{ctx.sv_id}: chunk updates {len(chunks_bbox_map)} chunks, "
+        f"<{ctx.operation_id}> {ctx.sv_id}: chunk updates {len(chunks_bbox_map)} chunks, "
         f"{len(change_chunks)} with splits ({time.time() - t0:.2f}s)"
     )
 
@@ -589,10 +594,11 @@ def _apply_and_capture(
     _assert_same_chunk(cg, old_new_map)
     unsplit = cut_supervoxels - set(old_new_map.keys())
     logger.note(
-        f"{ctx.sv_id}: split_svs={len(old_new_map)} unsplit_kept={len(unsplit)}"
+        f"<{ctx.operation_id}> {ctx.sv_id}: split_svs={len(old_new_map)} "
+        f"unsplit_kept={len(unsplit)}"
     )
     if unsplit:
-        logger.debug(f"{ctx.sv_id}: unsplit kept IDs: {unsplit}")
+        logger.debug(f"<{ctx.operation_id}> {ctx.sv_id}: unsplit kept IDs: {unsplit}")
 
     # .copy() per changed chunk detaches each payload from seg before the
     # mask / update_edges mutate it; changed chunks only, so the copies
@@ -650,9 +656,11 @@ def _route_edges_and_rows(ctx: SplitCtx, old_new_map, new_id_label_map):
             new_id_label_map,
             parent_ts=ctx.parent_ts,
             sv_id=ctx.sv_id,
+            op_id=ctx.operation_id,
         )
     logger.note(
-        f"{ctx.sv_id} -> {root} new_edges {edges_tuple[0].shape} ({time.time() - t0:.2f}s)"
+        f"<{ctx.operation_id}> {ctx.sv_id} -> {root} new_edges {edges_tuple[0].shape} "
+        f"({time.time() - t0:.2f}s)"
     )
 
     rows0 = copy_parents_and_add_lineage(
@@ -687,13 +695,14 @@ def split_supervoxel(
     bbs = task.bbs
     bbe = task.bbe
 
+    op_id = operation_id
     t_start = time.time()
-    logger.note(f"[sv_split:start] {sv_id} bbox=({bbs}, {bbe})")
+    logger.note(f"<{op_id}> [sv_split:start] {sv_id} bbox=({bbs}, {bbe})")
 
     rep = sv_remapping.get(sv_id, sv_id)
     rep_pieces = {int(sv) for sv, r in sv_remapping.items() if r == rep}
 
-    seg, sv_ids, bbs_, bbe_ = _read_seg_and_ids(cg, bbs, bbe, sv_id=sv_id)
+    seg, sv_ids, bbs_, bbe_ = _read_seg_and_ids(cg, bbs, bbe, sv_id=sv_id, op_id=op_id)
     ctx = SplitCtx(
         cg=cg,
         seg=seg,
@@ -709,12 +718,16 @@ def split_supervoxel(
         time_stamp=time_stamp,
         parent_ts=parent_ts,
     )
-    cut_supervoxels, supervoxel_ids = _select_cut_supervoxels(sv_id, sv_ids, rep_pieces)
+    cut_supervoxels, supervoxel_ids = _select_cut_supervoxels(
+        sv_id, sv_ids, rep_pieces, op_id=op_id
+    )
     split_result, voxel_overlap_crop = _compute_split(ctx, supervoxel_ids)
     applied = _apply_and_capture(ctx, voxel_overlap_crop, split_result, cut_supervoxels)
     rows = _route_edges_and_rows(ctx, applied.old_new_map, applied.new_id_label_map)
 
-    logger.note(f"[sv_split:end] {sv_id} elapsed={time.time() - t_start:.2f}s")
+    logger.note(
+        f"<{op_id}> [sv_split:end] {sv_id} elapsed={time.time() - t_start:.2f}s"
+    )
     return SvSplitOutcome(
         seg_bbox=(bbs, bbe),
         src_new_ids=applied.src_new_ids,

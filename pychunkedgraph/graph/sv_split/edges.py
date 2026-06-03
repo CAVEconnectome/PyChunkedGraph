@@ -353,6 +353,7 @@ def update_edges(
     parent_ts: datetime = None,
     *,
     sv_id=None,
+    op_id=None,
 ):
     old_new_map = dict(old_new_map)
     _prof = get_profiler()
@@ -419,7 +420,7 @@ def update_edges(
     t_new = time.time() - t0
 
     logger.note(
-        f"{sv_id} update_edges: subgraph={n_subgraph}/{t_subgraph:.2f}s "
+        f"<{op_id}> {sv_id} update_edges: subgraph={n_subgraph}/{t_subgraph:.2f}s "
         f"roots={n_roots}/{t_roots:.2f}s coords={n_labels}/{t_coords:.2f}s "
         f"_get_new_edges/{t_new:.2f}s"
     )

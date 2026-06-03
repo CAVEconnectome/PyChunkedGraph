@@ -1,5 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad-exception-raised
 
+import time
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
@@ -36,10 +37,18 @@ from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 from .utils.generic import get_bounding_box as get_bbox, assert_same_root
 from pychunkedgraph.graph import get_valid_timestamp
-from ..logging.log_db import TimeIt
 
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
+
+
+def _log_edit_done(result, op_type, elapsed):
+    new_roots = list(map(int, np.asarray(result.new_root_ids).tolist()))
+    old_roots = list(map(int, np.asarray(result.old_root_ids).tolist()))
+    logger.note(
+        f"<{result.operation_id}> {op_type} done "
+        f"new_roots={new_roots} old_roots={old_roots} elapsed={elapsed:.2f}s"
+    )
 
 
 class GraphEditOperation(ABC):
@@ -426,6 +435,7 @@ class GraphEditOperation(ABC):
         is_merge = isinstance(self, MergeOperation)
         op_type = "merge" if is_merge else "split"
         self.parent_ts = parent_ts
+        t_edit_start = time.time()
         root_ids = self._update_root_ids()
         with locks.RootLock(
             self.cg,
@@ -452,11 +462,10 @@ class GraphEditOperation(ABC):
             self._persist_rows([log_record_before_edit])
 
             try:
-                with TimeIt(f"{op_type}.apply", self.cg.graph_id, lock.operation_id):
-                    new_root_ids, new_lvl2_ids, affected_records = self._apply(
-                        operation_id=lock.operation_id,
-                        timestamp=override_ts if override_ts else timestamp,
-                    )
+                new_root_ids, new_lvl2_ids, affected_records = self._apply(
+                    operation_id=lock.operation_id,
+                    timestamp=override_ts if override_ts else timestamp,
+                )
                 if is_dry_run():
                     # return without persisting changes
                     return GraphEditOperation.Result(
@@ -488,16 +497,16 @@ class GraphEditOperation(ABC):
                 self._persist_rows([log_record_error])
                 raise Exception(err) from err
 
-            with TimeIt(f"{op_type}.write", self.cg.graph_id, lock.operation_id):
-                result = self._write(
-                    lock,
-                    override_ts if override_ts else timestamp,
-                    new_root_ids,
-                    new_lvl2_ids,
-                    affected_records,
-                    root_ids,
-                )
-                return result
+            result = self._write(
+                lock,
+                override_ts if override_ts else timestamp,
+                new_root_ids,
+                new_lvl2_ids,
+                affected_records,
+                root_ids,
+            )
+            _log_edit_done(result, op_type, time.time() - t_edit_start)
+            return result
 
     def _write(
         self,
@@ -678,17 +687,16 @@ class MergeOperation(GraphEditOperation):
                 parent_ts=self.parent_ts,
             )
 
-        with TimeIt("add_edges", self.cg.graph_id, operation_id):
-            new_roots, new_l2_ids, new_entries = edits.add_edges(
-                self.cg,
-                atomic_edges=atomic_edges,
-                operation_id=operation_id,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-                allow_same_segment_merge=self.allow_same_segment_merge,
-                do_sanity_check=self.do_sanity_check,
-                stitch_mode=self.stitch_mode,
-            )
+        new_roots, new_l2_ids, new_entries = edits.add_edges(
+            self.cg,
+            atomic_edges=atomic_edges,
+            operation_id=operation_id,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+            allow_same_segment_merge=self.allow_same_segment_merge,
+            do_sanity_check=self.do_sanity_check,
+            stitch_mode=self.stitch_mode,
+        )
         return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
     def _create_log_record(
@@ -774,9 +782,7 @@ class SplitOperation(GraphEditOperation):
     def _update_root_ids(self) -> np.ndarray:
         sv_ids = self.removed_edges.ravel()
         roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
-        return assert_same_root(
-            sv_ids, roots, source="SplitOperation._update_root_ids"
-        )
+        return assert_same_root(sv_ids, roots, source="SplitOperation._update_root_ids")
 
     def _apply(
         self, *, operation_id, timestamp
@@ -785,15 +791,14 @@ class SplitOperation(GraphEditOperation):
         roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
         assert_same_root(sv_ids, roots, source="SplitOperation._apply")
 
-        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
-            return edits.remove_edges(
-                self.cg,
-                operation_id=operation_id,
-                atomic_edges=self.removed_edges,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-                do_sanity_check=self.do_sanity_check,
-            )
+        return edits.remove_edges(
+            self.cg,
+            operation_id=operation_id,
+            atomic_edges=self.removed_edges,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+            do_sanity_check=self.do_sanity_check,
+        )
 
     def _create_log_record(
         self,
@@ -977,15 +982,14 @@ class MulticutOperation(GraphEditOperation):
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
 
-        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
-            return edits.remove_edges(
-                self.cg,
-                operation_id=operation_id,
-                atomic_edges=self.removed_edges,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-                do_sanity_check=self.do_sanity_check,
-            )
+        return edits.remove_edges(
+            self.cg,
+            operation_id=operation_id,
+            atomic_edges=self.removed_edges,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+            do_sanity_check=self.do_sanity_check,
+        )
 
     def _run_multicut(self, operation_id):
         """Build the local subgraph and run multicut; returns the tagged result.
@@ -1015,29 +1019,27 @@ class MulticutOperation(GraphEditOperation):
             self.sink_coords,
             self.cg.meta.split_bounding_offset,
         )
-        with TimeIt("get_subgraph", self.cg.graph_id, operation_id):
-            l2id_agglomeration_d, edges_tuple = self.cg.get_subgraph(
-                root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
-            )
-            edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
-            supervoxels = np.concatenate(
-                [agg.supervoxels for agg in l2id_agglomeration_d.values()]
-            ).astype(basetypes.NODE_ID)
-            mask0 = np.isin(edges.node_ids1, supervoxels)
-            mask1 = np.isin(edges.node_ids2, supervoxels)
-            edges = edges[mask0 & mask1]
+        l2id_agglomeration_d, edges_tuple = self.cg.get_subgraph(
+            root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
+        )
+        edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
+        supervoxels = np.concatenate(
+            [agg.supervoxels for agg in l2id_agglomeration_d.values()]
+        ).astype(basetypes.NODE_ID)
+        mask0 = np.isin(edges.node_ids1, supervoxels)
+        mask1 = np.isin(edges.node_ids2, supervoxels)
+        edges = edges[mask0 & mask1]
         if len(edges) == 0:
             raise PreconditionError("No local edges found.")
 
-        with TimeIt("multicut", self.cg.graph_id, operation_id):
-            return run_multicut(
-                edges,
-                self.source_ids,
-                self.sink_ids,
-                path_augment=self.path_augment,
-                disallow_isolating_cut=self.disallow_isolating_cut,
-                sv_split_supported=self.cg.meta.ocdbt_seg,
-            )
+        return run_multicut(
+            edges,
+            self.source_ids,
+            self.sink_ids,
+            path_augment=self.path_augment,
+            disallow_isolating_cut=self.disallow_isolating_cut,
+            sv_split_supported=self.cg.meta.ocdbt_seg,
+        )
 
     def _create_log_record(
         self,

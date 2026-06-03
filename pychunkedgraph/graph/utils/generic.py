@@ -20,7 +20,9 @@ from ..chunks import utils as chunk_utils
 from ..exceptions import PreconditionError
 
 
-def assert_same_root(sv_ids: np.ndarray, roots: np.ndarray, *, source: str) -> np.ndarray:
+def assert_same_root(
+    sv_ids: np.ndarray, roots: np.ndarray, *, source: str
+) -> np.ndarray:
     """Raise PreconditionError if `roots` spans more than one root.
 
     Required root = the most common root. Offenders are the supervoxels
@@ -30,15 +32,14 @@ def assert_same_root(sv_ids: np.ndarray, roots: np.ndarray, *, source: str) -> n
     root_ids, root_counts = np.unique(roots, return_counts=True)
     if len(root_ids) > 1:
         required_root = int(root_ids[np.argmax(root_counts)])
-        offenders = {
-            int(sv): int(r)
-            for sv, r in zip(sv_ids.tolist(), roots.tolist())
-            if int(r) != required_root
-        }
+        offenders_by_root: dict = {}
+        for sv, r in zip(sv_ids.tolist(), roots.tolist()):
+            if int(r) != required_root:
+                offenders_by_root.setdefault(int(r), []).append(int(sv))
         raise PreconditionError(
             f"[{source}] Supervoxels must belong to the same object "
             f"(required root {required_root}). "
-            f"sv_id->root for offenders: {offenders}"
+            f"offenders by root: {offenders_by_root}"
         )
     return root_ids
 

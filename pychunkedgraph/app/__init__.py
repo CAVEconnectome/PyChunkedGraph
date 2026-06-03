@@ -96,6 +96,7 @@ def configure_app(app):
     formatter.converter = time.gmtime
     handler.setFormatter(formatter)
     app.logger.removeHandler(default_handler)
+    logging.getLogger().removeHandler(default_handler)
     app.logger.addHandler(handler)
     app.logger.setLevel(app.config["LOGGING_LEVEL"])
     app.logger.propagate = False
