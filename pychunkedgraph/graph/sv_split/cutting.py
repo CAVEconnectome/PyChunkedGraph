@@ -1,3 +1,5 @@
+import multiprocessing
+import os
 from time import perf_counter
 
 import fastremap
@@ -16,6 +18,11 @@ except Exception:
 from scipy import ndimage as ndi
 from scipy.spatial import cKDTree
 from skimage.graph import MCP_Geometric
+
+try:
+    import dijkstra3d as _dj3d
+except Exception:
+    _dj3d = None
 from skimage.morphology import (
     ball,
 )  # keep only ball; use ndi.binary_dilation everywhere
@@ -43,16 +50,17 @@ except Exception:
 
 
 def _cc_label_26(mask: np.ndarray):
-    """
-    Fast 3D connected components (26-connectivity).
-    Returns (labels:int32, n_components:int).
+    """Fast 3D 26-connectivity CC labelling. Returns (labels, n_components).
+
+    `out_dtype` is left to cc3d so it can pick uint16 / uint32 based on its
+    own size estimate — coarse-DS geodesic outputs can produce >65k strays
+    per label before resolve3 cleans them up.
     """
     if _HAVE_CC3D:
         lbl = cc3d.connected_components(
-            mask.astype(np.uint8, copy=False), connectivity=26, out_dtype=np.uint32
+            mask.astype(np.uint8, copy=False), connectivity=26
         )
         return lbl, int(lbl.max())
-    # Fallback: skimage (connectivity=3 ~ 26-neighborhood)
     lbl = _sk_label(mask, connectivity=3).astype(np.int32, copy=False)
     return lbl, int(lbl.max())
 
@@ -748,6 +756,87 @@ def connect_both_seeds_via_ridge(
     return A_aug, B_aug, True, True
 
 
+def _mcp_arrival(args):
+    """Worker for the fork-pool parallel TA/TB. Module-level so it pickles.
+
+    Pure compute: builds a fresh MCP_Geometric over the (COW-shared) cost
+    grid and returns the arrival cost array. No shared mutable state, no
+    cg / logger access — safe under fork even when the parent process holds
+    open IO handles.
+    """
+    cost_ds, sampling_ds, starts = args
+    mcp = MCP_Geometric(cost_ds, sampling=sampling_ds)
+    T, _ = mcp.find_costs(starts, find_all_ends=False)
+    return T
+
+
+def _dj3d_arrival(args):
+    """Fork-pool worker: dijkstra3d.distance_field on a pre-scaled cost grid.
+
+    Cost is pre-scaled by mean(sampling_ds) in the parent — distance_field
+    has no per-axis anisotropy parameter.
+    """
+    cost_scaled, starts = args
+    starts = list(starts)
+    if len(starts) == 1:
+        T = _dj3d.distance_field(cost_scaled, source=starts[0], connectivity=26)
+    else:
+        T = _dj3d.distance_field(cost_scaled, source=starts, connectivity=26)
+    return np.asarray(T, dtype=np.float64)
+
+
+def _compute_TA_TB(cost_ds, sampling_ds, mask_ds, A_sub, B_sub):
+    """Compute TA, TB via the configured geodesic backend; mask out-of-SV
+    voxels to inf.
+
+    Backend = PCG_SV_SPLIT_GEODESIC_BACKEND env var, "mcp" (default) or "dj3d".
+    POSIX runs both arrivals in a 2-worker fork pool (both backends hold the
+    GIL); non-POSIX falls back to sequential.
+    """
+    backend = os.getenv("PCG_SV_SPLIT_GEODESIC_BACKEND", "mcp").lower()
+    if backend not in ("mcp", "dj3d"):
+        raise ValueError(
+            f"PCG_SV_SPLIT_GEODESIC_BACKEND must be 'mcp' or 'dj3d', got {backend!r}"
+        )
+    if backend == "dj3d" and _dj3d is None:
+        raise RuntimeError(
+            "PCG_SV_SPLIT_GEODESIC_BACKEND=dj3d but dijkstra3d is not installed"
+        )
+
+    if backend == "dj3d":
+        scale = float(np.mean(sampling_ds))
+        cost_scaled = (cost_ds * scale).astype(np.float32, copy=False)
+        if os.name == "posix":
+            ctx = multiprocessing.get_context("fork")
+            with ctx.Pool(processes=2) as pool:
+                TA, TB = pool.map(
+                    _dj3d_arrival,
+                    [(cost_scaled, A_sub), (cost_scaled, B_sub)],
+                )
+        else:
+            TA = _dj3d_arrival((cost_scaled, A_sub))
+            TB = _dj3d_arrival((cost_scaled, B_sub))
+    else:
+        if os.name == "posix":
+            ctx = multiprocessing.get_context("fork")
+            with ctx.Pool(processes=2) as pool:
+                TA, TB = pool.map(
+                    _mcp_arrival,
+                    [
+                        (cost_ds, sampling_ds, A_sub),
+                        (cost_ds, sampling_ds, B_sub),
+                    ],
+                )
+        else:
+            mcpA = MCP_Geometric(cost_ds, sampling=sampling_ds)
+            TA, _ = mcpA.find_costs(A_sub, find_all_ends=False)
+            mcpB = MCP_Geometric(cost_ds, sampling=sampling_ds)
+            TB, _ = mcpB.find_costs(B_sub, find_all_ends=False)
+    TA = np.where(mask_ds, TA, np.inf)
+    TB = np.where(mask_ds, TB, np.inf)
+    return TA, TB
+
+
 def split_supervoxel_growing(
     binary_sv: np.ndarray,
     seeds_a,
@@ -958,7 +1047,9 @@ def split_supervoxel_growing(
         B = _snap_ZYX(B_all, "B@snap")
     logger.debug(f"[seeds] A={len(A)}, B={len(B)}")
 
-    out_zyx = np.zeros_like(sv_zyx, dtype=np.int16)
+    # Label domain is {0, 1, 2, 3}: background, source side, sink side,
+    # transient stray before resolve3. uint8 covers it with 250 spare values.
+    out_zyx = np.zeros_like(sv_zyx, dtype=np.uint8)
     if A.size == 0 or B.size == 0 or not np.any(sv_zyx):
         logger.debug(
             "[seeds] missing seeds or empty SV; returning label=1 for entire SV"
@@ -1029,17 +1120,13 @@ def split_supervoxel_growing(
         A_sub = [tuple(p) for p in A_roi.tolist()]
         B_sub = [tuple(p) for p in B_roi.tolist()]
 
-    # Geodesic arrival times
     t2 = perf_counter()
     with _prof.profile("geodesic_arrival"):
-        mcpA = MCP_Geometric(cost_ds, sampling=sampling_ds)
-        TA, _ = mcpA.find_costs(A_sub, find_all_ends=False)
-        mcpB = MCP_Geometric(cost_ds, sampling=sampling_ds)
-        TB, _ = mcpB.find_costs(B_sub, find_all_ends=False)
-        TA = np.where(mask_ds, TA, np.inf)
-        TB = np.where(mask_ds, TB, np.inf)
-    logger.debug(
-        f"[geodesic] TA/TB computed  | {perf_counter()-t2:.3f}s  (total {perf_counter()-t0:.3f}s)"
+        TA, TB = _compute_TA_TB(cost_ds, sampling_ds, mask_ds, A_sub, B_sub)
+    _backend = os.getenv("PCG_SV_SPLIT_GEODESIC_BACKEND", "mcp").lower()
+    logger.note(
+        f"<{op_id}> {sv_id}: geodesic backend={_backend} ds={downsample_geodesic} "
+        f"{perf_counter()-t2:.3f}s"
     )
 
     # Narrow band
@@ -1064,7 +1151,8 @@ def split_supervoxel_growing(
     denomB = 1.0 + k_prox * np.exp(-lambda_prox * np.clip(TA, 0, np.inf))
     CA = TA / denomA
     CB = TB / denomB
-    sub_labels_ds = np.zeros_like(mask_ds, dtype=np.int16)
+    # Same {0, 1, 2} label domain as out_zyx pre-resolve3; uint8 sufficient.
+    sub_labels_ds = np.zeros_like(mask_ds, dtype=np.uint8)
     sub_labels_ds[(CA <= CB) & band] = 1
     sub_labels_ds[(CB < CA) & band] = 2
     outer = mask_ds & (sub_labels_ds == 0)

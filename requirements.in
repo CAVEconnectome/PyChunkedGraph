@@ -18,6 +18,7 @@ rich
 edt
 connected-components-3d
 scikit-image
+dijkstra3d
 
 # PyPI only:
 cloud-files>=6.0.0

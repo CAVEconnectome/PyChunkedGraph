@@ -440,7 +440,20 @@ def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
     logs inside ``split_supervoxel_growing`` are individually tagged.
     """
     voxel_size = np.array(ctx.cg.meta.resolution)
-    downsample = voxel_size.max() // voxel_size
+    downsample = voxel_size.max() // voxel_size  # xyz order
+    # Per-axis clamp:
+    #   - max_axis_ds bounds the per-axis stride so the cut surface
+    #     precision stays within a small multiple of the finest voxel
+    #     dimension (3× ≈ 24 nm on pinky).
+    #   - min_grid_per_axis ensures ≥ N cells per axis post-downsample so
+    #     narrow_band_rel has room to refine and small SVs fall back to
+    #     full-res rather than collapsing the geodesic grid.
+    max_axis_ds = 3
+    min_grid_per_axis = 16
+    ds_zyx = tuple(
+        max(1, min(int(s), max_axis_ds, dim // min_grid_per_axis))
+        for s, dim in zip(downsample[::-1], binary_seg.shape)
+    )
     _prof = get_profiler()
     src = ctx.source_coords - ctx.bbs
     sink = ctx.sink_coords - ctx.bbs
@@ -478,7 +491,7 @@ def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
             gamma_neck=1.6,
             narrow_band_rel=0.08,
             nb_dilate=1,
-            downsample_geodesic=(1, 2, 2),
+            downsample_geodesic=ds_zyx,
             enforce_single_cc=True,
             raise_if_seed_split=True,
             raise_if_multi_cc=True,
