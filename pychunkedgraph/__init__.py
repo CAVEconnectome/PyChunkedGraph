@@ -15,11 +15,21 @@ warnings.filterwarnings(
 NOTICE = 25
 stdlib_logging.addLevelName(NOTICE, "NOTICE")
 
+# Diagnostic level above DEBUG (10) but below INFO (20). Lets the user
+# enable per-stage timing/count summaries without the much noisier DEBUG
+# tracing — set the logger to VERBOSE for performance/correctness diagnosis.
+VERBOSE = 15
+stdlib_logging.addLevelName(VERBOSE, "VERBOSE")
+
 
 class PCGLogger(stdlib_logging.Logger):
     def note(self, message, *args, **kwargs):
         if self.isEnabledFor(NOTICE):
             self._log(NOTICE, message, args, stacklevel=2, **kwargs)
+
+    def verbose(self, message, *args, **kwargs):
+        if self.isEnabledFor(VERBOSE):
+            self._log(VERBOSE, message, args, stacklevel=2, **kwargs)
 
 
 stdlib_logging.setLoggerClass(PCGLogger)

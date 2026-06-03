@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from pychunkedgraph import NOTICE, VERBOSE, configure_logging
 from pychunkedgraph.app.segmentation.common import _get_sources_and_sinks
 from pychunkedgraph.profiler import HierarchicalProfiler, get_profiler
 from . import edits
@@ -253,7 +254,12 @@ def load_traceback(cg, payload: dict) -> Optional[str]:
 
 
 def run_split_profile(
-    cg, payload: dict, *, overwrite: bool = False, dry_run: bool = True
+    cg,
+    payload: dict,
+    *,
+    overwrite: bool = False,
+    dry_run: bool = True,
+    verbose: bool = True,
 ) -> Tuple[HierarchicalProfiler, RunRecord]:
     """Drive an SV split with per-stage metrics captured.
 
@@ -275,6 +281,8 @@ def run_split_profile(
     ``run_dir(cg, payload)`` on completion — even when ``op.execute()``
     raises — and prints the cache path.
     """
+    configure_logging(level=VERBOSE if verbose else NOTICE)
+
     target_dir = run_dir(cg, payload)
     if target_dir.exists():
         if overwrite:

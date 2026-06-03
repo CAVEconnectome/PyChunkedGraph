@@ -418,8 +418,10 @@ def _select_cut_supervoxels(sv_id, sv_ids, rep_pieces, *, op_id=None):
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
     logger.note(
         f"<{op_id}> {sv_id}: whole_sv in_bbox={len(cut_supervoxels)} "
-        f"outside_bbox={len(rep_pieces) - len(cut_supervoxels)} "
-        f"pieces={supervoxel_ids.tolist()}"
+        f"outside_bbox={len(rep_pieces) - len(cut_supervoxels)}"
+    )
+    logger.verbose(
+        f"<{op_id}> {sv_id}: pieces={supervoxel_ids.tolist()}"
     )
     return cut_supervoxels, supervoxel_ids
 
@@ -615,7 +617,7 @@ def _apply_and_capture(
         f"unsplit_kept={len(unsplit)}"
     )
     if unsplit:
-        logger.debug(f"<{ctx.operation_id}> {ctx.sv_id}: unsplit kept IDs: {unsplit}")
+        logger.verbose(f"<{ctx.operation_id}> {ctx.sv_id}: unsplit kept IDs: {unsplit}")
 
     # .copy() per changed chunk detaches each payload from seg before the
     # mask / update_edges mutate it; changed chunks only, so the copies
