@@ -33,13 +33,7 @@ from pychunkedgraph.profiler import get_profiler
 logger = get_logger(__name__)
 
 # ---------- Fast CC wrappers ----------
-try:
-    import cc3d
-
-    _HAVE_CC3D = True
-except Exception:
-    _HAVE_CC3D = False
-    from skimage.measure import label as _sk_label
+import cc3d
 
 try:
     import fastremap as _fr
@@ -56,13 +50,9 @@ def _cc_label_26(mask: np.ndarray):
     own size estimate — coarse-DS geodesic outputs can produce >65k strays
     per label before resolve3 cleans them up.
     """
-    if _HAVE_CC3D:
-        lbl = cc3d.connected_components(
-            mask.astype(np.uint8, copy=False), connectivity=26
-        )
-        return lbl, int(lbl.max())
-    lbl = _sk_label(mask, connectivity=3).astype(np.int32, copy=False)
-    return lbl, int(lbl.max())
+    return cc3d.connected_components(
+        mask, connectivity=26, return_N=True, binary_image=True
+    )
 
 
 def _largest_component_id(lbl: np.ndarray):
@@ -915,41 +905,57 @@ def split_supervoxel_growing(
         out_labels, seedsA=None, seedsB=None, sampling=(1, 1, 1)
     ):
         t0 = perf_counter()
-        comp3, n3 = _cc_label_26(out_labels == 3)
-        n3_vox = int((out_labels == 3).sum())
-        logger.debug(f"[touching] n3 comps={n3}, vox={n3_vox}")
+        l3_mask = out_labels == 3
+        comp3, n3 = _cc_label_26(l3_mask)
         if n3 == 0:
-            logger.debug(
-                f"[touching] no label-3 components  | {perf_counter()-t0:.3f}s"
-            )
+            logger.note(f"[touching] cc_label n3 comps=0  | {perf_counter()-t0:.3f}s")
             return 0, 0
+        # Shared sparse representation: every block below only reads/writes
+        # at label-3 voxels, so we never need to traverse the full volume
+        # again — argwhere once, gather comp3 once, reuse.
+        l3_coords = np.argwhere(l3_mask)
+        comp3_at_l3 = comp3[tuple(l3_coords.T)]
+        n3_vox = l3_coords.shape[0]
+        logger.note(
+            f"[touching] cc_label n3 comps={n3}, vox={n3_vox}  | {perf_counter()-t0:.3f}s"
+        )
 
-        # Per label-3 component, count how many of its voxels border each
-        # side (26-conn), and assign it to the side it borders more. This
-        # is the dilate-side-mask-and-intersect-with-comp3 test, but run
-        # only inside the label-3 bounding box (+1 halo) instead of over
-        # the whole volume — the +1 halo captures the side voxels just
-        # outside the label-3 region that the dilation reaches, so the
-        # counts are identical to a full-volume dilation.
+        # Border-vote majority assignment via a per-voxel 26-neighbour lookup.
+        # Equivalent to `binary_dilation(out_labels == k) & (comp3 > 0)` followed
+        # by bincount per component, but cost scales with len(L3) instead of
+        # full volume — the dilation form blew up because L3 voxels scatter
+        # across the SV, making the "bbox crop" no smaller than full volume.
         t1 = perf_counter()
-        struc = np.ones((3, 3, 3), bool)
-        nz = np.argwhere(comp3 > 0)
-        lo = np.maximum(nz.min(0) - 1, 0)
-        hi = np.minimum(nz.max(0) + 2, comp3.shape)
-        sl = tuple(slice(int(a), int(b)) for a, b in zip(lo, hi))
-        comp3_sl = comp3[sl]
-        m3_sl = comp3_sl > 0
-        N1 = ndi.binary_dilation(out_labels[sl] == 1, structure=struc) & m3_sl
-        N2 = ndi.binary_dilation(out_labels[sl] == 2, structure=struc) & m3_sl
-        cnt1 = np.bincount(comp3_sl[N1], minlength=n3 + 1)
-        cnt2 = np.bincount(comp3_sl[N2], minlength=n3 + 1)
+        M = l3_coords.shape[0]
+        offsets = np.array(
+            [
+                (dz, dy, dx)
+                for dz in (-1, 0, 1)
+                for dy in (-1, 0, 1)
+                for dx in (-1, 0, 1)
+                if (dz, dy, dx) != (0, 0, 0)
+            ],
+            dtype=np.int32,
+        )
+        nbr_coords = l3_coords[:, None, :] + offsets[None, :, :]
+        shape_arr = np.array(out_labels.shape, dtype=np.int64)
+        in_bounds = np.all((nbr_coords >= 0) & (nbr_coords < shape_arr), axis=-1)
+        flat_nbr = nbr_coords[in_bounds]
+        flat_labels = out_labels[tuple(flat_nbr.T)]
+        voxel_idx = np.broadcast_to(
+            np.arange(M, dtype=np.int64)[:, None], in_bounds.shape
+        )[in_bounds]
+        has_l1 = np.bincount(voxel_idx[flat_labels == 1], minlength=M) > 0
+        has_l2 = np.bincount(voxel_idx[flat_labels == 2], minlength=M) > 0
+        cnt1 = np.bincount(comp3_at_l3[has_l1], minlength=n3 + 1)
+        cnt2 = np.bincount(comp3_at_l3[has_l2], minlength=n3 + 1)
 
         assign = np.zeros(n3 + 1, dtype=np.int16)  # 0=undecided, 1 or 2 otherwise
         assign[cnt1 > cnt2] = 1
         assign[cnt2 > cnt1] = 2
         undec = np.where(assign[1:] == 0)[0] + 1
-        logger.debug(
-            f"[touching] maj→1={int((assign==1).sum())}, maj→2={int((assign==2).sum())}, ties={len(undec)}  | {perf_counter()-t1:.3f}s"
+        logger.note(
+            f"[touching] majority maj→1={int((assign==1).sum())}, maj→2={int((assign==2).sum())}, ties={len(undec)}  | {perf_counter()-t1:.3f}s"
         )
 
         if (
@@ -960,34 +966,45 @@ def split_supervoxel_growing(
             and len(seedsB)
         ):
             t2 = perf_counter()
-            sA = np.zeros_like(out_labels, bool)
-            sA[tuple(np.array(seedsA).T)] = True
-            sB = np.zeros_like(out_labels, bool)
-            sB[tuple(np.array(seedsB).T)] = True
-            dA = _compute_edt(~sA, sampling, tag="split:EDT(dA)")
-            dB = _compute_edt(~sB, sampling, tag="split:EDT(dB)")
-            closer2 = (dB < dA) & (comp3 > 0)
+            # The tiebreak only reads distances at label-3 voxels, so query a
+            # kdtree built from the seed points instead of allocating two
+            # full-volume EDTs. Sampling-scaled coords reproduce the same
+            # anisotropic Euclidean distance the EDT was computing.
+            sampling_arr = np.asarray(sampling, dtype=float)
+            l3_phys = l3_coords.astype(float) * sampling_arr
+            tree_A = cKDTree(np.asarray(seedsA, dtype=float) * sampling_arr)
+            tree_B = cKDTree(np.asarray(seedsB, dtype=float) * sampling_arr)
+            dA, _ = tree_A.query(l3_phys, k=1, workers=-1)
+            dB, _ = tree_B.query(l3_phys, k=1, workers=-1)
+            closer2 = dB < dA
 
-            pref2 = np.bincount(comp3[closer2], minlength=n3 + 1)
-            total = np.bincount(comp3[comp3 > 0], minlength=n3 + 1)
+            pref2 = np.bincount(comp3_at_l3[closer2], minlength=n3 + 1)
+            total = np.bincount(comp3_at_l3, minlength=n3 + 1)
 
             tie_ids = np.array(undec, dtype=int)
             choose2 = pref2[tie_ids] > (total[tie_ids] - pref2[tie_ids])
             assign[tie_ids[choose2]] = 2
             assign[tie_ids[~choose2]] = 1
-            logger.debug(
-                f"[touching] tie-break EDT done: to2={int(choose2.sum())}, to1={int((~choose2).sum())}  | {perf_counter()-t2:.3f}s"
+            logger.note(
+                f"[touching] tie-break kdtree to2={int(choose2.sum())}, "
+                f"to1={int((~choose2).sum())}  | {perf_counter()-t2:.3f}s"
             )
 
-        moved1 = moved2 = 0
-        if (assign == 1).any():
-            mask1 = assign[comp3] == 1
-            moved1 = int(mask1.sum())
-            out_labels[mask1] = 1
-        if (assign == 2).any():
-            mask2 = assign[comp3] == 2
-            moved2 = int(mask2.sum())
-            out_labels[mask2] = 2
+        # Scatter the per-component decision back to out_labels only at the
+        # label-3 voxels — no full-volume `assign[comp3]` gather.
+        t3 = perf_counter()
+        assign_at_l3 = assign[comp3_at_l3]
+        to1_idx = np.flatnonzero(assign_at_l3 == 1)
+        to2_idx = np.flatnonzero(assign_at_l3 == 2)
+        moved1 = int(to1_idx.size)
+        moved2 = int(to2_idx.size)
+        if moved1:
+            out_labels[tuple(l3_coords[to1_idx].T)] = 1
+        if moved2:
+            out_labels[tuple(l3_coords[to2_idx].T)] = 2
+        logger.note(
+            f"[touching] writeback moved1={moved1}, moved2={moved2}  | {perf_counter()-t3:.3f}s"
+        )
 
         logger.debug(
             f"[touching] reassigned 3→1: {moved1}, 3→2: {moved2}  | total {perf_counter()-t0:.3f}s"
