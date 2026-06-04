@@ -1039,12 +1039,21 @@ def split_supervoxel_growing(
         out_zyx[sv_zyx] = 1
         return _from_internal_zyx_volume(out_zyx, vol_order)
 
-    # Tight bbox ROI around mask with halo
+    # Tight bbox ROI around mask with halo. Per-axis np.any projections
+    # are O(volume) but avoid the 24-byte-per-True coordinate buffer
+    # np.argwhere materializes — at large bbox scale that buffer dominates
+    # both wall time and peak RSS.
     t_bbox = perf_counter()
     Z, Y, X = sv_zyx.shape
-    coords = np.argwhere(sv_zyx)
-    z0, y0, x0 = coords.min(0)
-    z1, y1, x1 = coords.max(0) + 1
+    any_z = np.any(sv_zyx, axis=(1, 2))
+    any_y = np.any(sv_zyx, axis=(0, 2))
+    any_x = np.any(sv_zyx, axis=(0, 1))
+    nz = np.flatnonzero(any_z)
+    ny = np.flatnonzero(any_y)
+    nx = np.flatnonzero(any_x)
+    z0, z1 = int(nz[0]), int(nz[-1]) + 1
+    y0, y1 = int(ny[0]), int(ny[-1]) + 1
+    x0, x1 = int(nx[0]), int(nx[-1]) + 1
     z0h = max(z0 - halo, 0)
     y0h = max(y0 - halo, 0)
     x0h = max(x0 - halo, 0)
