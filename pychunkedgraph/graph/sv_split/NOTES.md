@@ -6,7 +6,7 @@ Secondary material that doesn't belong in `README.md` (the design reference).
 
 ### `{1, 2}` cross-side INF bridge through an unsplit partner
 
-Validation refuses the split when an L0 INF-affinity edge in an unsplit partner
+Validation refuses the split when an L1 INF-affinity edge in an unsplit partner
 SV connects a source-side fragment (label 1) to a sink-side fragment (label 2).
 The carve inside the SV is correct in voxel space, but the cut surface
 geometrically passes through the partner — INF means the partner is the same

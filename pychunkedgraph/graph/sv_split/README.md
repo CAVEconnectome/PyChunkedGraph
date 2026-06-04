@@ -16,7 +16,7 @@ commit.
 
 A *supervoxel split* bisects one physical supervoxel — a connected region in
 the raw segmentation — along a user-seeded cut. The user supplies source and
-sink seeds inside one SV; the system finds a cut surface, mints fresh L0 ids
+sink seeds inside one SV; the system finds a cut surface, mints fresh L1 ids
 for each side, rewrites the affected OCDBT segmentation chunks, and reroutes
 every graph edge that used to reference the old SV.
 
@@ -38,7 +38,7 @@ the split.
 Split request (source coords, sink coords, source/sink ids)
   │
   ▼
-Resolve coords → current L0 SV ids at those voxels
+Resolve coords → current L1 SV ids at those voxels
   │
   ▼
 ┌───────────────────────────────────────────────────────────────────────┐
@@ -296,7 +296,7 @@ overlapping sets never acquire in opposing orders.
 
 Only chunks with ≥ 2 distinct labels (geodesic actually split the rep
 there) get OCDBT writes. Annulus pieces — chunks where the rep is single-
-label — keep their original L0 ids and skip the seg write entirely; the
+label — keep their original L1 ids and skip the seg write entirely; the
 segmentation backend is append-only so writing unchanged bytes would
 inflate the on-disk delta for no value.
 
@@ -325,9 +325,9 @@ round-trip.
 The subgraph fetch merges bucket and bigtable edges, then drops edges
 incident to SVs whose row carries a "new-identity" marker and are not in
 the live agglomeration's parent map. On a clean table the filter is a
-no-op (no bigtable L0 edges, no new-identity rows).
+no-op (no bigtable L1 edges, no new-identity rows).
 
-### Hierarchy rows (per L0 SV)
+### Hierarchy rows (per L1 SV)
 
 - Parent: single L1 parent id.
 - Former-identity: array of node ids this row was created from.
