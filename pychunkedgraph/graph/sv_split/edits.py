@@ -515,14 +515,24 @@ def _compute_split(ctx: SplitCtx, supervoxel_ids):
     """
     _prof = get_profiler()
     with _prof.profile("binary_seg"):
-        # Per-SV OR over the overlap crop: each `== sv` is one C pass with
-        # no seg-size auxiliaries (unlike np.isin's sort+search), and the
-        # crop is the only region split_supervoxel_helper consumes.
+        # Chunked per-SV OR over the overlap crop. The plain loop would
+        # peak at 2× the bool output (binary_seg + one per-iter transient).
+        # Slabbing in z caps the transient at the byte budget below; np.isin
+        # is worse on memory here because the SV-id value range is too
+        # wide for `kind='table'` and `kind='sort'` allocates an int64
+        # permutation buffer ≈ 8× the input.
         voxel_overlap_crop = _voxel_crop(ctx.bbs, ctx.bbe, ctx.bbs_, ctx.bbe_)
         seg_overlap = ctx.seg[voxel_overlap_crop]
-        binary_seg = np.zeros(seg_overlap.shape, dtype=bool)
-        for sv in supervoxel_ids:
-            binary_seg |= seg_overlap == sv
+        binary_seg = np.empty(seg_overlap.shape, dtype=bool)
+        yx = int(seg_overlap.shape[1]) * int(seg_overlap.shape[2])
+        slab_bytes = 128 * 1024 * 1024
+        slab_z = max(1, slab_bytes // max(yx, 1))
+        for z0 in range(0, seg_overlap.shape[0], slab_z):
+            z1 = min(z0 + slab_z, seg_overlap.shape[0])
+            slab = seg_overlap[z0:z1]
+            binary_seg[z0:z1] = slab == supervoxel_ids[0]
+            for sv in supervoxel_ids[1:]:
+                binary_seg[z0:z1] |= slab == sv
     t0 = time.time()
     logger.note(
         f"<{ctx.operation_id}> {ctx.sv_id}: split computation starting shape={binary_seg.shape}"
