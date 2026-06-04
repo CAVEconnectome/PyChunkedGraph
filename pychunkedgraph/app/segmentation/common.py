@@ -116,7 +116,14 @@ def handle_info(table_id):
     # fallback and NG's current hardcoded subdir name in graphene
     # backend.ts (`${fragmentUrl}dynamic/<fragmentId>`). NG must read
     # this info field before non-default values route correctly.
-    combined_info["dynamic_mesh_dir"] = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    combined_info["dynamic_mesh_dir"] = dynamic_dir
+    # cloud-volume reads the dynamic dir from mesh_metadata.unsharded_mesh_dir, not
+    # dynamic_mesh_dir; mirror it so an unpatched client fetches dynamic meshes from
+    # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
+    mesh_metadata = dict(combined_info.get("mesh_metadata", {}))
+    mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
+    combined_info["mesh_metadata"] = mesh_metadata
     return jsonify(combined_info)
 
 

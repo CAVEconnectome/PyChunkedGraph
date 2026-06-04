@@ -153,7 +153,14 @@ def get_json_info(cg):
     # spelunker-ocdbt graphene backend (looks up
     # `<fragmentUrl>dynamic/<fragmentId>`). NG must be patched to read
     # this info field before non-default values route correctly.
-    info["dynamic_mesh_dir"] = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    info["dynamic_mesh_dir"] = dynamic_dir
+    # cloud-volume reads the dynamic dir from mesh_metadata.unsharded_mesh_dir, not
+    # dynamic_mesh_dir; mirror it so an unpatched client fetches dynamic meshes from
+    # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
+    mesh_metadata = dict(info.get("mesh_metadata", {}))
+    mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
+    info["mesh_metadata"] = mesh_metadata
     info_str = dumps(info)
     return loads(info_str)
 
