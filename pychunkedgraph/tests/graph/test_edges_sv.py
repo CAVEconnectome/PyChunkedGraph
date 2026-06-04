@@ -550,7 +550,7 @@ class TestValidateSplitEdges:
     def test_unsplit_partner_inf_to_fragments_from_different_old_svs(self):
         """Unsplit partner connecting via inf to fragments from different old SVs is valid."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 2, 201: 1, 202: 2}
         partner = np.uint64(50)
         # Partner connects to one fragment from each old SV — different old SVs, same label
         edges, affs = self._make_valid_edges(
@@ -563,7 +563,7 @@ class TestValidateSplitEdges:
     def test_allows_same_label_inf_to_unsplit_partner(self):
         """Multiple fragments with same label connecting to unsplit partner is valid."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 0, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 1, 201: 1, 202: 2}
         partner = np.uint64(50)
         edges, affs = self._make_valid_edges(
             old_new_map,
@@ -573,17 +573,30 @@ class TestValidateSplitEdges:
         validate_split_edges(edges, affs, old_new_map, label_map)
 
     def test_catches_cross_label_inf_bridge(self):
-        """Fragments with different labels connecting to unsplit partner via inf is invalid."""
+        """Fragments with source+sink labels connecting to unsplit partner via inf is invalid."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 2, 201: 1, 202: 2}
         partner = np.uint64(50)
         edges, affs = self._make_valid_edges(
             old_new_map,
             extra_edges=[[101, partner], [102, partner]],
             extra_affs=[np.inf, np.inf],
         )
-        with pytest.raises(PostconditionError, match="different labels"):
+        with pytest.raises(PostconditionError, match="source-side and sink-side"):
             validate_split_edges(edges, affs, old_new_map, label_map)
+
+    def test_allows_label_3_inf_bridge(self):
+        """{1, 3} / {2, 3} bridges via unsplit partner are valid — label 3 is an
+        unresolved fragment with no seed; the mincut places it via topology."""
+        old_new_map = self._make_multi_sv_map()
+        label_map = {101: 1, 102: 3, 201: 2, 202: 3}
+        partner = np.uint64(50)
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, partner], [102, partner]],
+            extra_affs=[np.inf, np.inf],
+        )
+        validate_split_edges(edges, affs, old_new_map, label_map)
 
     def test_no_label_map_skips_inf_check(self):
         """Without label map, inf check is skipped (no false positives)."""
@@ -636,7 +649,7 @@ class TestValidateSplitEdges:
     def test_inf_to_split_partner_allowed(self):
         """Inf edges to a split partner (in all_new_ids) are allowed from multiple fragments."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 2, 201: 1, 202: 2}
         # 201 is a split partner (in all_new_ids), so inf from both 101 and 102 is fine
         edges, affs = self._make_valid_edges(
             old_new_map,
