@@ -99,8 +99,8 @@ def handle_clear_manifest_cache(table_id, node_id):
     common.clear_manifest_cache(cg, node_id)
 
 
-@bp.route("/table/<table_id>/clear_manifest_cache", methods=["POST"])
-@auth_requires_permission("admin")
+@bp.route("/table/<table_id>/clear_manifest_cache", methods=["GET"])
+@auth_requires_permission("edit")
 def handle_clear_manifest_cache_all(table_id):
     """Drop every cached manifest fragment for this graph."""
     cg = get_cg(table_id)
