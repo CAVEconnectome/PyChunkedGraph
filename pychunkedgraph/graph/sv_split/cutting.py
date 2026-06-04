@@ -1039,21 +1039,11 @@ def split_supervoxel_growing(
         out_zyx[sv_zyx] = 1
         return _from_internal_zyx_volume(out_zyx, vol_order)
 
-    # Tight bbox ROI around mask with halo. Per-axis np.any projections
-    # are O(volume) but avoid the 24-byte-per-True coordinate buffer
-    # np.argwhere materializes — at large bbox scale that buffer dominates
-    # both wall time and peak RSS.
+    # Tight bbox ROI around mask with halo. The upstream `np.any(sv_zyx)`
+    # early-exit guarantees a non-None bbox here.
     t_bbox = perf_counter()
     Z, Y, X = sv_zyx.shape
-    any_z = np.any(sv_zyx, axis=(1, 2))
-    any_y = np.any(sv_zyx, axis=(0, 2))
-    any_x = np.any(sv_zyx, axis=(0, 1))
-    nz = np.flatnonzero(any_z)
-    ny = np.flatnonzero(any_y)
-    nx = np.flatnonzero(any_x)
-    z0, z1 = int(nz[0]), int(nz[-1]) + 1
-    y0, y1 = int(ny[0]), int(ny[-1]) + 1
-    x0, x1 = int(nx[0]), int(nx[-1]) + 1
+    z0, z1, y0, y1, x0, x1 = _nonzero_bbox_zyx(sv_zyx)
     z0h = max(z0 - halo, 0)
     y0h = max(y0 - halo, 0)
     x0h = max(x0 - halo, 0)
@@ -1244,6 +1234,28 @@ def split_supervoxel_growing(
 
     logger.verbose(f"[done] total elapsed {perf_counter()-t0:.3f}s")
     return _from_internal_zyx_volume(out_zyx, vol_order)
+
+
+def _nonzero_bbox_zyx(vol: np.ndarray) -> Optional[Tuple[int, int, int, int, int, int]]:
+    """Bbox of nonzero voxels via per-axis ``np.any`` projections.
+
+    Returns ``(z0, z1, y0, y1, x0, x1)`` as half-open ranges, or ``None`` if
+    no voxel is nonzero. Bandwidth-bound; avoids the per-True coord buffer
+    that ``np.argwhere`` materializes.
+    """
+    any_z = np.any(vol, axis=(1, 2))
+    any_y = np.any(vol, axis=(0, 2))
+    any_x = np.any(vol, axis=(0, 1))
+    nz_z = np.flatnonzero(any_z)
+    if nz_z.size == 0:
+        return None
+    nz_y = np.flatnonzero(any_y)
+    nz_x = np.flatnonzero(any_x)
+    return (
+        int(nz_z[0]), int(nz_z[-1]) + 1,
+        int(nz_y[0]), int(nz_y[-1]) + 1,
+        int(nz_x[0]), int(nz_x[-1]) + 1,
+    )
 
 
 def build_kdtrees_by_label(
