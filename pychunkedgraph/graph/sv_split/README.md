@@ -427,6 +427,14 @@ referenced by any hierarchy row.
 - **Single-CC at full res.** The single-CC invariant must hold at chunk
   granularity; running it on the DS grid would let upsampling fragment
   a side into disconnected pieces.
+- **Enforce on the foreground crop, not the read bbox.** Labels only
+  exist inside the foreground halo crop (the bbox of the union of cut
+  SVs, padded by one voxel). Single-CC enforcement and the label-3
+  resolver pass a view of that crop to cc3d instead of the full read
+  bbox. cc3d's connected-component output scales with input volume, so
+  the savings grow with the gap between read-bbox and foreground —
+  largest on graphs with big `CHUNK_SIZE` where the one-chunk margin
+  inflates the read bbox far past the actual foreground.
 - **Parallel arrival fields.** Source-side and sink-side arrival times
   are computed concurrently in a two-worker fork pool. The underlying
   geodesic kernel holds the GIL, so process-level parallelism is the

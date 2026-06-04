@@ -1159,10 +1159,18 @@ def split_supervoxel_growing(
     else:
         sub_labels = sub_labels_ds
 
-    # Writeback
-    out_zyx[sv_zyx] = 1
-    out_zyx[z0h:z1h, y0h:y1h, x0h:x1h][sub_labels == 1] = 1
-    out_zyx[z0h:z1h, y0h:y1h, x0h:x1h][sub_labels == 2] = 2
+    # Writeback. All labelling lives inside the foreground halo crop —
+    # voxels outside it stay 0. Operating on a crop view keeps the cc3d
+    # outputs in enforce_cc / resolve3 proportional to the foreground,
+    # not the full read bbox.
+    out_zyx_crop = out_zyx[z0h:z1h, y0h:y1h, x0h:x1h]
+    out_zyx_crop[sv] = 1
+    out_zyx_crop[sub_labels == 1] = 1
+    out_zyx_crop[sub_labels == 2] = 2
+
+    crop_offset = np.array([z0h, y0h, x0h], dtype=int)
+    A_crop = np.asarray(A, dtype=int) - crop_offset
+    B_crop = np.asarray(B, dtype=int) - crop_offset
 
     # Enforce single CC per label (full res). The upsampled labeling can
     # fragment under the foreground mask, so enforcement must run here,
@@ -1172,11 +1180,11 @@ def split_supervoxel_growing(
         if enforce_single_cc:
             with _prof.profile("label1"):
                 keptA, movedA = _enforce_single_component(
-                    out_zyx, 1, A, allow3=allow_third_label
+                    out_zyx_crop, 1, A_crop, allow3=allow_third_label
                 )
             with _prof.profile("label2"):
                 keptB, movedB = _enforce_single_component(
-                    out_zyx, 2, B, allow3=allow_third_label
+                    out_zyx_crop, 2, B_crop, allow3=allow_third_label
                 )
             logger.verbose(
                 f"[single-cc] label1 kept {keptA}, moved {movedA} -> 3; label2 kept {keptB}, moved {movedB} -> 3"
@@ -1188,28 +1196,28 @@ def split_supervoxel_growing(
             # _resolve_label3_touching_vectorized would early-return after a
             # full-volume CC scan, so the np.any check skips that scan.
             moved1 = moved2 = 0
-            counts = np.bincount(out_zyx.ravel(), minlength=4)
+            counts = np.bincount(out_zyx_crop.ravel(), minlength=4)
             n1, n2, n3 = int(counts[1]), int(counts[2]), int(counts[3])
             logger.note(
                 f"<{op_id}> {sv_id}: resolve3 label-1 {n1} label-2 {n2} label-3 stray {n3}"
             )
             if n3:
                 moved1, moved2 = _resolve_label3_touching_vectorized(
-                    out_zyx, A, B, sampling
+                    out_zyx_crop, A_crop, B_crop, sampling
                 )
             if moved1 or moved2:
                 if enforce_single_cc:
                     keptA, movedA = _enforce_single_component(
-                        out_zyx, 1, A, allow3=allow_third_label
+                        out_zyx_crop, 1, A_crop, allow3=allow_third_label
                     )
                     keptB, movedB = _enforce_single_component(
-                        out_zyx, 2, B, allow3=allow_third_label
+                        out_zyx_crop, 2, B_crop, allow3=allow_third_label
                     )
                     logger.verbose(
                         f"[single-cc 2nd] label1 kept {keptA}, moved {movedA}; label2 kept {keptB}, moved {movedB}"
                     )
 
-        final_counts = np.bincount(out_zyx.ravel(), minlength=4)
+        final_counts = np.bincount(out_zyx_crop.ravel(), minlength=4)
         logger.verbose(
             f"<{op_id}> {sv_id}: final label-1 {int(final_counts[1])} "
             f"label-2 {int(final_counts[2])} label-3 unresolved {int(final_counts[3])}"
@@ -1217,7 +1225,7 @@ def split_supervoxel_growing(
 
     # Final check
     for lab in (1, 2):
-        _, ncomp = _cc_label_26(out_zyx == lab)
+        _, ncomp = _cc_label_26(out_zyx_crop == lab)
         if ncomp > 1:
             msg = f"[check] label {lab} has {ncomp} connected components"
             if raise_if_multi_cc:
