@@ -5,6 +5,11 @@ operation does, where it sits in the edit pipeline, the voxel-level cut
 algorithm, edge re-routing afterwards, the concurrency / storage contracts,
 recovery, performance characteristics, and the failure modes.
 
+Companion: `NOTES.md` (sibling) holds known issues, open failure modes, and
+future-work threads. Any code or design change that alters a contract /
+invariant / failure mode covered here must update both files in the same
+commit.
+
 ---
 
 ## 1. Overview
@@ -426,11 +431,11 @@ referenced by any hierarchy row.
   are computed concurrently in a two-worker fork pool. The underlying
   geodesic kernel holds the GIL, so process-level parallelism is the
   only lever; roughly halves the wall vs sequential.
-- **Configurable backend.** `PYCG_GEODESIC_BACKEND=mcp` (default) is
-  anisotropy-correct via per-axis sampling. `=dj3d` is faster at the
-  same downsample but approximates anisotropy via a single mean-scale
-  factor on the cost grid; the cut surface diverges by a small amount
-  on highly-anisotropic graphs depending on which backend is enabled.
+- **Configurable backend.** `PYCG_GEODESIC_BACKEND=dj3d` (default) is the
+  faster kernel; it approximates anisotropy via a single mean-scale factor
+  on the cost grid. `=mcp` is anisotropy-correct via per-axis sampling; the
+  cut surface diverges by a small amount on highly-anisotropic graphs
+  depending on which backend is enabled.
 
 ### Edge re-routing
 

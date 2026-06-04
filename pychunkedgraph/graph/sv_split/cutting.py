@@ -753,11 +753,11 @@ def _compute_TA_TB(cost_ds, sampling_ds, mask_ds, A_sub, B_sub):
     """Compute TA, TB via the configured geodesic backend; mask out-of-SV
     voxels to inf.
 
-    Backend = PYCG_GEODESIC_BACKEND env var, "mcp" (default) or "dj3d".
+    Backend = PYCG_GEODESIC_BACKEND env var, "dj3d" (default) or "mcp".
     POSIX runs both arrivals in a 2-worker fork pool (both backends hold the
     GIL); non-POSIX falls back to sequential.
     """
-    backend = os.getenv("PYCG_GEODESIC_BACKEND", "mcp").lower()
+    backend = os.getenv("PYCG_GEODESIC_BACKEND", "dj3d").lower()
     if backend not in ("mcp", "dj3d"):
         raise ValueError(
             f"PYCG_GEODESIC_BACKEND must be 'mcp' or 'dj3d', got {backend!r}"
@@ -1105,7 +1105,7 @@ def split_supervoxel_growing(
     t2 = perf_counter()
     with _prof.profile("geodesic_arrival"):
         TA, TB = _compute_TA_TB(cost_ds, sampling_ds, mask_ds, A_sub, B_sub)
-    _backend = os.getenv("PYCG_GEODESIC_BACKEND", "mcp").lower()
+    _backend = os.getenv("PYCG_GEODESIC_BACKEND", "dj3d").lower()
     logger.note(
         f"<{op_id}> {sv_id}: geodesic backend={_backend} ds={downsample_geodesic} "
         f"{perf_counter()-t2:.3f}s"
