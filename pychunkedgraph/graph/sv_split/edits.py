@@ -2,6 +2,7 @@
 Manage new supervoxels after a supervoxel split.
 """
 
+import os
 import time
 from datetime import datetime
 from collections import defaultdict
@@ -420,9 +421,7 @@ def _select_cut_supervoxels(sv_id, sv_ids, rep_pieces, *, op_id=None):
         f"<{op_id}> {sv_id}: whole_sv in_bbox={len(cut_supervoxels)} "
         f"outside_bbox={len(rep_pieces) - len(cut_supervoxels)}"
     )
-    logger.verbose(
-        f"<{op_id}> {sv_id}: pieces={supervoxel_ids.tolist()}"
-    )
+    logger.verbose(f"<{op_id}> {sv_id}: pieces={supervoxel_ids.tolist()}")
     return cut_supervoxels, supervoxel_ids
 
 
@@ -430,8 +429,31 @@ _SNAP_KWARGS = dict(
     use_boundary=False,
     downsample=False,
     use_bbox=True,
-    method="kdtree",
 )
+
+
+def _log_split_result(op_id, sv_id, result):
+    """Emit the four OLD-format split log lines from a SplitResult."""
+    d = result.diagnostics or {}
+    stage = d.get("stage_elapsed_s") or {}
+    pre = d.get("pre_resolve_label_counts") or d.get("label_counts") or {}
+    final = d.get("label_counts") or {}
+    logger.note(
+        f"<{op_id}> {sv_id}: connect_seeds ({stage.get('seed_prep', 0.0):.2f}s)"
+    )
+    logger.note(
+        f"<{op_id}> {sv_id}: geodesic "
+        f"backend={d.get('backend')} ds={d.get('downsample_zyx')} "
+        f"{stage.get('arrival', 0.0):.3f}s"
+    )
+    logger.note(
+        f"<{op_id}> {sv_id}: resolve3 "
+        f"label-1 {pre.get(1, 0)} label-2 {pre.get(2, 0)} label-3 stray {pre.get(3, 0)}"
+    )
+    logger.note(
+        f"<{op_id}> {sv_id}: final "
+        f"label-1 {final.get(1, 0)} label-2 {final.get(2, 0)} label-3 unresolved {final.get(3, 0)}"
+    )
 
 
 def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
@@ -457,23 +479,29 @@ def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
     ds_zyx = ds_xyz[::-1]
     src = ctx.source_coords - ctx.bbs
     sink = ctx.sink_coords - ctx.bbs
+    backend_kwargs = {}
+    backend_env = os.environ.get("PYCG_GEODESIC_BACKEND")
+    if backend_env:
+        backend_kwargs["backend"] = backend_env
     splitter = get_splitter(
         downsample_geodesic=ds_zyx,
+        seed_prep_downsample=tuple(int(d) for d in downsample),
         snap_kwargs=dict(_SNAP_KWARGS),
         raise_if_multi_cc=True,
+        profiler=get_profiler(),
+        **backend_kwargs,
     )
-    t0 = time.time()
     with get_profiler().profile("split"):
         result = splitter.split(
-            binary_seg, src, sink,
+            binary_seg,
+            src,
+            sink,
             voxel_size=voxel_size,
             vol_order="xyz",
             vox_order="xyz",
             seed_order="xyz",
         )
-    logger.note(
-        f"<{ctx.operation_id}> {ctx.sv_id}: split ({time.time() - t0:.2f}s)"
-    )
+    _log_split_result(ctx.operation_id, ctx.sv_id, result)
     return result.labels
 
 

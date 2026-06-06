@@ -67,6 +67,8 @@ COPY override/nginx.conf /etc/nginx/nginx.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY uwsgi.ini /etc/uwsgi/uwsgi.ini
 
+# PyPI wheel bundles the zstd C source; conda-forge's system-linked
+# build lacks `multi_decompress_to_buffer`, used by io/edges.py.
 RUN pip install --no-cache-dir --no-deps --force-reinstall zstandard>=0.23.0
 
 COPY requirements.txt .

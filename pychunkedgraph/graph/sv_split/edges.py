@@ -403,8 +403,9 @@ def update_edges(
     new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
 
     t0 = time.time()
-    _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
-    edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
+    with _prof.profile("subgraph"):
+        _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
+        edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
     n_subgraph = len(edges_.get_pairs())
     t_subgraph = time.time() - t0
 
@@ -421,9 +422,10 @@ def update_edges(
     areas = areas[edges_idx]
 
     t0 = time.time()
-    all_edge_svs = np.unique(edges)
-    all_roots = cg.get_roots(all_edge_svs, time_stamp=parent_ts)
-    sv_root_map = dict(zip(all_edge_svs, all_roots))
+    with _prof.profile("roots"):
+        all_edge_svs = np.unique(edges)
+        all_roots = cg.get_roots(all_edge_svs, time_stamp=parent_ts)
+        sv_root_map = dict(zip(all_edge_svs, all_roots))
     n_roots = len(all_edge_svs)
     t_roots = time.time() - t0
 
@@ -443,23 +445,25 @@ def update_edges(
         wanted_labels = np.union1d(new_ids, all_edge_svs)
         fastremap.mask_except(new_seg, list(wanted_labels), in_place=True)
         coords_by_label = build_coords_by_label(new_seg)
-    new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
+    with _prof.profile("kdtrees"):
+        new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
     n_labels = len(coords_by_label)
     t_coords = time.time() - t0
 
     t0 = time.time()
-    result = _get_new_edges(
-        (edges, affinities, areas),
-        old_new_map,
-        coords_by_label,
-        root_id,
-        sv_root_map,
-        cg,
-        new_kdtrees,
-        new_ids,
-        new_id_label_map,
-        threshold=cg.meta.sv_split_threshold,
-    )
+    with _prof.profile("get_new_edges"):
+        result = _get_new_edges(
+            (edges, affinities, areas),
+            old_new_map,
+            coords_by_label,
+            root_id,
+            sv_root_map,
+            cg,
+            new_kdtrees,
+            new_ids,
+            new_id_label_map,
+            threshold=cg.meta.sv_split_threshold,
+        )
     t_new = time.time() - t0
 
     logger.note(
@@ -468,7 +472,8 @@ def update_edges(
         f"_get_new_edges/{t_new:.2f}s"
     )
 
-    validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)
+    with _prof.profile("validate_edges"):
+        validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)
     return result
 
 
