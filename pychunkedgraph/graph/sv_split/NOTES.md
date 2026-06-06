@@ -55,22 +55,23 @@ foreground-bbox crop before compress is *not* a help here — `update_edges`
 partners scatter across the full read bbox so the nonzero bbox approximates
 the read bbox.
 
-## Future work — break up `cutting.py`
+## Architecture
 
-`cutting.py` mixes geodesic backend dispatch, seed snapping, EDT + cost-grid
-construction, label assignment + narrow-band refinement, single-CC enforcement,
-the resolve3 label-3 stray reassignment, and the `split_supervoxel_growing`
-driver in a single ~1900-line module. Refactor target: promote to a `cutting/`
-package with one module per concern (`arrival.py`, `cost.py`, `seeds.py`,
-`label.py`, `enforce.py`, `driver.py`), re-export the public entry points
-(`split_supervoxel_growing`, `connect_both_seeds_via_ridge`) at
-`sv_split.cutting`. Defer until the geodesic backend choice and the stray
-mechanism have settled.
+The split algorithm lives in the external `supervoxel-splitter` package.
+`splitter.get_splitter()` resolves an implementation class via the
+`PCG_SV_SPLITTER` env var (dotted import path; default
+`supervoxel_splitter.GeodesicSplitter`) and forwards `**kwargs` to its
+constructor so call-site tuning propagates. `_coords.py` holds post-split
+coord utilities consumed by `edges.py`. `cutting.py` is the legacy in-tree
+implementation kept as fallback during integration validation; delete once
+parity with the external splitter is confirmed.
 
-## Geodesic backend switch — `PYCG_GEODESIC_BACKEND`
+## Geodesic backend — `backend` kwarg on `GeodesicSplitter`
 
 `dj3d` (default) selects a faster geodesic kernel that has no anisotropy
 parameter; the cost grid is pre-scaled by `mean(sampling_ds)` to approximate
 per-axis anisotropy, and the cut surface diverges by a small amount on highly
 anisotropic graphs where one axis is >5× the others. `mcp` selects the
-anisotropy-correct kernel with per-axis sampling.
+anisotropy-correct kernel with per-axis sampling. Pass via
+`get_splitter(backend="mcp")` from PCG to override (forwarded as a
+`GeodesicSplitter` constructor kwarg).

@@ -20,7 +20,7 @@ from pychunkedgraph.graph import (
 )
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
 from pychunkedgraph.graph.exceptions import PostconditionError
-from .cutting import connect_both_seeds_via_ridge, split_supervoxel_growing
+from .splitter import get_splitter
 from .edges import update_edges, add_new_edges
 from .state import (
     ApplyResult,
@@ -435,12 +435,7 @@ _SNAP_KWARGS = dict(
 
 
 def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
-    """Run the geodesic SV cut for one task.
-
-    Wraps ``connect_both_seeds_via_ridge`` + ``split_supervoxel_growing``
-    with the SV-split-flow defaults; threads ``ctx.sv_id`` so per-task
-    logs inside ``split_supervoxel_growing`` are individually tagged.
-    """
+    """Run the configured SV cut for one task; returns the label ndarray."""
     voxel_size = np.array(ctx.cg.meta.resolution)
     downsample = voxel_size.max() // voxel_size  # xyz order
     # Per-axis clamp:
@@ -460,52 +455,26 @@ def split_supervoxel_helper(ctx: SplitCtx, binary_seg: np.ndarray):
         for s, dim in zip(downsample, binary_seg.shape)
     )
     ds_zyx = ds_xyz[::-1]
-    _prof = get_profiler()
     src = ctx.source_coords - ctx.bbs
     sink = ctx.sink_coords - ctx.bbs
+    splitter = get_splitter(
+        downsample_geodesic=ds_zyx,
+        snap_kwargs=dict(_SNAP_KWARGS),
+        raise_if_multi_cc=True,
+    )
     t0 = time.time()
-    with _prof.profile("connect_seeds"):
-        A_aug, B_aug, okA, okB = connect_both_seeds_via_ridge(
-            binary_seg,
-            src,
-            sink,
+    with get_profiler().profile("split"):
+        result = splitter.split(
+            binary_seg, src, sink,
             voxel_size=voxel_size,
-            downsample=downsample,
             vol_order="xyz",
             vox_order="xyz",
             seed_order="xyz",
-            snap_method="kdtree",
-            snap_kwargs=dict(_SNAP_KWARGS),
         )
     logger.note(
-        f"<{ctx.operation_id}> {ctx.sv_id}: connect_seeds ({time.time() - t0:.2f}s)"
+        f"<{ctx.operation_id}> {ctx.sv_id}: split ({time.time() - t0:.2f}s)"
     )
-    if not (okA and okB):
-        raise RuntimeError(
-            "In-mask connection failed for at least one team; skipping split."
-        )
-    with _prof.profile("split_growing"):
-        return split_supervoxel_growing(
-            binary_seg,
-            A_aug,
-            B_aug,
-            voxel_size=voxel_size,
-            vol_order="xyz",
-            vox_order="xyz",
-            seed_order="xyz",
-            halo=1,
-            gamma_neck=1.6,
-            narrow_band_rel=0.08,
-            nb_dilate=1,
-            downsample_geodesic=ds_zyx,
-            enforce_single_cc=True,
-            raise_if_seed_split=True,
-            raise_if_multi_cc=True,
-            snap_method="kdtree",
-            snap_kwargs=dict(_SNAP_KWARGS),
-            sv_id=ctx.sv_id,
-            op_id=ctx.operation_id,
-        )
+    return result.labels
 
 
 def _compute_split(ctx: SplitCtx, supervoxel_ids):
