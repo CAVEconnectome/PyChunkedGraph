@@ -43,7 +43,7 @@ from pychunkedgraph.graph import attributes, basetypes, serializers
 from pychunkedgraph.graph.chunks import utils as chunk_utils
 from pychunkedgraph.graph.exceptions import PostconditionError
 from scipy.spatial import cKDTree
-from .cutting import build_coords_by_label
+from ._coords import build_coords_by_label
 from pychunkedgraph.graph.edges import Edges
 
 if TYPE_CHECKING:
