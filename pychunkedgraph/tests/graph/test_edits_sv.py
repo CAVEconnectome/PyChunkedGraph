@@ -110,6 +110,41 @@ class TestParseResults:
         assert 300 in old_new_map[100]
         assert 400 in old_new_map[200]
 
+    def test_dedupes_per_voxel_pairs(self):
+        # old/new arrive as parallel per-voxel arrays with many duplicates;
+        # the dict must collapse to the unique (old, new) set per old SV.
+        n = 100
+        seg = np.zeros((1, 1, 2 * n), dtype=basetypes.NODE_ID)
+        bbs = np.array([0, 0, 0])
+        bbe = np.array([1, 1, 2 * n])
+        indices = np.stack(
+            [
+                np.zeros(2 * n, dtype=int),
+                np.zeros(2 * n, dtype=int),
+                np.arange(2 * n),
+            ],
+            axis=1,
+        )
+        old_values = np.concatenate(
+            [
+                np.full(n, 100, dtype=basetypes.NODE_ID),
+                np.full(n, 100, dtype=basetypes.NODE_ID),
+            ]
+        )
+        new_values = np.concatenate(
+            [
+                np.full(n, 300, dtype=basetypes.NODE_ID),
+                np.full(n, 301, dtype=basetypes.NODE_ID),
+            ]
+        )
+        results = [
+            (indices, old_values, new_values, {1: np.uint64(300), 2: np.uint64(301)})
+        ]
+
+        _, old_new_map, _ = _parse_results(results, seg, bbs, bbe)
+        assert set(old_new_map.keys()) == {100}
+        assert old_new_map[100] == {300, 301}
+
 
 # ============================================================
 # Tests: copy_parents_and_add_lineage

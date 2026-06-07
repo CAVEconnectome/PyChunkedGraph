@@ -357,7 +357,13 @@ def _parse_results(results, seg, bbs, bbe):
         if result:
             indexer, old_values, new_values, label_id_map = result
             seg[tuple(indexer.T)] = new_values
-            for old_sv, new_sv in zip(old_values, new_values):
+            # old/new are per-voxel parallel arrays with only a handful
+            # of unique pairs per chunk; dedupe so the Python loop is
+            # over labels, not voxels.
+            unique_pairs = fastremap.unique(
+                np.column_stack([old_values, new_values]), axis=0
+            )
+            for old_sv, new_sv in unique_pairs:
                 old_new_map[old_sv].add(new_sv)
             for label, new_id in label_id_map.items():
                 new_id_label_map[new_id] = label
