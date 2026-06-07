@@ -42,7 +42,7 @@ from pychunkedgraph.profiler import get_profiler
 from pychunkedgraph.graph import attributes, basetypes, serializers
 from pychunkedgraph.graph.chunks import utils as chunk_utils
 from pychunkedgraph.graph.exceptions import PostconditionError
-from scipy.spatial import cKDTree
+from pykdtree.kdtree import KDTree as cKDTree
 from ._coords import build_coords_by_label
 from pychunkedgraph.graph.edges import Edges
 
@@ -148,9 +148,9 @@ def _compute_partner_distances(new_kdtrees, partner_coords, partner_tree=None):
     distances = np.empty(len(new_kdtrees), dtype=float)
     for i, kt in enumerate(new_kdtrees):
         if kt.n <= partner_tree.n:
-            d, _ = partner_tree.query(kt.data, k=1, workers=-1)
+            d, _ = partner_tree.query(kt.data.reshape(-1, 3), k=1)
         else:
-            d, _ = kt.query(partner_tree.data, k=1, workers=-1)
+            d, _ = kt.query(partner_coords, k=1)
         distances[i] = float(np.min(d))
     return distances
 

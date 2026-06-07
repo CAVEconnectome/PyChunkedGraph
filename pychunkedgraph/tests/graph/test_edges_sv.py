@@ -13,8 +13,10 @@ from pychunkedgraph.graph.sv_split.edges import (
     _match_inf_unsplit,
     _match_partner,
     _expand_partners,
+    _compute_partner_distances,
     validate_split_edges,
 )
+from pychunkedgraph.graph.sv_split.edges import cKDTree as ProdKDTree
 
 ROOT_ID = np.uint64(1)
 OTHER_ROOT = np.uint64(2)
@@ -38,7 +40,7 @@ def _make_coords_and_trees(positions, old_new_map):
         for sv_id, pos in positions.items()
     }
     new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
-    new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
+    new_kdtrees = [ProdKDTree(coords_by_label[int(k)]) for k in new_ids]
     return coords_by_label, new_kdtrees, new_ids
 
 
@@ -657,3 +659,45 @@ class TestValidateSplitEdges:
             extra_affs=[np.inf, np.inf],
         )
         validate_split_edges(edges, affs, old_new_map, label_map)
+
+
+class TestComputePartnerDistances:
+    """Smart-size dispatch in _compute_partner_distances must match scipy on
+    both directions (kt.n <= partner.n and kt.n > partner.n) and at F=1."""
+
+    @staticmethod
+    def _reference(new_kdtrees_sci, partner_tree_sci):
+        distances = np.empty(len(new_kdtrees_sci), dtype=float)
+        for i, kt in enumerate(new_kdtrees_sci):
+            if kt.n <= partner_tree_sci.n:
+                d, _ = partner_tree_sci.query(kt.data, k=1, workers=-1)
+            else:
+                d, _ = kt.query(partner_tree_sci.data, k=1, workers=-1)
+            distances[i] = float(np.min(d))
+        return distances
+
+    def _compare(self, frag_sizes, partner_size, seed=0):
+        rng = np.random.default_rng(seed)
+        partner_coords = rng.integers(0, 40000, size=(partner_size, 3)).astype(np.int32)
+        frag_coords = [
+            rng.integers(0, 40000, size=(n, 3)).astype(np.int32) for n in frag_sizes
+        ]
+        prod_partner = ProdKDTree(partner_coords)
+        prod_frags = [ProdKDTree(c) for c in frag_coords]
+        got = _compute_partner_distances(prod_frags, partner_coords, prod_partner)
+        sci_partner = cKDTree(partner_coords)
+        sci_frags = [cKDTree(c) for c in frag_coords]
+        ref = self._reference(sci_frags, sci_partner)
+        np.testing.assert_allclose(got, ref, rtol=0, atol=1e-9)
+
+    def test_fragments_smaller_than_partner(self):
+        self._compare(frag_sizes=[50, 200], partner_size=1000)
+
+    def test_fragments_larger_than_partner_engages_fallback_path(self):
+        self._compare(frag_sizes=[2000, 5000], partner_size=500)
+
+    def test_mixed_sizes(self):
+        self._compare(frag_sizes=[50, 2000, 100], partner_size=500)
+
+    def test_single_fragment(self):
+        self._compare(frag_sizes=[300], partner_size=1000)

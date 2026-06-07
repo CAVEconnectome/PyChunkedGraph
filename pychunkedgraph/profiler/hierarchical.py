@@ -348,20 +348,41 @@ class HierarchicalProfiler:
 
     @staticmethod
     def _print_tree_table(title, ordered_paths, metric_headers, metric_cells):
-        """Render a table whose row labels are ``ordered_paths`` split into one
-        name column per nesting depth (L0, L1, …) — a path's leaf name sits in
-        the column matching its depth — followed by ``metric_headers`` columns
-        filled from ``metric_cells`` (``path -> list[str]``). Shared by both
-        reports so the tree/column layout lives in one place."""
-        max_depth = max(p.count(".") for p in ordered_paths)
-        level_cols = [f"L{i}" for i in range(max_depth + 1)]
-        cols = level_cols + list(metric_headers)
+        """Render the table with a single 'path' column showing hierarchy via
+        tree characters (├─ │ └─), then ``metric_headers`` columns from
+        ``metric_cells`` (``path -> list[str]``). Shared by both reports."""
+        children: Dict[str, List[str]] = defaultdict(list)
+        roots: List[str] = []
+        seen: set = set()
+        for path in ordered_paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            if "." in path:
+                children[path.rsplit(".", 1)[0]].append(path)
+            else:
+                roots.append(path)
 
+        def _prefix(path: str) -> str:
+            parts = path.split(".")
+            if len(parts) == 1:
+                return ""
+            segs: List[str] = []
+            for depth in range(len(parts) - 1):
+                ancestor = ".".join(parts[: depth + 1])
+                siblings = roots if depth == 0 else children[".".join(parts[:depth])]
+                if depth < len(parts) - 2:
+                    segs.append("   " if ancestor == siblings[-1] else "│  ")
+                else:
+                    segs.append("└─ " if path == children[ancestor][-1] else "├─ ")
+            return "".join(segs)
+
+        cols = ["path"] + list(metric_headers)
         rows: List[List[str]] = []
         for path in ordered_paths:
-            level_cells = [""] * len(level_cols)
-            level_cells[path.count(".")] = path.rsplit(".", 1)[-1]
-            rows.append(level_cells + list(metric_cells(path)))
+            rows.append(
+                [_prefix(path) + path.rsplit(".", 1)[-1]] + list(metric_cells(path))
+            )
 
         widths = [len(c) for c in cols]
         for row in rows:

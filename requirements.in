@@ -33,6 +33,7 @@ datastoreflex>=0.5.0
 kvdbclient>=0.7.0
 zstandard>=0.23.0
 tinybrain>=1.7.0
+pykdtree>=1.4.3
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool
