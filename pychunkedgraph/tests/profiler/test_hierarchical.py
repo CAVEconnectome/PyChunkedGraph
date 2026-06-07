@@ -165,28 +165,30 @@ class TestConsumersIntact:
             pass
         buf = io.StringIO()
         with redirect_stdout(buf):
-            prof.metrics_report()
+            prof.metrics_report(min_wall_s=0, min_rss_delta_bytes=0)
         assert "metrics report" in buf.getvalue()
 
-    def test_reports_nest_paths_into_level_columns(self):
-        # nested paths (stitch.decode) render in separate L0/L1 columns, the same
-        # tree layout for both reports; each table ends with a blank line.
+    def test_reports_nest_paths_into_tree_chars(self):
+        # nested paths (stitch.decode) render in a single 'path' column with
+        # tree characters; the child's leaf name appears prefixed by └─ or ├─.
         prof = HierarchicalProfiler(enabled=True, with_rss=False)
         with prof.profile("stitch"):
             with prof.profile("decode"):
                 pass
         for render in (
-            lambda: prof.metrics_report(),
+            lambda: prof.metrics_report(min_wall_s=0, min_rss_delta_bytes=0),
             lambda: HierarchicalProfiler.percentile_report(prof.blocks),
         ):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 render()
             out = buf.getvalue()
-            header = next(ln for ln in out.splitlines() if ln.startswith("L0"))
-            assert "L0" in header and "L1" in header, header
-            # the nested child's leaf name appears (not the dotted path).
+            header = next(ln for ln in out.splitlines() if ln.startswith("path"))
+            assert "path" in header, header
+            # the nested child's leaf name appears (not the dotted path),
+            # with a tree-character prefix.
             assert "decode" in out and "stitch.decode" not in out
+            assert "└─ decode" in out or "├─ decode" in out
             # the table block is followed by a blank line.
             assert "\n\n" in out, "table must be followed by a blank line"
 

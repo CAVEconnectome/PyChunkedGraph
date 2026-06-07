@@ -443,8 +443,9 @@ def update_edges(
         # after the scan. Caller does not read seg after update_edges
         # returns, so the in-place mutation is safe.
         wanted_labels = np.union1d(new_ids, all_edge_svs)
-        fastremap.mask_except(new_seg, list(wanted_labels), in_place=True)
-        coords_by_label = build_coords_by_label(new_seg)
+        with _prof.profile("mask_except"):
+            fastremap.mask_except(new_seg, list(wanted_labels), in_place=True)
+        coords_by_label = build_coords_by_label(new_seg, boundary_only=True)
     with _prof.profile("kdtrees"):
         new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
     n_labels = len(coords_by_label)

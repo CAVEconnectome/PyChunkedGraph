@@ -399,7 +399,13 @@ class HierarchicalProfiler:
             print(line(row))
         print()
 
-    def metrics_report(self, operation_id=None) -> None:
+    def metrics_report(
+        self,
+        operation_id=None,
+        *,
+        min_wall_s: float = 1.0,
+        min_rss_delta_bytes: int = 500_000_000,
+    ) -> None:
         """Print a compact, human-readable table over self.blocks.
 
         Columns: stage, wall, cum_wall, py_peak, rss_start, rss_peak,
@@ -446,6 +452,27 @@ class HierarchicalProfiler:
         by_path = {b.path: b for b in self.blocks}
         order_idx = {b.path: i for i, b in enumerate(self.blocks)}
         ordered = self._tree_preorder(by_path, sort_key=lambda p: order_idx[p])
+
+        # Filter: keep a row if its own wall or rss_Δ crosses either threshold,
+        # OR any descendant does. Ancestors of any visible row stay so the
+        # tree remains connected.
+        def _interesting(path):
+            b = by_path[path]
+            return (
+                b.elapsed_s >= min_wall_s
+                or (b.rss_peak_bytes - b.rss_start_bytes) >= min_rss_delta_bytes
+            )
+
+        keep: set = set()
+        for path in ordered:
+            if _interesting(path):
+                keep.add(path)
+                parts = path.split(".")
+                for d in range(1, len(parts)):
+                    keep.add(".".join(parts[:d]))
+        ordered = [p for p in ordered if p in keep]
+        if not ordered:
+            return
 
         metric_headers = [
             "wall",
