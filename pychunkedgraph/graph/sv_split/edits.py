@@ -6,10 +6,12 @@ import os
 import time
 from datetime import datetime
 from collections import defaultdict
+from functools import reduce
 from typing import TYPE_CHECKING, List, Tuple
 
 import fastremap
 import numpy as np
+from pykdtree.kdtree import KDTree as cKDTree
 
 from pychunkedgraph import get_logger
 from pychunkedgraph.profiler import get_profiler
@@ -20,9 +22,11 @@ from pychunkedgraph.graph import (
     serializers,
 )
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox
+from pychunkedgraph.graph.edges import Edges
 from pychunkedgraph.graph.exceptions import PostconditionError
 from .splitter import get_splitter
-from .edges import update_edges, add_new_edges
+from ._coords import build_coords_by_label
+from .edges import _get_new_edges, add_new_edges, validate_split_edges
 from .state import (
     ApplyResult,
     SplitCtx,
@@ -617,6 +621,7 @@ def _apply_and_capture(
         new_seg, old_new_map, new_id_label_map = _parse_results(
             results, new_seg, bbs, bbe
         )
+    del results
     _assert_same_chunk(cg, old_new_map)
     unsplit = cut_supervoxels - set(old_new_map.keys())
     logger.note(
@@ -659,34 +664,165 @@ def _apply_and_capture(
     )
 
 
+def _fetch_subgraph_for_edges(cg, root, bbox, parent_ts, _prof):
+    """Fetch subgraph edges, dedup, then resolve roots for all endpoints.
+    Returns the trimmed edge tuple, the SV→root map, and per-stage metrics."""
+    t0 = time.time()
+    with _prof.profile("subgraph"):
+        _, sg_edges_iter = cg.get_subgraph(root, bbox, bbox_is_coordinate=True)
+        edges_ = reduce(lambda x, y: x + y, sg_edges_iter, Edges([], []))
+    n_subgraph = len(edges_.get_pairs())
+    t_subgraph = time.time() - t0
+
+    edges = edges_.get_pairs()
+    affinities = edges_.affinities
+    areas = edges_.areas
+
+    edges = np.sort(edges, axis=1)
+    _, edges_idx = np.unique(edges, axis=0, return_index=True)
+    edges_idx = edges_idx[edges[edges_idx, 0] != edges[edges_idx, 1]]
+    edges = edges[edges_idx]
+    affinities = affinities[edges_idx]
+    areas = areas[edges_idx]
+
+    t0 = time.time()
+    with _prof.profile("roots"):
+        all_edge_svs = np.unique(edges)
+        all_roots = cg.get_roots(all_edge_svs, time_stamp=parent_ts)
+        sv_root_map = dict(zip(all_edge_svs, all_roots))
+    n_roots = len(all_edge_svs)
+    t_roots = time.time() - t0
+
+    return (
+        edges,
+        affinities,
+        areas,
+        all_edge_svs,
+        sv_root_map,
+        n_subgraph,
+        t_subgraph,
+        n_roots,
+        t_roots,
+    )
+
+
+def _compute_route_edges(
+    coords_by_label,
+    edges,
+    affinities,
+    areas,
+    sv_root_map,
+    old_new_map,
+    new_id_label_map,
+    cg,
+    root,
+    new_ids,
+    _prof,
+):
+    """Build per-fragment KDTrees and route subgraph edges to new SV IDs.
+    Returns (edges_tuple, t_new) after validate_split_edges passes."""
+    with _prof.profile("kdtrees"):
+        new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
+
+    t0 = time.time()
+    with _prof.profile("get_new_edges"):
+        edges_tuple = _get_new_edges(
+            (edges, affinities, areas),
+            old_new_map,
+            coords_by_label,
+            root,
+            sv_root_map,
+            cg,
+            new_kdtrees,
+            new_ids,
+            new_id_label_map,
+            threshold=cg.meta.sv_split_threshold,
+        )
+    t_new = time.time() - t0
+    del new_kdtrees
+    with _prof.profile("validate_edges"):
+        validate_split_edges(
+            edges_tuple[0], edges_tuple[1], old_new_map, new_id_label_map
+        )
+    return edges_tuple, t_new
+
+
 def _route_edges_and_rows(ctx: SplitCtx, old_new_map, new_id_label_map):
     """Resolve the split's root, route edges, build bigtable rows.
 
     Returns the flat list of bigtable rows.
     """
-    cg, seg = ctx.cg, ctx.seg
+    cg = ctx.cg
+    seg = ctx.seg
+    ctx.seg = None
     _prof = get_profiler()
     with _prof.profile("get_roots"):
         roots = cg.get_roots(ctx.sv_ids, time_stamp=ctx.parent_ts)
-        sv_root_map = dict(zip(ctx.sv_ids, roots))
-    root = sv_root_map[ctx.sv_id]
+    root = roots[np.flatnonzero(ctx.sv_ids == ctx.sv_id)[0]]
 
-    t0 = time.time()
+    bbox = np.array([ctx.bbs, ctx.bbe])
+    op_id = ctx.operation_id
+    sv_id = ctx.sv_id
+    parent_ts = ctx.parent_ts
+    old_new_map = dict(old_new_map)
+    new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
+
+    t_outer = time.time()
     with _prof.profile("update_edges"):
-        edges_tuple = update_edges(
-            cg,
-            root,
-            np.array([ctx.bbs, ctx.bbe]),
-            seg,
+        (
+            edges,
+            affinities,
+            areas,
+            all_edge_svs,
+            sv_root_map,
+            n_subgraph,
+            t_subgraph,
+            n_roots,
+            t_roots,
+        ) = _fetch_subgraph_for_edges(cg, root, bbox, parent_ts, _prof)
+
+        # Inline: seg lives & dies in this frame. renumber's in-place rebind
+        # drops the only ref to the uint64 buffer; splitting this section
+        # across helpers would leave a pinning frame-local alive.
+        t0 = time.time()
+        with _prof.profile("build_coords"):
+            wanted_labels = np.union1d(new_ids, all_edge_svs)
+            with _prof.profile("mask_except"):
+                fastremap.mask_except(seg, list(wanted_labels), in_place=True)
+            if len(wanted_labels) <= np.iinfo(np.uint32).max:
+                with _prof.profile("renumber"):
+                    seg, remap = fastremap.renumber(seg, in_place=True)
+                coords_small = build_coords_by_label(seg, boundary_only=True)
+                inv = {v: k for k, v in remap.items()}
+                coords_by_label = {int(inv[k]): v for k, v in coords_small.items()}
+            else:
+                coords_by_label = build_coords_by_label(seg, boundary_only=True)
+        del seg
+        n_labels = len(coords_by_label)
+        t_coords = time.time() - t0
+
+        edges_tuple, t_new = _compute_route_edges(
+            coords_by_label,
+            edges,
+            affinities,
+            areas,
+            sv_root_map,
             old_new_map,
             new_id_label_map,
-            parent_ts=ctx.parent_ts,
-            sv_id=ctx.sv_id,
-            op_id=ctx.operation_id,
+            cg,
+            root,
+            new_ids,
+            _prof,
+        )
+
+        logger.note(
+            f"<{op_id}> {sv_id} update_edges: subgraph={n_subgraph}/{t_subgraph:.2f}s "
+            f"roots={n_roots}/{t_roots:.2f}s coords={n_labels}/{t_coords:.2f}s "
+            f"_get_new_edges/{t_new:.2f}s"
         )
     logger.note(
-        f"<{ctx.operation_id}> {ctx.sv_id} -> {root} new_edges {edges_tuple[0].shape} "
-        f"({time.time() - t0:.2f}s)"
+        f"<{op_id}> {sv_id} -> {root} new_edges {edges_tuple[0].shape} "
+        f"({time.time() - t_outer:.2f}s)"
     )
 
     rows0 = copy_parents_and_add_lineage(
@@ -744,11 +880,13 @@ def split_supervoxel(
         time_stamp=time_stamp,
         parent_ts=parent_ts,
     )
+    del seg
     cut_supervoxels, supervoxel_ids = _select_cut_supervoxels(
         sv_id, sv_ids, rep_pieces, op_id=op_id
     )
     split_result, voxel_overlap_crop = _compute_split(ctx, supervoxel_ids)
     applied = _apply_and_capture(ctx, voxel_overlap_crop, split_result, cut_supervoxels)
+    del split_result, voxel_overlap_crop
     rows = _route_edges_and_rows(ctx, applied.old_new_map, applied.new_id_label_map)
 
     logger.note(

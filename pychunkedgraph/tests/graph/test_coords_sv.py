@@ -1,9 +1,14 @@
 """Tests for pychunkedgraph.graph.sv_split._coords."""
 
+import fastremap
 import numpy as np
 from scipy.spatial import cKDTree
 
 from pychunkedgraph.graph.sv_split._coords import build_coords_by_label
+
+
+def _coord_set(arr):
+    return {tuple(row) for row in arr}
 
 
 def _min_distance(coords_a, coords_b):
@@ -69,3 +74,33 @@ class TestBoundarySubset:
             full_set = {tuple(r) for r in full[lab]}
             for row in b_coords:
                 assert tuple(row) in full_set
+
+
+class TestRenumberRoundTrip:
+    """renumber→build_coords→invert returns the same per-label coord arrays
+    as building directly on the original uint64 vol."""
+
+    def _round_trip(self, vol, **kwargs):
+        small, remap = fastremap.renumber(vol.copy(), in_place=True)
+        small_dict = build_coords_by_label(small, **kwargs)
+        inv = {v: k for k, v in remap.items()}
+        return {int(inv[k]): v for k, v in small_dict.items()}
+
+    def test_full_path_uint64_label_ids(self):
+        # uint64 ids well above any small dtype range; renumber compresses to uint8.
+        vol = np.zeros((30, 30, 30), dtype=np.uint64)
+        vol[5:15, 5:15, 5:15] = np.uint64(10**18)
+        vol[20:28, 20:28, 20:28] = np.uint64(10**18 + 7)
+        direct = build_coords_by_label(vol.copy())
+        round_tripped = self._round_trip(vol)
+        assert set(direct) == set(round_tripped)
+        for k in direct:
+            assert _coord_set(direct[k]) == _coord_set(round_tripped[k])
+
+    def test_boundary_only_path(self):
+        vol = _random_label_vol(seed=4)
+        direct = build_coords_by_label(vol.copy(), boundary_only=True)
+        round_tripped = self._round_trip(vol, boundary_only=True)
+        assert set(direct) == set(round_tripped)
+        for k in direct:
+            assert _coord_set(direct[k]) == _coord_set(round_tripped[k])

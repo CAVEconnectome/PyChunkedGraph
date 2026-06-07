@@ -29,8 +29,6 @@ Distance computation:
 
 from __future__ import annotations
 
-import time
-from functools import reduce
 from typing import TYPE_CHECKING
 from datetime import datetime
 
@@ -43,8 +41,6 @@ from pychunkedgraph.graph import attributes, basetypes, serializers
 from pychunkedgraph.graph.chunks import utils as chunk_utils
 from pychunkedgraph.graph.exceptions import PostconditionError
 from pykdtree.kdtree import KDTree as cKDTree
-from ._coords import build_coords_by_label
-from pychunkedgraph.graph.edges import Edges
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
@@ -384,98 +380,6 @@ def validate_split_edges(edges, affinities, old_new_map, new_id_label_map=None):
                     raise PostconditionError(
                         f"Missing inter-fragment edge between {ids[i]} and {ids[j]}"
                     )
-
-
-def update_edges(
-    cg: "ChunkedGraph",
-    root_id: basetypes.NODE_ID,
-    bbox: np.ndarray,
-    new_seg: np.ndarray,
-    old_new_map: dict,
-    new_id_label_map: dict = None,
-    parent_ts: datetime = None,
-    *,
-    sv_id=None,
-    op_id=None,
-):
-    old_new_map = dict(old_new_map)
-    _prof = get_profiler()
-    new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
-
-    t0 = time.time()
-    with _prof.profile("subgraph"):
-        _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
-        edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
-    n_subgraph = len(edges_.get_pairs())
-    t_subgraph = time.time() - t0
-
-    edges = edges_.get_pairs()
-    affinities = edges_.affinities
-    areas = edges_.areas
-
-    edges = np.sort(edges, axis=1)
-    _, edges_idx = np.unique(edges, axis=0, return_index=True)
-    edges_idx = edges_idx[edges[edges_idx, 0] != edges[edges_idx, 1]]
-
-    edges = edges[edges_idx]
-    affinities = affinities[edges_idx]
-    areas = areas[edges_idx]
-
-    t0 = time.time()
-    with _prof.profile("roots"):
-        all_edge_svs = np.unique(edges)
-        all_roots = cg.get_roots(all_edge_svs, time_stamp=parent_ts)
-        sv_root_map = dict(zip(all_edge_svs, all_roots))
-    n_roots = len(all_edge_svs)
-    t_roots = time.time() - t0
-
-    # Coords are only ever read for new fragment ids (kdtrees) and for
-    # partners queried via coords_by_label.get(...) in _get_new_edges.
-    # Partners can only come from subgraph-edge endpoints, so this
-    # union is a tight superset of every key that gets looked up.
-    t0 = time.time()
-    with _prof.profile("build_coords"):
-        # Zero out every label whose coords nothing downstream will
-        # query, in place. fastremap.point_cloud (called by
-        # build_coords_by_label) groups by every nonzero label in the
-        # vol, so trimming the input is the only way to shrink its
-        # C++ scan; the labels= kwarg only filters the result dict
-        # after the scan. Caller does not read seg after update_edges
-        # returns, so the in-place mutation is safe.
-        wanted_labels = np.union1d(new_ids, all_edge_svs)
-        with _prof.profile("mask_except"):
-            fastremap.mask_except(new_seg, list(wanted_labels), in_place=True)
-        coords_by_label = build_coords_by_label(new_seg, boundary_only=True)
-    with _prof.profile("kdtrees"):
-        new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
-    n_labels = len(coords_by_label)
-    t_coords = time.time() - t0
-
-    t0 = time.time()
-    with _prof.profile("get_new_edges"):
-        result = _get_new_edges(
-            (edges, affinities, areas),
-            old_new_map,
-            coords_by_label,
-            root_id,
-            sv_root_map,
-            cg,
-            new_kdtrees,
-            new_ids,
-            new_id_label_map,
-            threshold=cg.meta.sv_split_threshold,
-        )
-    t_new = time.time() - t0
-
-    logger.note(
-        f"<{op_id}> {sv_id} update_edges: subgraph={n_subgraph}/{t_subgraph:.2f}s "
-        f"roots={n_roots}/{t_roots:.2f}s coords={n_labels}/{t_coords:.2f}s "
-        f"_get_new_edges/{t_new:.2f}s"
-    )
-
-    with _prof.profile("validate_edges"):
-        validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)
-    return result
 
 
 def _edges_to_bidirectional(edges_, affinities_, areas_):

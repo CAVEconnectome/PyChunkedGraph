@@ -45,7 +45,7 @@ jobs:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: CAVEconnectome/PyChunkedGraph
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
       - name: Cleanup
         if: always()
