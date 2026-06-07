@@ -411,7 +411,11 @@ def _read_seg_and_ids(cg: "ChunkedGraph", bbs, bbe, *, sv_id=None, op_id=None):
                 has_zero = True
                 u = u[1:]
             parts.append(u.astype(np.uint64) | chunk_id)
-        sv_ids = np.unique(np.concatenate(parts)) if parts else np.array([], np.uint64)
+        sv_ids = (
+            fastremap.unique(np.concatenate(parts))
+            if parts
+            else np.array([], np.uint64)
+        )
         if has_zero:
             sv_ids = np.concatenate([[np.uint64(0)], sv_ids])
     return seg, sv_ids, bbs_, bbe_

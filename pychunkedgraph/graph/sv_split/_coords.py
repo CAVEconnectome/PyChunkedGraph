@@ -11,10 +11,9 @@ _prof = get_profiler()
 
 
 def _label_boundary_mask(vol: np.ndarray) -> np.ndarray:
-    """6-conn label boundary: foreground voxel with any different-label neighbor.
-
-    Each axial diff is named once (shared by two ORs) and freed before the
-    next, so peak transient stays at one ~vol-sized bool array.
+    """6-conn neighbor-differs mask. Background voxels may also be True
+    where adjacent to foreground; the consumer multiplies vol in place
+    and background is already 0, so the extra True bits are no-ops.
     """
     diff = np.zeros(vol.shape, dtype=bool)
     dz = vol[1:] != vol[:-1]
@@ -29,7 +28,7 @@ def _label_boundary_mask(vol: np.ndarray) -> np.ndarray:
     diff[:, :, 1:] |= dx
     diff[:, :, :-1] |= dx
     del dx
-    return (vol != 0) & diff
+    return diff
 
 
 def build_coords_by_label(
