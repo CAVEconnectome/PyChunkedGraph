@@ -62,9 +62,7 @@ The split algorithm lives in the external `supervoxel-splitter` package.
 `PCG_SV_SPLITTER` env var (dotted import path; default
 `supervoxel_splitter.GeodesicSplitter`) and forwards `**kwargs` to its
 constructor so call-site tuning propagates. `_coords.py` holds post-split
-coord utilities consumed by `edges.py`. `cutting.py` is the legacy in-tree
-implementation kept as fallback during integration validation; delete once
-parity with the external splitter is confirmed.
+coord utilities consumed by `edges.py`.
 
 ## Geodesic backend — `backend` kwarg on `GeodesicSplitter`
 
