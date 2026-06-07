@@ -15,10 +15,6 @@ cachetools
 werkzeug
 tensorstore
 rich
-edt
-connected-components-3d
-scikit-image
-dijkstra3d
 
 # PyPI only:
 cloud-files>=6.0.0
@@ -34,7 +30,7 @@ kvdbclient>=0.7.0
 zstandard>=0.23.0
 tinybrain>=1.7.0
 pykdtree>=1.4.3
-supervoxel-splitter>=0.1.0
+supervoxel-splitter[fast]>=0.1.0
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool
