@@ -53,7 +53,7 @@ ENV VIRTUAL_ENV=/app/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      nginx supervisor redis-tools \
+      nginx supervisor redis-tools procps \
   && (id nginx >/dev/null 2>&1 || useradd -r -d /home/nginx -s /bin/bash nginx) \
   && mkdir -p /etc/uwsgi /home/nginx/.cloudvolume/secrets \
   && chown -R nginx /home/nginx \
@@ -76,5 +76,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade -r requirements.txt
 
 COPY . /app
+WORKDIR /app
 
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]
