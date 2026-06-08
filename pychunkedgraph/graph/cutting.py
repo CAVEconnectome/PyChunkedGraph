@@ -164,9 +164,12 @@ class LocalMincutGraph:
             )
 
         if len(cross_chunk_edge_mapping) > 0:
-            assert (
-                np.unique(cross_chunk_edge_mapping[:, 0], return_counts=True)[1].max()
-                == 1
+            unique_src, counts = np.unique(
+                cross_chunk_edge_mapping[:, 0], return_counts=True
+            )
+            assert counts.max() == 1, (
+                f"cross_chunk_edge_mapping[:, 0] must be unique; "
+                f"duplicates={unique_src[counts > 1].tolist()}"
             )
 
         # Map cg sources and sinks with the cross chunk edge mapping

@@ -240,6 +240,11 @@ def split_supervoxels(
     source_ids_fresh = np.asarray(source_ids, dtype=basetypes.NODE_ID).copy()
     sink_ids_fresh = np.asarray(sink_ids, dtype=basetypes.NODE_ID).copy()
 
+    logger.note(
+        f"<{operation_id}> [sv_split:plan] {len(tasks)} supervoxels to split: "
+        f"{[int(t.sv_id) for t in tasks]}"
+    )
+
     seg_bboxes = []
     seg_writes: List[Tuple[Tuple[slice, slice, slice], np.ndarray]] = []
     bigtable_rows: list = []
@@ -338,9 +343,13 @@ def _assert_same_chunk(cg: "ChunkedGraph", old_new_map: dict) -> None:
     expected = np.repeat(
         cg.get_chunk_ids_from_node_ids(olds), [len(ns) for ns in old_new_map.values()]
     )
-    assert np.array_equal(
-        cg.get_chunk_ids_from_node_ids(news), expected
-    ), "new supervoxel landed in a different chunk than the SV it split from"
+    got = cg.get_chunk_ids_from_node_ids(news)
+    bad = np.flatnonzero(got != expected)
+    assert bad.size == 0, (
+        "new SV landed in a different chunk than the SV it split from; "
+        f"(new_sv, got_chunk, expected_chunk): "
+        f"{[(int(news[i]), int(got[i]), int(expected[i])) for i in bad.tolist()]}"
+    )
 
 
 def _parse_results(results, seg, bbs, bbe):
@@ -976,7 +985,10 @@ def copy_parents_and_add_lineage(
         node_ids=list(parents), properties=attributes.Hierarchy.Child
     )
     for parent, children_cells in children_cells_map.items():
-        assert len(children_cells) == 1, children_cells
+        assert len(children_cells) == 1, (
+            f"expected 1 Child cell for parent={parent}; "
+            f"got {len(children_cells)}: {children_cells}"
+        )
         for cell in children_cells:
             mask = np.isin(cell.value, list(old_new_map.keys()))
             replace = np.concatenate([old_new_map[x] for x in cell.value[mask]])

@@ -171,7 +171,10 @@ def check_fake_edges(
                 time_stamp=parent_ts,
             )
         )
-        assert len(roots) == 2, "edges must be from 2 roots"
+        assert len(roots) == 2, (
+            f"edges must be from 2 roots; got {len(roots)} "
+            f"({roots.tolist()}); inactive_edge_count={len(inactive_edges)}"
+        )
         return inactive_edges, []
 
     rows = []
@@ -227,7 +230,11 @@ def add_edges(
     l2ids = np.unique(edges)
     if not allow_same_segment_merge and not stitch_mode:
         roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
-        assert np.unique(roots).size >= 2, "L2 IDs must belong to different roots."
+        assert np.unique(roots).size >= 2, (
+            f"L2 IDs must belong to different roots; "
+            f"l2ids={l2ids.tolist()} all share root={np.unique(roots).tolist()}; "
+            f"parent_ts={parent_ts} op={operation_id}"
+        )
 
     new_old_id_d = defaultdict(set)
     old_new_id_d = defaultdict(set)
@@ -279,7 +286,10 @@ def add_edges(
         for layer, edges in cx_edges_d.items():
             edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
             new_cx_edges_d[layer] = edges
-            assert np.all(edges[:, 0] == new_id)
+            assert np.all(edges[:, 0] == new_id), (
+                f"layer {layer} cross-edges[:, 0] must equal new_id={new_id}; "
+                f"got unique values {np.unique(edges[:, 0]).tolist()}"
+            )
         cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
 
     profiler = get_profiler()
@@ -326,7 +336,11 @@ def _split_l2_agglomeration(
 
     # if there are cross edges, there must be a single parent.
     # if there aren't any, there must be no parents. XOR these 2 conditions.
-    err = f"got cross edges from more than one l2 node; op {operation_id}"
+    err = (
+        f"got cross edges from more than one l2 node; op {operation_id}; "
+        f"unique_parents={np.unique(parents).tolist()} "
+        f"cross_edges_count={cross_edges.shape[0]}"
+    )
     assert (np.unique(parents).size == 1) != (cross_edges.size == 0), err
 
     if cross_edges.size:
@@ -376,7 +390,12 @@ def remove_edges(
     edges, _ = _analyze_affected_edges(cg, atomic_edges, parent_ts=parent_ts)
     l2ids = np.unique(edges)
     roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
-    assert np.unique(roots).size == 1, "L2 IDs must belong to same root."
+    unique_roots, counts = np.unique(roots, return_counts=True)
+    assert unique_roots.size == 1, (
+        f"L2 IDs must belong to same root; got root→l2_count="
+        f"{dict(zip(unique_roots.tolist(), counts.tolist()))}; "
+        f"parent_ts={parent_ts} op={operation_id}"
+    )
 
     l2id_agglomeration_d, _ = cg.get_l2_agglomerations(
         l2ids, active=True, time_stamp=parent_ts
@@ -419,7 +438,10 @@ def remove_edges(
             edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
             edges = np.unique(edges, axis=0)
             new_cx_edges_d[layer] = edges
-            assert np.all(edges[:, 0] == new_id)
+            assert np.all(edges[:, 0] == new_id), (
+                f"layer {layer} cross-edges[:, 0] must equal new_id={new_id}; "
+                f"got unique values {np.unique(edges[:, 0]).tolist()}"
+            )
         cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
 
     create_parents = CreateParentNodes(
@@ -513,7 +535,10 @@ def _update_neighbor_cx_edges_single(
             edges = edges_d.get(layer, types.empty_2d)
             if edges.size == 0:
                 continue
-            assert np.all(edges[:, 0] == counterpart)
+            assert np.all(edges[:, 0] == counterpart), (
+                f"layer {layer} cross-edges[:, 0] must equal counterpart={counterpart}; "
+                f"got unique values {np.unique(edges[:, 0]).tolist()}"
+            )
             edges = fastremap.remap(edges, node_map, preserve_missing_labels=True)
             if layer == counterpart_layer:
                 flip_edge = np.array([counterpart, new_id], dtype=basetypes.NODE_ID)
@@ -909,7 +934,10 @@ class CreateParentNodes:
                             _children = self.cg.get_children(_parent)
                             assert id_ in _children, (layer, id_, _parent, _children)
                         except TypeError as e:
-                            logger.error(id_, _parent, self.cg.get_root(id_))
+                            logger.error(
+                                f"id={id_} parent={_parent} "
+                                f"root={self.cg.get_root(id_)}"
+                            )
                             raise TypeError from e
 
                 val_dict = val_dicts.get(id_, {})

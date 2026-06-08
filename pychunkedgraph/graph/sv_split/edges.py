@@ -194,7 +194,11 @@ def _get_new_edges(
         edges_m = (edges[:, 0] == old) | (edges[:, 1] == old)
         selected_edges = edges[edges_m]
         sel_m = selected_edges != old
-        assert np.all(np.sum(sel_m, axis=1) == 1)
+        bad_rows = np.sum(sel_m, axis=1) != 1
+        assert not bad_rows.any(), (
+            f"each selected edge must touch old={old} exactly once; "
+            f"bad_rows={selected_edges[bad_rows].tolist()}"
+        )
 
         partners = selected_edges[sel_m]
         edge_affs = affinities[edges_m]

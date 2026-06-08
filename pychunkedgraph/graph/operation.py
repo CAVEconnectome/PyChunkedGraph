@@ -18,8 +18,7 @@ from functools import reduce
 import numpy as np
 from pychunkedgraph import get_logger
 
-logger = get_logger(__name__)
-
+from . import err_dump
 from . import locks
 from . import edits
 from . import sv_split
@@ -40,6 +39,8 @@ from pychunkedgraph.graph import get_valid_timestamp
 
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
+
+logger = get_logger(__name__)
 
 
 def _log_edit_done(result, op_type, elapsed):
@@ -482,10 +483,30 @@ class GraphEditOperation(ABC):
                 raise PostconditionError(err) from err
             except (AssertionError, RuntimeError) as err:
                 self.cg.cache = None
+                dump_url = err_dump.dump_err_artifact(
+                    self.cg,
+                    lock.operation_id,
+                    err_dump.build_err_payload(self, lock.operation_id, err),
+                )
+                logger.error(
+                    f"<{lock.operation_id}> {type(self).__name__} failed: "
+                    f"{type(err).__name__}: {err}"
+                    f"{err_dump.payload_summary(self)} dump={dump_url}"
+                )
                 raise RuntimeError(err) from err
             except Exception as err:
                 # unknown exception, update log record with error
                 self.cg.cache = None
+                dump_url = err_dump.dump_err_artifact(
+                    self.cg,
+                    lock.operation_id,
+                    err_dump.build_err_payload(self, lock.operation_id, err),
+                )
+                logger.error(
+                    f"<{lock.operation_id}> {type(self).__name__} failed: "
+                    f"{type(err).__name__}: {err}"
+                    f"{err_dump.payload_summary(self)} dump={dump_url}"
+                )
                 log_record_error = self._create_log_record(
                     operation_id=lock.operation_id,
                     new_root_ids=types.empty_1d,
