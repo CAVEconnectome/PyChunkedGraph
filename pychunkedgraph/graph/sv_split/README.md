@@ -481,6 +481,21 @@ referenced by any hierarchy row.
 | new fragment landed in different chunk than its old SV | `PreconditionError("new supervoxel landed in a different chunk than the SV it split from")` |
 | `{1, 2}` cross-side INF bridge via unsplit partner / self-loop / missing replacement / missing 0.001 bridge | `PostconditionError(...)` |
 
+### Diagnostic artifact on failure
+
+Every edit-flow `AssertionError` / `RuntimeError` / unknown `Exception`
+writes a JSON snapshot to
+`{cg.meta.data_source.WATERSHED}/graphene_errors/{cg.graph_id}/{op_id}.json`
+before the exception propagates. The artifact contains op type, user,
+source / sink ids + coords, removed / added edges, parent_ts, the
+exception class + message, and the full traceback — enough to replay
+the payload against current state. The error log line for the
+operation includes the artifact URL.
+
+`PreconditionError` / `PostconditionError` (user-facing) are not
+dumped. Read an artifact back with
+`pychunkedgraph.graph.err_dump.read_err_artifact(cg, op_id)`.
+
 ### Bridge classes (residual)
 
 After the retry mincut runs, the only structural paths from src-side to
