@@ -8,7 +8,7 @@ import time
 import pandas as pd
 import numpy as np
 import redis
-from flask import Flask
+from flask import Flask, request
 from flask.json.provider import DefaultJSONProvider
 from flask.logging import default_handler
 from flask_cors import CORS
@@ -75,7 +75,42 @@ def create_app(test_config=None):
     app.register_blueprint(segmentation_api_legacy)
     app.register_blueprint(segmentation_api_v1)
 
+    _wire_post_edit_worker_recycle(app)
+
     return app
+
+
+# Edit ops (split/merge) allocate multi-GB transient working sets that the
+# allocator pools instead of returning to the OS, so RSS climbs across
+# requests in long-lived workers. Recycling the worker after each successful
+# edit caps RSS at the next-spawn baseline. uwsgi master logs one respawn
+# line per recycle; no other noise.
+_EDIT_ENDPOINTS = frozenset(
+    {
+        "pcg_segmentation_v1.handle_split",
+        "pcg_segmentation_v1.handle_merge",
+        "pcg_segmentation_v1.handle_merge_admin",
+        "pcg_segmentation_v0.handle_split",
+        "pcg_segmentation_v0.handle_merge",
+    }
+)
+
+
+def _wire_post_edit_worker_recycle(app):
+    try:
+        import uwsgi  # type: ignore[import-not-found]
+    except ImportError:
+        return  # tests / dev server: no recycle
+
+    @app.teardown_request
+    def _recycle_worker(exc):
+        if exc is not None or request.endpoint not in _EDIT_ENDPOINTS:
+            return
+        try:
+            uwsgi.disconnect()
+        except Exception:
+            pass
+        os._exit(0)
 
 
 def configure_app(app):
