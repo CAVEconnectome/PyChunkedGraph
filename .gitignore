@@ -115,8 +115,11 @@ venv.bak/
 
 
 # local dev stuff
+*.code-workspace
+.claude/
 .devcontainer/
 *.ipynb
 *.rdb
 /protobuf*
 .DS_Store
+*debug.py
