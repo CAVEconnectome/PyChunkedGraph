@@ -66,16 +66,15 @@ def _get_cx_edges_at_timestamp(node, response, ts):
 
 
 def _populate_cx_edges_with_timestamps(
-    cg: ChunkedGraph, layer: int, nodes: list, nodes_ts: list
+    cg: ChunkedGraph, layer: int, nodes: list, nodes_ts: list, clean: bool = False
 ):
     """
     Collect timestamps of edits from children, since we use the same timestamp
     for all IDs involved in an edit, we can use the timestamps of
     when cross edges of children were updated.
     """
-    clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
     # this data is not needed for clean tasks
-    if clean_task:
+    if clean:
         return
 
     start = time.time()
@@ -156,8 +155,7 @@ def _update_cross_edges_helper(args):
     global CG
     stale.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
     stale.CHILDREN_CACHE = LRUCache(1 * 1024)
-    clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
-    cg_info, layer, nodes, nodes_ts = args
+    cg_info, layer, nodes, nodes_ts, clean = args
 
     if CG is None:
         CG = ChunkedGraph(**cg_info)
@@ -167,23 +165,19 @@ def _update_cross_edges_helper(args):
     tasks = []
     corrupt_nodes = []
     earliest_ts = None
-    if clean_task:
-        try:
-            earliest_ts = os.environ["EARLIEST_TS"]
-            earliest_ts = datetime.fromisoformat(earliest_ts)
-        except KeyError:
-            earliest_ts = cg.get_earliest_timestamp()
+    if clean:
+        earliest_ts = datetime.fromisoformat(cg.meta.custom_data["earliest_ts"])
 
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
             # ignore invalid nodes from failed ingest tasks, w/o parent column entry
             # retain invalid nodes from edits to fix the hierarchy
-            if clean_task and node_ts > earliest_ts:
+            if clean and node_ts > earliest_ts:
                 corrupt_nodes.append(node)
         else:
             tasks.append((cg, layer, node, node_ts))
 
-    if clean_task:
+    if clean:
         logger.note(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
         fix_corrupt_nodes(cg, corrupt_nodes, CHILDREN)
         return
@@ -215,6 +209,7 @@ def update_chunk(
     nodes: list = None,
     split: int = None,
     splits: int = None,
+    clean: bool = False,
 ):
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
@@ -240,7 +235,7 @@ def update_chunk(
     logger.note(f"get_node_timestamps: {time.time() - start}")
 
     start = time.time()
-    _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts)
+    _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts, clean)
     logger.note(f"_populate_cx_edges_with_timestamps: {time.time() - start}")
 
     if debug:
@@ -262,7 +257,7 @@ def update_chunk(
 
     tasks = []
     for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
-        args = (cg_info, layer, chunk, ts_chunk)
+        args = (cg_info, layer, chunk, ts_chunk, clean)
         tasks.append(args)
 
     process_multiplier = int(os.environ.get("PROCESS_MULTIPLIER", 5))

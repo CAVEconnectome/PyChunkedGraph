@@ -1,9 +1,6 @@
-"""Branch-aware shim: run one chunk's ingest body.
+"""Run one chunk's ingest body — the branch-specific builder.
 
-The ONLY branch-specific piece of this package. `main` builds L2 atomic chunks
-via `add_atomic_edges` and parents via `add_layer`. The pcgv3 variant (OCDBT +
-`create_parent_chunk` modes) is added here when the package is ported; the rest
-of the package is identical across branches.
+pcgv3 builds L2 atomic chunks via ``add_atomic_chunk`` and parents via ``add_parent_chunk``.
 """
 
 from dataclasses import dataclass
@@ -12,10 +9,16 @@ from typing import Sequence
 
 import numpy as np
 
-from ...ingest.common import get_atomic_chunk_data
-from ...ingest.ran_agglomeration import get_active_edges
-from ...ingest.create.atomic_layer import add_atomic_edges
-from ...ingest.create.abstract_layers import add_layer
+from ...graph.edges import EDGE_TYPES
+from ...ingest.create.atomic_layer import add_atomic_chunk
+from ...ingest.create.parent_layer import add_parent_chunk
+from ...ingest.ran_agglomeration import (
+    get_active_edges,
+    read_raw_agglomeration_data,
+    read_raw_edge_data,
+)
+from ...io.components import get_chunk_components
+from ...io.edges import get_chunk_edges
 
 
 @dataclass
@@ -35,12 +38,32 @@ def process_chunk(
     if layer == 2:
         _add_atomic_chunk(cg, coord, config)
     else:
-        add_layer(cg, layer, coord, n_threads=n_threads)
+        add_parent_chunk(cg, layer, coord, n_threads=n_threads)
 
 
 def _add_atomic_chunk(cg, coord: np.ndarray, config: IngestConfig) -> None:
-    # get_atomic_chunk_data only needs .config/.cg/.cg_meta — no Redis-backed manager.
+    # read_raw_* read .config / .cg_meta off the manager.
     manager = SimpleNamespace(config=config, cg=cg, cg_meta=cg.meta)
-    chunk_edges_all, mapping = get_atomic_chunk_data(manager, coord)
+    chunk_edges_all = (
+        read_raw_edge_data(manager, coord)
+        if config.USE_RAW_EDGES
+        else get_chunk_edges(cg.meta.data_source.EDGES, [coord])
+    )
+    _check_edges_direction(chunk_edges_all, cg, coord)
+    mapping = (
+        read_raw_agglomeration_data(manager, coord)
+        if config.USE_RAW_COMPONENTS
+        else get_chunk_components(cg.meta.data_source.COMPONENTS, coord)
+    )
     chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
-    add_atomic_edges(cg, coord, chunk_edges_active, isolated=isolated_ids)
+    add_atomic_chunk(cg, coord, chunk_edges_active, isolated_ids)
+
+
+def _check_edges_direction(chunk_edges: dict, cg, coord: Sequence[int]) -> None:
+    """Cross/between edges must have nodes1 inside the chunk (mirrors ingest.cluster)."""
+    x, y, z = coord
+    chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
+    for edge_type in [EDGE_TYPES.between_chunk, EDGE_TYPES.cross_chunk]:
+        edges = chunk_edges[edge_type]
+        chunk_ids = cg.get_chunk_ids_from_node_ids(edges.node_ids1)
+        assert np.all(chunk_ids == chunk_id), "all IDs must belong to same chunk"
