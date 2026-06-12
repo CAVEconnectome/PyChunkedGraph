@@ -88,6 +88,9 @@ def configure_logging(level=stdlib_logging.INFO, format_str=None, stream=None):
     formatter.default_msec_format = "%s.%03d"
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+    # the package has its own handler; propagating would print every record a
+    # second time through any root handler (e.g. an entrypoint's basicConfig)
+    logger.propagate = False
 
     return logger
 

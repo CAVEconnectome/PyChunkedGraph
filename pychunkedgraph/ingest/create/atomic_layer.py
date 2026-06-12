@@ -33,7 +33,7 @@ def add_atomic_chunk(
 ):
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges_d, isolated)
     logger.note(
-        f"L2 chunk {tuple(coords)}: nodes={len(chunk_node_ids):,} "
+        f"L2 chunk {tuple(map(int, coords))}: nodes={len(chunk_node_ids):,} "
         f"edges={len(chunk_edge_ids):,}"
     )
     if not chunk_node_ids.size:

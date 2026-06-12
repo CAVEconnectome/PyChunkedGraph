@@ -56,7 +56,7 @@ def add_parent_chunk(
     connected_components = [graph_ids[cc] for cc in raw_ccs]
 
     logger.note(
-        f"L{layer_id} chunk {tuple(coords)}: nodes={len(connected_components):,} "
+        f"L{layer_id} chunk {tuple(map(int, coords))}: nodes={len(connected_components):,} "
         f"cx_edges={len(cx_edges):,}"
     )
 
