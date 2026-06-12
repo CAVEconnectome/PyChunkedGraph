@@ -58,7 +58,7 @@ def _renew_loop(table, chunk_id, token, interval, stop):
 
 def make_processor(cg, layer, env):
     """Build the ingest per-chunk processor for this batch (binds lock + config)."""
-    table = cg.client._table
+    table = cg.client  # kvdbclient client; lock.* speak its lock_by_row_key API
     config = _atomic_config(cg) if layer == 2 else None
     expiry = _expiry(layer, float(os.environ.get("PCG_LOCK_EXPIRY_SCALE", 1)))
     opts = {
