@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import timedelta
 
+from ...ingest import simple_tests
 from .. import lock
 from ..exit_codes import FatalChunkError
 from ..worker import run
@@ -88,7 +89,9 @@ def _process_one(table, cg, layer, coord, config, opts) -> str:
         if state == lock.ACQUIRED:
             break
         if time.monotonic() >= deadline:  # someone else holds it; let the batch retry
-            logger.warning(f"chunk {layer}_{tuple(coord)} held by another worker; deferring")
+            logger.warning(
+                f"chunk {layer}_{tuple(coord)} held by another worker; deferring"
+            )
             return "transient"
         time.sleep(opts["poll"])
 
@@ -97,7 +100,9 @@ def _process_one(table, cg, layer, coord, config, opts) -> str:
     # worker (heartbeat stopped) lets the claim expire, after which retry is safe.
     stop = threading.Event()
     heartbeat = threading.Thread(
-        target=_renew_loop, args=(table, chunk_id, token, opts["renew"], stop), daemon=True
+        target=_renew_loop,
+        args=(table, chunk_id, token, opts["renew"], stop),
+        daemon=True,
     )
     heartbeat.start()
     try:
@@ -122,8 +127,17 @@ def _process_one(table, cg, layer, coord, config, opts) -> str:
     return "transient"
 
 
+def _verify_root(cg, layer) -> None:
+    """Every ingest ends verified: hierarchy spot checks once the root chunk is built.
+
+    The root chunk is already marked done, so a re-submitted root layer skips the
+    build and re-runs only these checks."""
+    if layer == cg.meta.layer_count:
+        simple_tests.run_all(cg)
+
+
 def main() -> int:
-    return run(make_processor)
+    return run(make_processor, finalize=_verify_root)
 
 
 if __name__ == "__main__":
