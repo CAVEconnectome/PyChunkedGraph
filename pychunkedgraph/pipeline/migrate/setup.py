@@ -11,6 +11,7 @@ import argparse
 from pychunkedgraph import __version__
 
 from ...graph import ChunkedGraph
+from .. import run_and_exit
 
 
 def setup(graph_id: str) -> None:
@@ -32,4 +33,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_and_exit(main)

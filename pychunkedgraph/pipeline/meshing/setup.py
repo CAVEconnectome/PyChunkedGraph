@@ -29,6 +29,7 @@ import yaml
 
 from ...graph.chunkedgraph import ChunkedGraph
 from ...meshing.meshgen import get_draco_encoding_settings_for_chunk
+from .. import run_and_exit
 from .meta import MeshConfig
 
 logger = logging.getLogger(__name__)
@@ -177,4 +178,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_and_exit(main)
