@@ -21,7 +21,12 @@ from .. import run_and_exit
 DATASET_PATH = environ.get("PCG_DATASET", "/app/datasets/dataset.yml")
 
 
-def setup(graph_id: str, raw: bool = False, dataset_path: str = DATASET_PATH) -> None:
+def setup(
+    graph_id: str,
+    raw: bool = False,
+    exist_ok: bool = False,
+    dataset_path: str = DATASET_PATH,
+) -> None:
     with open(dataset_path) as stream:
         config = yaml.safe_load(stream)
     client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
@@ -35,7 +40,12 @@ def setup(graph_id: str, raw: bool = False, dataset_path: str = DATASET_PATH) ->
     agg = {"path": config.get("ingest_config", {}).get("AGGLOMERATION"), "raw": raw}
     meta = ChunkedGraphMeta(graph_config, data_source, custom_data={"agg": agg})
     cg = ChunkedGraph(meta=meta, client_info=client_info)
-    cg.create()
+    try:
+        cg.create()
+    except ValueError:  # create() raises only when the table already exists
+        if not exist_ok:
+            raise
+        print(f"graph '{graph_id}' already exists; skipping create")
 
 
 def main() -> None:
@@ -46,8 +56,13 @@ def main() -> None:
         action="store_true",
         help="raw agglomeration input; the L2 workers convert it to processed data",
     )
+    parser.add_argument(
+        "--exist-ok",
+        action="store_true",
+        help="succeed (skip create) if the graph table already exists, for resumes",
+    )
     args = parser.parse_args()
-    setup(args.graph_id, raw=args.raw)
+    setup(args.graph_id, raw=args.raw, exist_ok=args.exist_ok)
 
 
 if __name__ == "__main__":
