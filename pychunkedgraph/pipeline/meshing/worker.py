@@ -9,8 +9,10 @@ the batch retries it.
 import logging
 import os
 
+from cave_pipeline.distribution.harness import run
+
 from ...meshing import meshgen
-from ..worker import run
+from .. import cg_factory, layer_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,7 @@ def make_processor(cg, layer, env):
 
 
 def main() -> int:
-    return run(make_processor)
+    return run(make_processor, context_factory=cg_factory, bounds_fn=layer_bounds)
 
 
 if __name__ == "__main__":

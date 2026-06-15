@@ -7,7 +7,9 @@ Idempotent (overwrites), so no per-chunk lock. ``--clean`` runs the cleanup pass
 import argparse
 import logging
 
-from ..worker import run
+from cave_pipeline.distribution.harness import run
+
+from .. import cg_factory, layer_bounds
 from . import dispatch
 
 logger = logging.getLogger(__name__)
@@ -33,7 +35,7 @@ def main() -> int:
 
         return process_one
 
-    return run(make_processor)
+    return run(make_processor, context_factory=cg_factory, bounds_fn=layer_bounds)
 
 
 if __name__ == "__main__":

@@ -1,18 +1,19 @@
 # `pipeline` — Kubernetes-native chunk-batch pipeline
 
-Runs chunk-grid workloads — **ingest** and **meshing** — as **one Kubernetes
-Indexed `Job` per layer**, with **no Redis/RQ** and no scheduler add-on. A
-workload-agnostic core (scatter, lock, exit-code contract, worker harness) is
-shared by per-workload subpackages; each is its own container entrypoint:
+Runs chunk-grid workloads — **ingest**, **meshing**, and **migrate** — as **one
+Kubernetes Indexed `Job` per layer**, with **no Redis/RQ** and no scheduler add-on.
+The workload-agnostic core (scatter, lock, exit-code contract, worker harness,
+`run_and_exit`) is the `cave-pipeline` distribution package, shared with every other
+worker so the grid bijection and Job contract have a single source. This package
+supplies the per-workload subpackages plus the PyChunkedGraph harness glue (a
+ChunkedGraph `context_factory` and the per-layer `bounds_fn`). Each workload is its
+own container entrypoint:
 
 ```
 python -m pychunkedgraph.pipeline.ingest     # ingest worker
 python -m pychunkedgraph.pipeline.meshing     # mesh worker
+python -m pychunkedgraph.pipeline.migrate     # migrate worker
 ```
-
-Self-contained and portable across branches (it depends only on `ChunkedGraph`,
-its Bigtable client, `cg.meta`, and `meshing.meshgen`); the only branch-specific
-piece is the ingest dispatch shim.
 
 ## Model
 
@@ -36,14 +37,16 @@ typically need tuning between layers). Nothing auto-advances.
 
 ## Layout
 
+The chunk-distribution core — the grid scatter, per-chunk lock, exit-code contract,
+worker harness, and `run_and_exit` — is the `cave-pipeline` `distribution` package, a
+pinned dependency. This package holds only the workloads and the harness glue:
+
 | Path | Responsibility |
 |---|---|
-| `grid.py` | Fixed-seed permutation: maps a batch's contiguous index window to *scattered* chunk coords so concurrent workers spread Bigtable row-key load instead of hot-spotting one tablet. Deterministic + invertible. |
-| `exit_codes.py` | Map success / transient / non-transient failure to the Job `podFailurePolicy`. |
-| `lock.py` | Per-chunk Bigtable claim/done cell (atomic CAS). One effective writer per chunk, token-fenced; a dead holder's claim expires so a retry re-claims; already-`done` chunks are skipped. Used by ingest. |
-| `worker.py` | Generic harness `run(make_processor)`: index → coords → loop → exit code. `make_processor(cg, layer, env) -> process_one(coord)`. |
+| `__init__.py` | The harness glue injected into the shared core: a ChunkedGraph `context_factory` and the per-layer `bounds_fn`. |
 | `ingest/` | Ingest workload: branch-aware `dispatch` (L2 atomic edges / L>2 agglomeration), `setup` (graph table + meta), `worker` (lock + heartbeat around dispatch). |
 | `meshing/` | Mesh workload: `meta` (`MeshConfig`), `setup` (mesh-metadata, `setup_mesh_meta`), `worker` (marching cubes at L2, sharded stitching above; idempotent, no lock). |
+| `migrate/` | Migrate workload: in-place chunk upgrade + `--clean` cleanup pass; idempotent, no lock. |
 
 ## Setup (run once per workload, before any Jobs)
 
@@ -104,6 +107,6 @@ re-claims only the unfinished. Meshing needs no lock — it overwrites shards id
 
 ## Testing
 
-- Permutation (`grid`): pure unit tests, no external services — `tests/test_pipeline_grid.py`.
+- The chunk-distribution core (permutation, harness) is tested in `cave-pipeline`.
 - Lock / workers: validated against the Bigtable emulator outside the committed suite,
-  so the package stays importable/portable on branches without that fixture.
+  so the package stays importable on branches without that fixture.

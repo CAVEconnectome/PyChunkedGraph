@@ -11,7 +11,7 @@ import argparse
 from pychunkedgraph import __version__
 
 from ...graph import ChunkedGraph
-from .. import run_and_exit
+from cave_pipeline.distribution import run_and_exit
 
 
 def setup(graph_id: str) -> None:

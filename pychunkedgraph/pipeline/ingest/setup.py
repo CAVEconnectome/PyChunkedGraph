@@ -14,7 +14,7 @@ from kvdbclient import BigTableConfig
 
 from ...graph import BackendClientInfo, ChunkedGraph
 from ...graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
-from .. import run_and_exit
+from cave_pipeline.distribution import run_and_exit
 
 # Predetermined mount path of the dataset yaml (the chart mounts the dataset
 # ConfigMap here); overridable for local/testing.

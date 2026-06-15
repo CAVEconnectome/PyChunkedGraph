@@ -27,6 +27,8 @@ cachetools==7.1.4
     # via
     #   -r requirements.in
     #   middle-auth-client
+cave-pipeline[distribution]==0.0.2
+    # via -r requirements.in
 certifi==2026.5.20
     # via requests
 cffi==2.0.0
@@ -197,7 +199,9 @@ jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
     # via jsonschema
 kvdbclient==0.7.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   cave-pipeline
 lazy-loader==0.5
     # via scikit-image
 markdown==3.10.2
@@ -230,6 +234,7 @@ networkx==3.6.1
 numpy==2.4.6
     # via
     #   -r requirements.in
+    #   cave-pipeline
     #   cloud-files
     #   cloud-volume
     #   compressed-segmentation

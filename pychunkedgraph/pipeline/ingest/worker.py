@@ -11,10 +11,11 @@ import threading
 import time
 from datetime import timedelta
 
+from cave_pipeline.distribution import FatalChunkError, lock
+from cave_pipeline.distribution.harness import run
+
 from ...ingest import simple_tests
-from .. import lock
-from ..exit_codes import FatalChunkError
-from ..worker import run
+from .. import cg_factory, layer_bounds
 from .dispatch import IngestConfig
 from . import dispatch
 
@@ -137,7 +138,12 @@ def _verify_root(cg, layer) -> None:
 
 
 def main() -> int:
-    return run(make_processor, finalize=_verify_root)
+    return run(
+        make_processor,
+        context_factory=cg_factory,
+        bounds_fn=layer_bounds,
+        finalize=_verify_root,
+    )
 
 
 if __name__ == "__main__":

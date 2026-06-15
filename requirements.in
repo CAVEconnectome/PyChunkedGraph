@@ -31,6 +31,7 @@ zstandard>=0.23.0
 tinybrain>=1.7.0
 pykdtree>=1.4.3
 supervoxel-splitter[fast]>=0.1.0
+cave-pipeline[distribution]>=0.0.2,<0.1
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool
