@@ -27,7 +27,7 @@ cachetools==7.1.4
     # via
     #   -r requirements.in
     #   middle-auth-client
-cave-pipeline[distribution]==0.0.2
+cave-pipeline[distribution]==0.0.3
     # via -r requirements.in
 certifi==2026.5.20
     # via requests
