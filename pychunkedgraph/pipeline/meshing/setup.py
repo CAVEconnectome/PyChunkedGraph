@@ -17,8 +17,6 @@ import yaml
 from cave_pipeline.distribution import run_and_exit
 
 from ...graph.chunkedgraph import ChunkedGraph
-from ...meshing.meta import MeshConfig
-from ...meshing.setup import setup_mesh_meta
 
 # Predetermined mount path of the dataset yaml (the chart mounts the dataset
 # ConfigMap here); overridable for local/testing.
@@ -26,6 +24,10 @@ DATASET_PATH = environ.get("PCG_DATASET", "/app/datasets/dataset.yml")
 
 
 def main() -> None:
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from ...meshing.meta import MeshConfig
+    from ...meshing.setup import setup_mesh_meta
+
     parser = argparse.ArgumentParser(prog="pychunkedgraph.pipeline.meshing.setup")
     parser.add_argument("graph_id")
     args = parser.parse_args()

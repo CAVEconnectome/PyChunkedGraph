@@ -9,11 +9,6 @@ from flask import Response, current_app, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import chunkedgraph
-from pychunkedgraph.app.meshing import tasks as meshing_tasks
-from pychunkedgraph.meshing import meshgen
-from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
-from pychunkedgraph.meshing.manifest import get_children_before_start_layer
-from pychunkedgraph.meshing.manifest import ManifestCache
 
 __meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
 
@@ -40,6 +35,9 @@ def home():
 
 
 def handle_valid_frags(table_id, node_id):
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
+
     current_app.table_id = table_id
     cg = app_utils.get_cg(table_id)
     seg_ids = get_highest_child_nodes_with_meshes(
@@ -94,6 +92,7 @@ def handle_get_manifest(table_id, node_id):
 
 def manifest_response(cg, args):
     from pychunkedgraph.meshing.manifest import speculative_manifest_sharded
+    from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
 
     (
         node_id,
@@ -154,6 +153,9 @@ def handle_remesh(table_id):
 
 
 def _remeshing(serialized_cg_info, lvl2_nodes):
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from pychunkedgraph.meshing import meshgen
+
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
     cv_mesh_dir = cg.meta.dataset_info["mesh"]
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
@@ -177,6 +179,10 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
 
 
 def clear_manifest_cache(cg, node_id):
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from pychunkedgraph.meshing.manifest import get_children_before_start_layer
+    from pychunkedgraph.meshing.manifest import ManifestCache
+
     node_ids = get_children_before_start_layer(cg, node_id, start_layer=2)
     ManifestCache(cg.graph_id).clear_fragments(node_ids)
 
@@ -187,4 +193,7 @@ def clear_manifest_cache_all(cg) -> int:
     Returns the number of redis keys deleted across both initial and
     dynamic caches (they share the ``<graph_id>:`` namespace).
     """
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from pychunkedgraph.meshing.manifest import ManifestCache
+
     return ManifestCache(cg.graph_id).clear_namespace()

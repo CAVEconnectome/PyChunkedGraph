@@ -29,7 +29,6 @@ from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.graph.misc import get_contact_sites
 from pychunkedgraph.graph.operation import GraphEditOperation
 from pychunkedgraph.graph import basetypes
-from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
@@ -1106,6 +1105,9 @@ def handle_split_preview(table_id):
 
 
 def handle_find_path(table_id, precision_mode):
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from pychunkedgraph.meshing import mesh_analysis
+
     current_app.table_id = table_id
     user_id = str(g.auth_user.get("id", current_app.user_id))
 

@@ -1,10 +1,12 @@
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.meshing import meshgen, meshgen_utils
 import numpy as np
 import os
 
 
 def remeshing(table_id, lvl2_nodes):
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from pychunkedgraph.meshing import meshgen
+
     lvl2_nodes = np.array(lvl2_nodes, dtype=np.uint64)
     cg = app_utils.get_cg(table_id, skip_cache=True)
 

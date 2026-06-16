@@ -11,7 +11,6 @@ import os
 
 from cave_pipeline.distribution.harness import run
 
-from ...meshing import meshgen
 from .. import cg_factory, layer_bounds
 
 logger = logging.getLogger(__name__)
@@ -24,6 +23,9 @@ def make_processor(cg, layer, env):
     cache = os.environ.get("PCG_MESH_CACHE", "1") != "0"
 
     def process_one(coord):
+        # nested: pulls meshing/cloudvolume, only needed at call time
+        from ...meshing import meshgen
+
         chunk_id = int(cg.get_chunk_id(layer=layer, x=coord[0], y=coord[1], z=coord[2]))
         try:
             if layer == 2:

@@ -6,7 +6,6 @@ import time
 import traceback
 from datetime import datetime, timezone
 
-from cloudvolume import compression
 from google.api_core.exceptions import GoogleAPIError
 from flask import current_app, g, jsonify, request
 
@@ -60,6 +59,8 @@ def before_request():
     current_app.request_type = None
     content_encoding = request.headers.get("Content-Encoding", "")
     if "gzip" in content_encoding.lower():
+        from cloudvolume import compression
+
         request.data = compression.decompress(request.data, "gzip")
 
 
@@ -79,6 +80,8 @@ def after_request(response):
         or "Content-Encoding" in response.headers
     ):
         return response
+
+    from cloudvolume import compression
 
     response.data = compression.gzip_compress(response.data)
     response.headers["Content-Encoding"] = "gzip"

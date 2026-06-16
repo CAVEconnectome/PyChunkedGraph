@@ -30,8 +30,6 @@ from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
 from ..graph.ocdbt import OcdbtConfig
-from ..meshing.meta import MeshConfig
-from ..meshing.setup import setup_mesh_meta
 from ..utils.redis import get_redis_connection, keys as r_keys
 
 group_name = "ingest"
@@ -137,6 +135,10 @@ def mesh_meta(graph_id: str, dataset: click.Path):
     once per new/copied graph, after the operator has verified initial
     ingest (including the root layer) is complete — no automatic gate.
     """
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from ..meshing.meta import MeshConfig
+    from ..meshing.setup import setup_mesh_meta
+
     with open(dataset, "r") as stream:
         config = yaml.safe_load(stream)
     if "mesh_config" not in config:
