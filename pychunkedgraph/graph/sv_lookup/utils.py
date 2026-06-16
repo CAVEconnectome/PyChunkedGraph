@@ -55,7 +55,9 @@ def get_atomic_id_from_coord(
         r = (i_try - 1) ** 2
         lo = np.maximum(xyz - r, 0)
         hi = xyz + r + 1
-        atomic_id_block = meta.cv[lo[0] : hi[0], lo[1] : hi[1], lo[2] : hi[2]]
+        atomic_id_block = (
+            meta.ws_ts[lo[0] : hi[0], lo[1] : hi[1], lo[2] : hi[2]].read().result()
+        )
         atomic_ids, atomic_id_count = np.unique(atomic_id_block, return_counts=True)
 
         sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]

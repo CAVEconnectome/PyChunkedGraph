@@ -6,7 +6,7 @@ from typing import Sequence
 from collections import namedtuple
 
 import numpy as np
-from cloudvolume import CloudVolume
+import tensorstore as ts
 
 from pychunkedgraph.graph.ocdbt import (
     OcdbtConfig,
@@ -93,6 +93,8 @@ class ChunkedGraphMeta:
         self._custom_data = custom_data
 
         self._ws_cv = None
+        self._ws_ts = None
+        self._ws_info_d = None
         # Multi-scale OCDBT handles + per-scale resolutions, populated lazily
         # from source's info JSON. ws_ocdbt returns scale 0 for backward
         # compatibility; ws_ocdbt_scales exposes the full pyramid.
@@ -123,8 +125,11 @@ class ChunkedGraphMeta:
 
     @property
     def ws_cv(self):
+        """Watershed CloudVolume — back-compat hatch (meshing / diagnostics)."""
         if self._ws_cv:
             return self._ws_cv
+        from cloudvolume import CloudVolume
+
         ws = self._data_source.WATERSHED
         info = _redis_cached_json(
             f"ws_cv_info_cached:{ws}",
@@ -132,6 +137,31 @@ class ChunkedGraphMeta:
         )
         self._ws_cv = CloudVolume(ws, info=info, progress=False)
         return self._ws_cv
+
+    @property
+    def ws_ts(self):
+        """Watershed handle (tensorstore neuroglancer_precomputed) for voxel reads."""
+        if self._ws_ts is None:
+            ws = self._data_source.WATERSHED.rstrip("/")
+            self._ws_ts = ts.open(
+                {"driver": "neuroglancer_precomputed", "kvstore": ws, "scale_index": 0}
+            ).result()
+        return self._ws_ts
+
+    @property
+    def _ws_info(self):
+        """Watershed precomputed ``info`` JSON, Redis-cached."""
+        if self._ws_info_d is None:
+            # Base must not end in '/'; the leading '/' in '/info' supplies the
+            # separator — otherwise the GCS read returns empty.
+            ws = self._data_source.WATERSHED.rstrip("/")
+            self._ws_info_d = _redis_cached_json(
+                f"ws_info_cached:{ws}",
+                lambda: json.loads(
+                    ts.KvStore.open(ws).result().read("/info").result().value
+                ),
+            )
+        return self._ws_info_d
 
     @property
     def ocdbt_config(self) -> OcdbtConfig:
@@ -221,7 +251,7 @@ class ChunkedGraphMeta:
 
     @property
     def resolution(self):
-        return self.ws_cv.resolution  # pylint: disable=no-member
+        return np.array(self._ws_info["scales"][0]["resolution"])
 
     @property
     def layer_count(self) -> int:
@@ -229,8 +259,6 @@ class ChunkedGraphMeta:
 
         if self._layer_count:
             return self._layer_count
-        bbox = np.array(self.ws_cv.bounds.to_list())  # pylint: disable=no-member
-        bbox = bbox.reshape(2, 3)
         n_chunks = get_chunks_boundary(
             self.voxel_counts, np.array(self._graph_config.CHUNK_SIZE, dtype=int)
         )
@@ -264,18 +292,14 @@ class ChunkedGraphMeta:
 
     @property
     def voxel_bounds(self):
-        bounds = np.array(self.ws_cv.bounds.to_list())  # pylint: disable=no-member
-        return bounds.reshape(2, -1).T
+        s0 = self._ws_info["scales"][0]
+        vo = np.array(s0["voxel_offset"])
+        return np.array([vo, vo + np.array(s0["size"])]).T
 
     @property
     def voxel_counts(self) -> Sequence[int]:
         """returns number of voxels in each dimension"""
-        cv_bounds = np.array(self.ws_cv.bounds.to_list())  # pylint: disable=no-member
-        cv_bounds = cv_bounds.reshape(2, -1).T
-        voxel_counts = cv_bounds.copy()
-        voxel_counts -= cv_bounds[:, 0:1]  # pylint: disable=unsubscriptable-object
-        voxel_counts = voxel_counts[:, 1]
-        return voxel_counts
+        return np.array(self._ws_info["scales"][0]["size"])
 
     @property
     def layer_chunk_bounds(self) -> Dict:
@@ -357,7 +381,7 @@ class ChunkedGraphMeta:
 
     @property
     def dataset_info(self) -> Dict:
-        info = self.ws_cv.info  # pylint: disable=no-member
+        info = dict(self._ws_info)
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,

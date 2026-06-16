@@ -179,7 +179,7 @@ def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = F
 
 
 def get_local_segmentation(meta, bbox_start, bbox_end, mip: int = 0) -> np.ndarray:
-    """Read a segmentation region from OCDBT (or CloudVolume).
+    """Read a segmentation region from OCDBT (or the watershed via tensorstore).
 
     `bbox_start` and `bbox_end` must already be in the requested MIP level's
     coordinate space — this function does not rescale them. Meshing computes
@@ -193,4 +193,4 @@ def get_local_segmentation(meta, bbox_start, bbox_end, mip: int = 0) -> np.ndarr
         # meshing wants when it operates at a non-base MIP.
         store = meta.ws_ocdbt if mip == 0 else meta.ws_ocdbt_scales[mip]
         return store[xL:xH, yL:yH, zL:zH].read().result()
-    return meta.cv[xL:xH, yL:yH, zL:zH]
+    return meta.ws_ts[xL:xH, yL:yH, zL:zH].read().result()
