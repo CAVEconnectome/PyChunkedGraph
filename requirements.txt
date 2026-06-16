@@ -198,7 +198,7 @@ jsonschema==4.26.0
     #   python-jsonschema-objects
 jsonschema-specifications==2025.9.1
     # via jsonschema
-kvdbclient==0.7.0
+kvdbclient==0.7.1
     # via
     #   -r requirements.in
     #   cave-pipeline

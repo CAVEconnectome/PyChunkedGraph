@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Sequence, Union
 from collections import defaultdict
 
-import networkx as nx
 import numpy as np
 
 from pychunkedgraph import get_logger
@@ -64,6 +63,8 @@ class RootLock:
 
         if self.privileged_mode:
             return self
+
+        import networkx as nx
 
         nodes_ts = self.cg.get_node_timestamps(self.root_ids, return_numpy=0)
         min_ts = min(nodes_ts)
@@ -153,6 +154,8 @@ class IndefiniteRootLock:
             raise exceptions.LockingError("Could not renew locks before writing.")
 
         if self.future_root_ids_d is None:
+            import networkx as nx
+
             nodes_ts = self.cg.get_node_timestamps(self.root_ids, return_numpy=0)
             min_ts = min(nodes_ts)
             lgraph = lineage_graph(self.cg, self.root_ids, timestamp_past=min_ts)

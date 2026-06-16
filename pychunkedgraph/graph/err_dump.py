@@ -10,7 +10,6 @@ import traceback
 from datetime import datetime
 
 import numpy as np
-from cloudfiles import CloudFiles
 
 from pychunkedgraph import get_logger
 
@@ -90,6 +89,8 @@ def dump_err_artifact(cg, op_id, payload):
     if cf_dir is None:
         return None
     try:
+        from cloudfiles import CloudFiles
+
         filename = f"{op_id}.json"
         CloudFiles(cf_dir).put_json(filename, _json_safe(payload))
         return f"{cf_dir}/{filename}"
@@ -104,6 +105,8 @@ def read_err_artifact(cg, op_id):
     if cf_dir is None:
         return None
     try:
+        from cloudfiles import CloudFiles
+
         return CloudFiles(cf_dir).get_json(f"{op_id}.json")
     except Exception as e:
         logger.warning(f"err_dump read failed for op={op_id}: {e}")

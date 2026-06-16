@@ -2,8 +2,6 @@ import fastremap
 import numpy as np
 import itertools
 import time
-import graph_tool
-import graph_tool.flow
 
 from dataclasses import dataclass
 from typing import Tuple, Union
@@ -262,6 +260,8 @@ class LocalMincutGraph:
 
     def _compute_mincut_direct(self):
         """Uses additional edges directly between source/sink points."""
+        from .utils import _graph_tool as graph_tool
+
         self._filter_graph_connected_components()
         src, tgt = (
             self.weighted_graph.vertex(self.source_graph_ids[0]),
@@ -390,6 +390,8 @@ class LocalMincutGraph:
 
     def _compute_mincut_path_augmented(self):
         """Compute mincut using edges found from a shortest-path search."""
+        from .utils import _graph_tool as graph_tool
+
         adj_capacity = self._augment_mincut_capacity()
 
         gr = self.weighted_graph_raw
@@ -547,6 +549,8 @@ class LocalMincutGraph:
         Filter out connected components in the graph
         that are not involved in the local mincut
         """
+        from .utils import _graph_tool as graph_tool
+
         ccs = flatgraph.connected_components(self.weighted_graph)
 
         removed = self.weighted_graph.new_vertex_property("bool")

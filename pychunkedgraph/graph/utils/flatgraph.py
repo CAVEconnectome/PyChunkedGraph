@@ -4,8 +4,6 @@ from itertools import combinations, chain
 
 import fastremap
 import numpy as np
-from graph_tool import Graph, GraphView
-from graph_tool import topology
 
 
 def build_gt_graph(
@@ -19,6 +17,8 @@ def build_gt_graph(
     :param hashed: bool
     :return: graph, capacities
     """
+    from ._graph_tool import Graph
+
     edges = np.array(edges, np.uint64)
     if weights is not None:
         assert len(weights) == len(edges)
@@ -55,6 +55,8 @@ def connected_components(graph):
     :param graph: graph_tool.Graph
     :return: np.array of len == number of nodes
     """
+    from ._graph_tool import Graph, topology
+
     assert isinstance(graph, Graph)
 
     cc_labels = topology.label_components(graph)[0].a
@@ -69,6 +71,8 @@ def connected_components(graph):
 
 
 def team_paths_all_to_all(graph, capacity, team_vertex_ids):
+    from ._graph_tool import topology
+
     dprop = capacity.copy()
     # Use inverse affinity as the distance between vertices.
     dprop.a = 1 / (dprop.a + np.finfo(np.float64).eps)
@@ -122,6 +126,8 @@ def compute_filtered_paths(
     intersect_vertices,
 ):
     """Make a filtered GraphView that excludes intersect vertices and recompute shortest paths"""
+    from ._graph_tool import GraphView
+
     intersection_filter = np.full(graph.num_vertices(), True)
     intersection_filter[intersect_vertices] = False
     vfilt = graph.new_vertex_property("bool", vals=intersection_filter)
@@ -176,6 +182,8 @@ def remove_overlapping_edges(paths_v_s, paths_e_s, paths_v_y, paths_e_y):
 
 def check_connectedness(vertices, edges, expected_number=1):
     """Returns True if the augmenting edges still form a single connected component"""
+    from ._graph_tool import Graph, topology
+
     paths_inds = np.unique([int(v) for v in chain.from_iterable(vertices)])
     edge_list_inds = np.array(
         [[int(e.source()), int(e.target())] for e in chain.from_iterable(edges)]

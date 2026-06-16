@@ -2,6 +2,8 @@
 Functions for tracking root ID changes over time.
 """
 
+from __future__ import annotations
+
 from typing import Union
 from typing import Optional
 from typing import Iterable
@@ -9,7 +11,6 @@ from datetime import datetime, timezone
 from collections import defaultdict
 
 import numpy as np
-from networkx import DiGraph
 
 from pychunkedgraph.graph import (
     attributes,
@@ -173,6 +174,8 @@ def lineage_graph(
     going backwards in time until `timestamp_past`
     and in future until `timestamp_future`
     """
+    from networkx import DiGraph
+
     if not isinstance(node_ids, np.ndarray) and not isinstance(node_ids, list):
         node_ids = [node_ids]
 

@@ -3,6 +3,8 @@ generic helper functions
 TODO categorize properly
 """
 
+from __future__ import annotations
+
 import bisect
 import datetime
 from typing import Dict
@@ -14,7 +16,6 @@ from typing import Tuple
 from collections import defaultdict
 
 import numpy as np
-import pandas as pd
 
 from ..chunks import utils as chunk_utils
 from ..exceptions import PreconditionError
@@ -51,6 +52,8 @@ def compute_indices_pandas(data) -> pd.Series:
     :param data: np.ndarray
     :return: pandas dataframe
     """
+    import pandas as pd
+
     d = data.ravel()
     f = lambda x: np.unravel_index(x.index, data.shape)
     return pd.Series(d).groupby(d).apply(f)
