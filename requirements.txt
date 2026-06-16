@@ -83,7 +83,7 @@ edt==3.1.1
     # via supervoxel-splitter
 fasteners==0.20
     # via cloud-files
-fastremap==1.19.0
+fastremap==1.20.0
     # via
     #   -r requirements.in
     #   cloud-volume

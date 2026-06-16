@@ -27,34 +27,6 @@ and validation all pass. Open question: bbox window too tight to keep the
 seeded L2 nodes in one component after the partner splits, or one of the
 partner splits removed a bridge edge the mincut needed.
 
-## Experiments that didn't ship
-
-### `crackle.point_cloud` (surface-only) as a replacement for `fastremap.point_cloud` in `update_edges`
-
-`crackle` exposes a `point_cloud` that returns only the surface voxels per label
-— ideal in principle since `cKDTree` nearest-distance queries from outside a
-label always land on its shell, so the interior coords carried by
-`fastremap.point_cloud` are dead weight downstream.
-
-A side-by-side bench in `build_coords_by_label` measured correctness and wall
-on a real masked `new_seg` (~742 M-voxel read bbox, ~99 % zero after
-`mask_except`):
-
-- Shell / full coord ratio ≈ 0.12 (real downstream savings would be substantial).
-- Bbox(shell) == bbox(full) on every label, shell ⊆ full on the top-3 largest
-  labels — correctness gates pass.
-- But `crackle.compress(new_seg)` itself ran ~3.3× slower than `fastremap.point_cloud`
-  on the same input (compress dominates; the actual `crackle.point_cloud` call on
-  the compressed buffer is fast). The downstream `_get_new_edges` savings did not
-  recoup the compress cost on either the sparse-foreground or dense-foreground
-  payloads we tried.
-
-If revisited: the `parallel=N` kwarg on `crackle.compress` is unexplored;
-worth measuring whether parallel scaling closes the 3× compress gap. A
-foreground-bbox crop before compress is *not* a help here — `update_edges`
-partners scatter across the full read bbox so the nonzero bbox approximates
-the read bbox.
-
 ## Future work
 
 ### Dedup seg reads + subgraph fetches across reps in `split_supervoxels`

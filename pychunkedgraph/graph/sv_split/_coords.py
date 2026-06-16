@@ -10,27 +10,6 @@ from pychunkedgraph.profiler import get_profiler
 _prof = get_profiler()
 
 
-def _label_boundary_mask(vol: np.ndarray) -> np.ndarray:
-    """6-conn neighbor-differs mask. Background voxels may also be True
-    where adjacent to foreground; the consumer multiplies vol in place
-    and background is already 0, so the extra True bits are no-ops.
-    """
-    diff = np.zeros(vol.shape, dtype=bool)
-    dz = vol[1:] != vol[:-1]
-    diff[1:] |= dz
-    diff[:-1] |= dz
-    del dz
-    dy = vol[:, 1:] != vol[:, :-1]
-    diff[:, 1:] |= dy
-    diff[:, :-1] |= dy
-    del dy
-    dx = vol[:, :, 1:] != vol[:, :, :-1]
-    diff[:, :, 1:] |= dx
-    diff[:, :, :-1] |= dx
-    del dx
-    return diff
-
-
 def build_coords_by_label(
     vol: np.ndarray,
     *,
@@ -53,23 +32,17 @@ def build_coords_by_label(
     fewer than that many voxels. ``background != 0`` removes that
     label from the result after the call.
 
-    ``boundary_only=True`` returns only 6-conn boundary voxels per
-    label and **zeros non-boundary entries in `vol` in place** to
-    avoid a full-size copy. min-distance between any two labels'
+    ``boundary_only=True`` emits only 6-conn boundary voxels per label
+    via fastremap's native ``shell=True`` path — no extra allocation,
+    no mutation of ``vol``. min-distance between any two labels'
     boundary point sets equals min-distance between their interior
     point sets, so this is correctness-preserving for nearest-neighbor
     consumers.
     """
     if vol.ndim != 3:
         raise ValueError("`vol` must be a 3D array.")
-    if boundary_only:
-        with _prof.profile("boundary_mask"):
-            mask = _label_boundary_mask(vol)
-        with _prof.profile("apply_mask"):
-            vol *= mask
-            del mask
     with _prof.profile("point_cloud"):
-        raw = fastremap.point_cloud(vol)
+        raw = fastremap.point_cloud(vol, shell=boundary_only)
     if background != 0:
         raw.pop(background, None)
 
