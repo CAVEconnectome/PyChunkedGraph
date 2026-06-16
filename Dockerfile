@@ -83,4 +83,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY . /app
 WORKDIR /app
 
+# Register package metadata so pychunkedgraph.__version__ reports the build version.
+# --no-deps: graph-tool/cloudvolume etc. are already in the venv. The image has no
+# .git, so setuptools_scm takes the version from this build-arg (the pushed tag).
+ARG SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYCHUNKEDGRAPH=0.0.0
+RUN SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYCHUNKEDGRAPH="$SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYCHUNKEDGRAPH" \
+    pip install --no-deps -e .
+
 CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]

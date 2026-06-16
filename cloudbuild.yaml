@@ -18,8 +18,11 @@ steps:
     args:
       - "-c"
       - |
+        TAG="$TAG_NAME"
+        VER="$${TAG#v}"
         docker buildx create --use --name pcg-builder --driver docker-container
         docker buildx build \
+          --build-arg SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYCHUNKEDGRAPH="$$VER" \
           --cache-from type=registry,ref=$$USERNAME/pychunkedgraph:buildcache \
           --cache-to   type=registry,ref=$$USERNAME/pychunkedgraph:buildcache,mode=max \
           --push \

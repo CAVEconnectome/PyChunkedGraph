@@ -36,37 +36,33 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Get tags
-        run: git fetch --tags origin
       - name: Configure git for github-actions[bot]
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-      - name: Install bumpversion
-        run: pip install bumpversion
-      - name: Bump version with bumpversion
-        run: |
-          bumpversion ${{ github.event.inputs.part }}
-      - name: Commit and push with tags
-        if: ${{ github.event.inputs.dry-run == 'false' }}
-        run: git push --follow-tags
-      - name: Get version
+      - name: Compute next version from the latest tag
         id: get-version
         run: |
-          version="$(git describe --tags)"
-          # remove the leading v from version
-          version="${version:1}"
+          git fetch --tags origin
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          latest="${latest#v}"
+          [ -z "$latest" ] && latest="0.0.0"
+          IFS=. read -r major minor patch <<< "$latest"
+          case "${{ github.event.inputs.part }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          version="$major.$minor.$patch"
           echo "VERSION=$version" >> $GITHUB_OUTPUT
-          major_version="$(cut -d '.' -f 1 <<< $version)"
-          echo "MAJOR_VERSION=$major_version" >> $GITHUB_OUTPUT
-          minor_version="$(cut -d '.' -f 2 <<< $version)"
-          echo "MINOR_VERSION=$minor_version" >> $GITHUB_OUTPUT
-          short_version="$major_version.$minor_version"
-          echo "SHORT_VERSION=$short_version" >> $GITHUB_OUTPUT
+          echo "MAJOR_VERSION=$major" >> $GITHUB_OUTPUT
+          echo "MINOR_VERSION=$minor" >> $GITHUB_OUTPUT
+          echo "SHORT_VERSION=$major.$minor" >> $GITHUB_OUTPUT
+      - name: Create and push the tag
+        if: ${{ github.event.inputs.dry-run == 'false' }}
+        run: |
+          git tag "v${{ steps.get-version.outputs.VERSION }}"
+          git push origin "v${{ steps.get-version.outputs.VERSION }}"
       - name: Show short version
         run: echo ${{ steps.get-version.outputs.SHORT_VERSION }}
       
