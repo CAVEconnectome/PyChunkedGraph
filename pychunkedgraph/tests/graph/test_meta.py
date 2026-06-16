@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from pychunkedgraph.graph.meta import ChunkedGraphMeta, GraphConfig, DataSource
+from pychunkedgraph.tests.helpers import mock_ws_info
 
 
 class TestChunkedGraphMeta:
@@ -399,7 +400,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 class TestWsCvRedisCached:
     """Test ws_cv property with Redis caching."""
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_redis_cached(self, mock_get_redis, mock_cv_cls):
         """When redis has cached info, ws_cv uses cached CloudVolume."""
@@ -422,7 +423,7 @@ class TestWsCvRedisCached:
             "gs://bucket/ws", info=cached_info, progress=False
         )
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_redis_failure_fallback(self, mock_get_redis, mock_cv_cls):
         """When redis raises, ws_cv still fetches `.info` (via the loader) and
@@ -449,7 +450,7 @@ class TestWsCvRedisCached:
             "gs://bucket/ws", info={"scales": []}, progress=False
         )
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_caches_to_redis(self, mock_get_redis, mock_cv_cls):
         """When redis is available but cache miss, ws_cv caches info to redis."""
@@ -479,7 +480,7 @@ class TestWsCvRedisCached:
         )
         mock_redis.set.assert_called_once()
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_returns_cached_instance(self, mock_get_redis, mock_cv_cls):
         """Once ws_cv has been set, subsequent calls return the cached instance."""
@@ -506,13 +507,8 @@ class TestLayerCountComputed:
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
 
-        # Create a mock ws_cv with bounds
-        mock_cv = MagicMock()
-        # bounds.to_list() returns [x_min, y_min, z_min, x_max, y_max, z_max]
-        # With a 256x256x256 volume and 64x64x64 chunks: 4 chunks per dim
-        # log_2(4) = 2, +2 = 4 layers
-        mock_cv.bounds.to_list.return_value = [0, 0, 0, 256, 256, 256]
-        meta._ws_cv = mock_cv
+        # 256^3 volume, 64^3 chunks -> 4 chunks/dim -> log2(4)=2, +2 = 4 layers
+        meta._ws_info_d = mock_ws_info(size=(256, 256, 256))
 
         count = meta.layer_count
         assert isinstance(count, int)
@@ -660,9 +656,7 @@ class TestLayerChunkBoundsComputed:
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
 
-        mock_cv = MagicMock()
-        mock_cv.bounds.to_list.return_value = [0, 0, 0, 256, 256, 256]
-        meta._ws_cv = mock_cv
+        meta._ws_info_d = mock_ws_info(size=(256, 256, 256))
         # layer_count needs to be set to avoid recursive calls
         meta._layer_count = 4
 
@@ -682,9 +676,7 @@ class TestLayerChunkBoundsComputed:
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
 
-        mock_cv = MagicMock()
-        mock_cv.bounds.to_list.return_value = [0, 0, 0, 256, 256, 256]
-        meta._ws_cv = mock_cv
+        meta._ws_info_d = mock_ws_info(size=(256, 256, 256))
         meta._layer_count = 4
 
         bounds1 = meta.layer_chunk_bounds

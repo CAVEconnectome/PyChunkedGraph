@@ -20,6 +20,8 @@ from ..ingest.create.parent_layer import add_parent_chunk
 
 from .helpers import (
     CloudVolumeMock,
+    TensorStoreMock,
+    mock_ws_info,
     create_chunk,
     to_label,
     get_layer_chunk_bounds,
@@ -184,6 +186,8 @@ def gen_graph(request, bigtable_emulator, hbase_emulator):
         graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
         graph.mock_edges = Edges([], [])
         graph.meta._ws_cv = CloudVolumeMock()
+        graph.meta._ws_info_d = mock_ws_info()
+        graph.meta.ws_ts_scale = lambda mip=0: TensorStoreMock()
         graph.meta.layer_count = n_layers
         graph.meta.layer_chunk_bounds = get_layer_chunk_bounds(
             n_layers, atomic_chunk_bounds=atomic_chunk_bounds
@@ -251,6 +255,8 @@ def gen_graph_with_edges(request, tmp_path, bigtable_emulator, hbase_emulator):
         graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
         # No mock_edges - use real I/O via file:// protocol
         graph.meta._ws_cv = CloudVolumeMock()
+        graph.meta._ws_info_d = mock_ws_info()
+        graph.meta.ws_ts_scale = lambda mip=0: TensorStoreMock()
         graph.meta.layer_count = n_layers
         graph.meta.layer_chunk_bounds = get_layer_chunk_bounds(
             n_layers, atomic_chunk_bounds=atomic_chunk_bounds

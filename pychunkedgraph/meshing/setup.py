@@ -20,6 +20,7 @@ import numpy as np
 
 from ..graph.chunkedgraph import ChunkedGraph
 from .meshgen import get_draco_encoding_settings_for_chunk
+from .meshgen_utils import get_mesh_block_shape_for_mip
 from .meta import MeshConfig
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,11 @@ def setup_mesh_meta(
     Returns the mesh meta dict persisted into bigtable.
     """
     cfg = mesh_config.with_graph_id(cg.graph_id)
+    n_scales = len(cg.meta.ws_cv.info["scales"])
+    if not 0 <= cfg.mip < n_scales:
+        raise ValueError(
+            f"mesh_config.mip {cfg.mip} exceeds watershed scales (available 0..{n_scales - 1})"
+        )
     existing_mesh = cg.meta.custom_data.get("mesh", {})
     existing_ts = existing_mesh.get("initial_ts")
     initial_ts = int(existing_ts) if existing_ts is not None else derive_initial_ts(cg)
@@ -109,11 +115,12 @@ def setup_mesh_meta(
         for layer, bits in cfg.minishard_bits.items()
         if layer <= cfg.max_layer
     }
+    mesh_chunk_size = get_mesh_block_shape_for_mip(cg, 2, cfg.mip)
     mesh_spec = {
         "@type": "neuroglancer_legacy_mesh",
         "spatial_index": None,
         "mip": int(cfg.mip),
-        "chunk_size": list(cfg.chunk_size),
+        "chunk_size": [int(x) for x in mesh_chunk_size],
         "sharding": sharding,
     }
     cg.meta.ws_cv.mesh.meta.info = mesh_spec

@@ -2,9 +2,9 @@
 
 Uses a real bigtable-backed ChunkedGraph (gen_graph) so the hierarchy
 (get_chunk_layers, get_roots, get_atomic_ids_from_coords) is real.
-The seg read goes through cg.meta.cv slicing; we attach a small
-sliceable numpy array onto graph.meta._ws_cv to back lookup_svs_from_seg
-with known SV ids at known coords.
+The seg read goes through get_local_segmentation -> meta.ws_ts_scale; we
+attach a sliceable handle via graph.meta.ws_ts_scale to back
+lookup_svs_from_seg with known SV ids at known coords.
 """
 
 from math import inf
@@ -17,28 +17,37 @@ from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.graph.sv_lookup import resolve_supervoxels_at_coords
 from pychunkedgraph.graph.sv_lookup import main as sv_lookup_main
 
-from ..helpers import CloudVolumeMock, create_chunk, to_label
+from ..helpers import create_chunk, to_label
 from ...ingest.create.parent_layer import add_parent_chunk
 
 UTC = timezone.utc
 
 
-class _SliceableCV(CloudVolumeMock):
-    """CloudVolumeMock variant: meta.cv[bbox_slice] returns a (X,Y,Z,1) array.
+class _Read:
+    def __init__(self, arr):
+        self._arr = arr
 
-    The backing seg is an in-memory uint64 array; `__getitem__` accepts
-    a 3-tuple of slices (the convention get_local_segmentation uses) and
-    returns the corresponding slab with an added singleton channel axis.
+    def read(self):
+        return self
+
+    def result(self):
+        return self._arr
+
+
+class _SliceableWS:
+    """ws_ts handle stand-in: ws_ts_scale(mip)[bbox].read().result() -> (X,Y,Z,1).
+
+    The backing seg is an in-memory uint64 array; `__getitem__` accepts a
+    3-tuple of slices (the get_local_segmentation convention) and returns the
+    slab with an added singleton channel axis, wrapped in a read result.
     """
 
     def __init__(self, shape):
-        super().__init__()
         self.seg = np.zeros(shape, dtype=np.uint64)
 
     def __getitem__(self, key):
-        sx, sy, sz = key[0], key[1], key[2]
-        slab = self.seg[sx, sy, sz]
-        return slab[..., np.newaxis]
+        slab = self.seg[key[0], key[1], key[2]][..., np.newaxis]
+        return _Read(slab)
 
     def set_voxel(self, x, y, z, sv_id):
         self.seg[x, y, z] = np.uint64(sv_id)
@@ -78,11 +87,11 @@ def _build_two_sv_graph(gen_graph):
     assert graph.get_root(sv1) == root
     assert graph.get_root(sv2) == root
 
-    cv = _SliceableCV(shape=(8, 8, 8))
+    cv = _SliceableWS(shape=(8, 8, 8))
     cv.set_voxel(0, 0, 0, sv0)
     cv.set_voxel(1, 0, 0, sv1)
     cv.set_voxel(2, 0, 0, sv2)
-    graph.meta._ws_cv = cv
+    graph.meta.ws_ts_scale = lambda mip=0: cv
 
     return graph, sv0, sv1, sv2, root
 
@@ -124,11 +133,11 @@ def _build_two_root_graph(gen_graph):
     assert root_a != root_b
     assert graph.get_root(sv2) == root_a
 
-    cv = _SliceableCV(shape=(8, 8, 8))
+    cv = _SliceableWS(shape=(8, 8, 8))
     cv.set_voxel(0, 0, 0, sv0)
     cv.set_voxel(1, 0, 0, sv1)
     cv.set_voxel(2, 0, 0, sv2)
-    graph.meta._ws_cv = cv
+    graph.meta.ws_ts_scale = lambda mip=0: cv
 
     return graph, sv0, sv1, sv2, root_a, root_b
 

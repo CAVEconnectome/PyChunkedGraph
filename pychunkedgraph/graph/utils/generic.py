@@ -196,4 +196,4 @@ def get_local_segmentation(meta, bbox_start, bbox_end, mip: int = 0) -> np.ndarr
         # meshing wants when it operates at a non-base MIP.
         store = meta.ws_ocdbt if mip == 0 else meta.ws_ocdbt_scales[mip]
         return store[xL:xH, yL:yH, zL:zH].read().result()
-    return meta.ws_ts[xL:xH, yL:yH, zL:zH].read().result()
+    return meta.ws_ts_scale(mip)[xL:xH, yL:yH, zL:zH].read().result()

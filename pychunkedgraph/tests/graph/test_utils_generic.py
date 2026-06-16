@@ -119,14 +119,16 @@ class TestGetLocalSegmentation:
         result = get_local_segmentation(meta, [0, 0, 0], [10, 10, 10])
         np.testing.assert_array_equal(result, expected)
 
-    def test_cv_path(self):
+    def test_watershed_path(self):
         from unittest.mock import MagicMock
         from pychunkedgraph.graph.utils.generic import get_local_segmentation
 
         meta = MagicMock()
         meta.ocdbt_seg = False
         expected = np.ones((10, 10, 10), dtype=np.uint64)
-        meta.cv.__getitem__ = MagicMock(return_value=expected)
+        mock_slice = MagicMock()
+        mock_slice.read.return_value.result.return_value = expected
+        meta.ws_ts_scale.return_value.__getitem__ = MagicMock(return_value=mock_slice)
 
         result = get_local_segmentation(meta, [0, 0, 0], [10, 10, 10])
         np.testing.assert_array_equal(result, expected)

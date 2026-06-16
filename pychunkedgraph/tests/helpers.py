@@ -31,6 +31,49 @@ class CloudVolumeMock(object):
         self.bounds = CloudVolumeBounds()
 
 
+class _TSRead:
+    def __init__(self, arr):
+        self._arr = arr
+
+    def read(self):
+        return self
+
+    def result(self):
+        return self._arr
+
+
+class TensorStoreMock:
+    """Stand-in for a tensorstore neuroglancer_precomputed handle.
+
+    ``handle[slices].read().result()`` returns a slice of the backing ``seg``
+    array, or a constant ``fill`` block shaped to the slice when ``seg`` is None.
+    """
+
+    def __init__(self, seg=None, fill=0, dtype=np.uint64):
+        self._seg = seg
+        self._fill = fill
+        self._dtype = dtype
+
+    def __getitem__(self, key):
+        if self._seg is not None:
+            return _TSRead(self._seg[key])
+        shape = tuple(s.stop - s.start for s in key)
+        return _TSRead(np.full(shape, self._fill, dtype=self._dtype))
+
+
+def mock_ws_info(resolution=(1, 1, 1), voxel_offset=(0, 0, 0), size=(0, 0, 0)):
+    """A single-scale watershed ``info`` dict for ``meta._ws_info_d``."""
+    return {
+        "scales": [
+            {
+                "resolution": list(resolution),
+                "voxel_offset": list(voxel_offset),
+                "size": list(size),
+            }
+        ]
+    }
+
+
 def create_chunk(cg, vertices=None, edges=None, timestamp=None):
     """
     Helper function to add vertices and edges to the chunkedgraph - no safety checks!

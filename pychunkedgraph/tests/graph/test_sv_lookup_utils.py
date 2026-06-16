@@ -7,12 +7,21 @@ import numpy as np
 from pychunkedgraph.graph.sv_lookup import utils as sv_lookup_utils
 
 
+def _ws_ts(arr):
+    """A ws_ts handle mock whose ``[slice].read().result()`` returns ``arr``."""
+    handle = MagicMock()
+    sliced = MagicMock()
+    sliced.read.return_value.result.return_value = arr
+    handle.__getitem__ = MagicMock(return_value=sliced)
+    return handle
+
+
 class TestGetAtomicIdFromCoord:
     def test_exact_hit(self):
         """When the voxel at (x, y, z) contains an atomic ID whose root matches, return it."""
         meta = MagicMock()
         meta.data_source.CV_MIP = 0
-        meta.cv.__getitem__ = MagicMock(return_value=np.array([[[42]]]))
+        meta.ws_ts = _ws_ts(np.array([[[42]]]))
 
         root_id = np.uint64(100)
 
@@ -30,7 +39,7 @@ class TestGetAtomicIdFromCoord:
         """When no candidate atomic ID shares the same root, return None."""
         meta = MagicMock()
         meta.data_source.CV_MIP = 0
-        meta.cv.__getitem__ = MagicMock(return_value=np.array([[[0]]]))
+        meta.ws_ts = _ws_ts(np.array([[[0]]]))
 
         root_id = np.uint64(100)
 
@@ -51,9 +60,11 @@ class TestGetAtomicIdFromCoord:
 
         def capture_getitem(self_mock, key):
             call_args.append(key)
-            return np.array([[[7]]])
+            sliced = MagicMock()
+            sliced.read.return_value.result.return_value = np.array([[[7]]])
+            return sliced
 
-        meta.cv.__getitem__ = capture_getitem
+        meta.ws_ts.__getitem__ = capture_getitem
 
         root_id = np.uint64(200)
 
@@ -77,12 +88,16 @@ class TestGetAtomicIdFromCoord:
 
         def expanding_getitem(self_mock, key):
             call_count[0] += 1
-            if call_count[0] == 1:
-                return np.array([[[10]]])
-            else:
-                return np.array([[[10, 42]], [[10, 42]]])
+            arr = (
+                np.array([[[10]]])
+                if call_count[0] == 1
+                else np.array([[[10, 42]], [[10, 42]]])
+            )
+            sliced = MagicMock()
+            sliced.read.return_value.result.return_value = arr
+            return sliced
 
-        meta.cv.__getitem__ = expanding_getitem
+        meta.ws_ts.__getitem__ = expanding_getitem
 
         def fake_get_root(node_id, time_stamp=None):
             if node_id == 42:
@@ -148,7 +163,7 @@ class TestGetAtomicIdsFromCoords:
         rel2 = coordinates[1] - bbox_min
         seg_block[rel2[0], rel2[1], rel2[2]] = sv2
 
-        meta.cv.__getitem__ = MagicMock(return_value=seg_block)
+        meta.ws_ts_scale.return_value = _ws_ts(seg_block)
 
         def fake_get_roots(
             node_ids, time_stamp=None, stop_layer=None, fail_to_zero=False

@@ -166,11 +166,8 @@ def get_json_info(cg):
 
 
 def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
-    mip_diff = mip - cg.meta.cv.mip
-    mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int) / np.array(
-        [2**mip_diff, 2**mip_diff, 1]
-    )
-    mip_chunk_size = mip_chunk_size.astype(int)
+    layer = cg.get_chunk_layer(chunk_id)
+    mip_chunk_size = get_mesh_block_shape_for_mip(cg, layer, mip)
 
     chunk_start = (
         cg.meta.cv.mip_voxel_offset(mip)
@@ -182,8 +179,6 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
         cg.meta.cv.mip_voxel_offset(mip),
         cg.meta.cv.mip_voxel_offset(mip) + cg.meta.cv.mip_volume_size(mip),
     )
-    # Pass mip so that with multi-scale OCDBT we read from the correct
-    # coarser scale (smaller data, faster reads). Coordinates above are
-    # already computed at the target MIP level.
+    # Coordinates are at the target MIP; get_local_segmentation reads that scale.
     ws_seg = get_local_segmentation(cg.meta, chunk_start, chunk_end, mip=mip).squeeze()
     return ws_seg

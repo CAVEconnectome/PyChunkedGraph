@@ -93,7 +93,7 @@ class ChunkedGraphMeta:
         self._custom_data = custom_data
 
         self._ws_cv = None
-        self._ws_ts = None
+        self._ws_ts_scales = {}
         self._ws_info_d = None
         # Multi-scale OCDBT handles + per-scale resolutions, populated lazily
         # from source's info JSON. ws_ocdbt returns scale 0 for backward
@@ -138,15 +138,23 @@ class ChunkedGraphMeta:
         self._ws_cv = CloudVolume(ws, info=info, progress=False)
         return self._ws_cv
 
+    def ws_ts_scale(self, mip: int):
+        """Watershed handle (tensorstore neuroglancer_precomputed) at scale ``mip``."""
+        if mip not in self._ws_ts_scales:
+            ws = self._data_source.WATERSHED.rstrip("/")
+            self._ws_ts_scales[mip] = ts.open(
+                {
+                    "driver": "neuroglancer_precomputed",
+                    "kvstore": ws,
+                    "scale_index": mip,
+                }
+            ).result()
+        return self._ws_ts_scales[mip]
+
     @property
     def ws_ts(self):
-        """Watershed handle (tensorstore neuroglancer_precomputed) for voxel reads."""
-        if self._ws_ts is None:
-            ws = self._data_source.WATERSHED.rstrip("/")
-            self._ws_ts = ts.open(
-                {"driver": "neuroglancer_precomputed", "kvstore": ws, "scale_index": 0}
-            ).result()
-        return self._ws_ts
+        """Watershed handle at base scale (mip 0)."""
+        return self.ws_ts_scale(0)
 
     @property
     def _ws_info(self):
