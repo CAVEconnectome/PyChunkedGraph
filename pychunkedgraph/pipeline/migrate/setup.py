@@ -21,8 +21,10 @@ def setup(graph_id: str) -> None:
         cg.client.create_column_family("4")
     except Exception:  # already present
         pass
-    cg.meta.custom_data["earliest_ts"] = cg.get_earliest_timestamp().isoformat()
-    cg.update_meta(cg.meta, overwrite=True)
+    # never clobber an ingest-stamped value
+    if "earliest_ts" not in cg.meta.custom_data:
+        cg.meta.custom_data["earliest_ts"] = cg.get_earliest_timestamp().isoformat()
+        cg.update_meta(cg.meta, overwrite=True)
 
 
 def main() -> None:

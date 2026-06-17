@@ -1139,6 +1139,10 @@ class ChunkedGraph:
                 return self.client.read_node(
                     op_id, properties=attributes.OperationLogs.Status
                 )[-1].timestamp
+        # no ops: the ingest-completion boundary stamped during the root-layer build
+        stamped = self.meta.custom_data.get("earliest_ts")
+        if stamped is not None:
+            return datetime.datetime.fromisoformat(stamped)
         return datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
 
     def get_operation_ids(self, node_ids: typing.Sequence):

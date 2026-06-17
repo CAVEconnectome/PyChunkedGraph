@@ -60,14 +60,19 @@ def add_parent_chunk(
         f"cx_edges={len(cx_edges):,}"
     )
 
+    ts = get_valid_timestamp(time_stamp)
     _write_connected_components(
-        cg,
-        layer_id,
-        coords,
-        connected_components,
-        get_valid_timestamp(time_stamp),
-        n_threads > 1,
+        cg, layer_id, coords, connected_components, ts, n_threads > 1
     )
+
+    # Stamp the post-ingest boundary meshing reads to split initial from edited roots.
+    # ts is the explicit cell timestamp shared by every root just written; +500ms (the
+    # same guard get_earliest_timestamp puts below the first op) lifts the boundary
+    # strictly above them.
+    if layer_id == cg.meta.layer_count:
+        boundary = ts + datetime.timedelta(milliseconds=500)
+        cg.meta.custom_data["earliest_ts"] = boundary.isoformat()
+        cg.update_meta(cg.meta, overwrite=True)
 
 
 def _read_children_chunks(

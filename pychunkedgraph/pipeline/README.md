@@ -100,10 +100,11 @@ re-claims only the unfinished. Meshing needs no lock — it overwrites shards id
   retries (ingest skips done chunks).
 - **Non-transient failure** (`FatalChunkError`, exit 42): the index is failed fast and
   recorded for inspection. A batch finishes all its chunks before choosing an exit code.
-- **Root verification** (ingest): after the root chunk is built, the pod runs the
-  hierarchy sanity suite (`ingest.simple_tests`) as its final step — every ingest ends
-  verified. A failed check fails the pod without re-opening the chunk, so re-submitting
-  the root layer re-runs only the checks, never the build.
+- **Root verify** (ingest): after the root chunk is built, the pod runs the hierarchy
+  sanity suite (`ingest.simple_tests`). A failed check fails the pod without re-opening the
+  chunk, so re-submitting the root layer re-runs only this check, never the build. The mesh
+  ingest boundary `earliest_ts` — which meshing reads to split initial vs edited roots — is
+  stamped during the root-layer write itself, while the roots are still in memory.
 
 ## Testing
 

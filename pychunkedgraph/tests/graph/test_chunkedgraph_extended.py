@@ -100,9 +100,8 @@ class TestChunkedGraphExtended:
 
     def test_get_earliest_timestamp(self, gen_graph):
         graph = self._build_graph(gen_graph)
-        ts = graph.get_earliest_timestamp()
-        # May return None if no operation logs exist; test the method runs
-        assert ts is None or isinstance(ts, datetime)
+        # no ops -> the boundary stamped by the root-layer build
+        assert isinstance(graph.get_earliest_timestamp(), datetime)
 
     def test_get_l2children(self, gen_graph):
         graph = self._build_graph(gen_graph)
@@ -1574,8 +1573,8 @@ class TestEarliestTimestamp:
         assert isinstance(ts, datetime)
 
     @pytest.mark.timeout(30)
-    def test_get_earliest_timestamp_no_ops(self, gen_graph):
-        """On a fresh graph with no operations, get_earliest_timestamp should return None."""
+    def test_get_earliest_timestamp_stamped_by_root_build(self, gen_graph):
+        """Building the root layer stamps earliest_ts strictly above every root's ts."""
         graph = gen_graph(n_layers=4)
         fake_ts = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
@@ -1586,6 +1585,17 @@ class TestEarliestTimestamp:
         )
         add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
         add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
-        ts = graph.get_earliest_timestamp()
-        # No operation logs, so should be None
-        assert ts is None or isinstance(ts, datetime)
+
+        # no ops -> get_earliest_timestamp returns exactly the stamped boundary
+        boundary = graph.get_earliest_timestamp()
+        assert boundary == datetime.fromisoformat(graph.meta.custom_data["earliest_ts"])
+        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
+        [root_ts] = graph.get_node_timestamps(np.array([root]), return_numpy=False)
+        assert root_ts < boundary
+
+    def test_get_earliest_timestamp_falls_back_to_stamped(self, gen_graph):
+        """No ops: get_earliest_timestamp returns the ingest-stamped earliest_ts."""
+        graph = gen_graph(n_layers=4)
+        ts = datetime(2026, 6, 1, 12, 0, 30, tzinfo=UTC)
+        graph.meta.custom_data["earliest_ts"] = ts.isoformat()
+        assert graph.get_earliest_timestamp() == ts

@@ -129,12 +129,15 @@ def _process_one(table, cg, layer, coord, config, opts) -> str:
 
 
 def _verify_root(cg, layer) -> None:
-    """Every ingest ends verified: hierarchy spot checks once the root chunk is built.
+    """Once the root chunk is built, run the hierarchy sanity suite.
 
-    The root chunk is already marked done, so a re-submitted root layer skips the
-    build and re-runs only these checks."""
-    if layer == cg.meta.layer_count:
-        simple_tests.run_all(cg)
+    The chunk is already marked done, so a re-submitted root layer re-runs only this
+    check, never the build. The mesh ingest boundary (``earliest_ts``) is stamped during
+    the root-layer write itself, where the roots are already in memory.
+    """
+    if layer != cg.meta.layer_count:
+        return
+    simple_tests.run_all(cg)
 
 
 def main() -> int:
