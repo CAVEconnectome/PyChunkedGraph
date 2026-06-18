@@ -3,7 +3,6 @@
 import time
 import typing
 import datetime
-from copy import deepcopy
 from itertools import chain
 from functools import reduce
 
@@ -20,7 +19,7 @@ from pychunkedgraph.graph import ClientType
 from pychunkedgraph.graph import get_client_class
 from pychunkedgraph.graph import get_default_client_info
 from .cache import CacheService
-from .meta import ChunkedGraphMeta, GraphConfig
+from .meta import ChunkedGraphMeta
 from pychunkedgraph.graph import basetypes
 from .sv_lookup import utils as sv_lookup_utils
 from .utils import id_helpers
@@ -43,15 +42,9 @@ class ChunkedGraph:
         meta: ChunkedGraphMeta = None,
         client_info: BackendClientInfo = get_default_client_info(),
     ):
-        """
-        1. New graph
-           Requires `meta`; if `client_info` is not passed the default client is used.
-           After creating `ChunkedGraph` instance, run instance.create().
-        2. Existing graph in default client
-           Requires `graph_id`.
-        3. Existing graphs in other projects/clients,
-           Requires `graph_id` and `client_info`.
-        """
+        """Open a chunked graph: `meta` for a new graph (then `.create()`), else `graph_id`
+        (+ `client_info` for other projects/clients). A graph_id naming a table copied from
+        another graph gets its graph-id-bearing meta (id, mesh dirs) rewritten here."""
         ClientClass = get_client_class(client_info.TYPE)
 
         if meta:
@@ -73,22 +66,11 @@ class ChunkedGraph:
         self._cache_service = None
         self.mock_edges = None  # hack for unit tests
 
-        # Shim for copied bigtables: rewrite graph_id-bearing fields in one
-        # update_meta call. Bigtable row-copies preserve the source table's
-        # values for `graph_config.ID` and `custom_data["mesh"]["dynamic_mesh_dir"]`
-        # — left as-is, x0's edited meshes would alias clean's at the same
-        # fragment-id keys. `mesh.dir` (initial sharded meshes) is dataset-
-        # scoped and intentionally shared, so it's not rewritten here.
+        # A copied/restored table carries the source's graph-id-bearing meta;
+        # on first access under a new id, rewrite + persist it once (later
+        # instantiations match this id and no-op).
         if graph_id != self.graph_id:
-            gc = self.meta.graph_config._asdict()
-            gc["ID"] = graph_id
-            cd = deepcopy(self.meta.custom_data)
-            mesh = cd.get("mesh")
-            if mesh is not None and "dynamic_mesh_dir" in mesh:
-                mesh["dynamic_mesh_dir"] = f"dynamic_{graph_id}"
-            new_meta = ChunkedGraphMeta(GraphConfig(**gc), self.meta.data_source, cd)
-            self.update_meta(new_meta, overwrite=True)
-            self._meta = new_meta
+            self.update_meta(self.meta.for_copied_graph(graph_id), overwrite=True)
 
     @property
     def meta(self) -> ChunkedGraphMeta:

@@ -123,6 +123,26 @@ class ChunkedGraphMeta:
     def custom_data(self):
         return self._custom_data
 
+    def for_copied_graph(self, graph_id: str) -> "ChunkedGraphMeta":
+        """Rewrite this meta in place for a table copied/restored under ``graph_id`` — its
+        graph id and mesh dirs — so the copy's meshes never alias the source's; returns self
+        for a one-line ``update_meta`` call."""
+        gc = self._graph_config._asdict()
+        gc["ID"] = graph_id
+        self._graph_config = GraphConfig(**gc)
+        mesh = self._custom_data.get("mesh")
+        if mesh and "dir" in mesh:
+            # Only an explicit graph-suffixed dynamic_mesh_dir shares initial meshes; a bare
+            # "dynamic" or an unset value defaults to a private per-graph top-level dir, so a
+            # copy can never alias the source.
+            rewrite = (
+                shared_initial_mesh_dirs
+                if mesh.get("dynamic_mesh_dir") not in (None, "dynamic")
+                else private_mesh_dirs
+            )
+            mesh["dir"], mesh["dynamic_mesh_dir"] = rewrite(mesh["dir"], graph_id)
+        return self
+
     @property
     def ws_cv(self):
         """Watershed CloudVolume — back-compat hatch (meshing / diagnostics)."""
@@ -460,3 +480,17 @@ class ChunkedGraphMeta:
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.bitmasks[1]
         )
+
+
+def private_mesh_dirs(mesh_dir: str, graph_id: str) -> tuple[str, str]:
+    """(dir, dynamic_mesh_dir) for a copied table whose meshes are all its own (source
+    dynamic dir unset or the bare "dynamic"). Suffix the top-level dir per graph so even
+    initial meshes stay private; the dynamic subdir keeps the bare "dynamic" inside it."""
+    return f"{mesh_dir}_{graph_id}", "dynamic"
+
+
+def shared_initial_mesh_dirs(mesh_dir: str, graph_id: str) -> tuple[str, str]:
+    """(dir, dynamic_mesh_dir) for a copied table that shares initial meshes with siblings
+    from the same backup — the source dynamic dir was graph-suffixed. Keep the top-level dir
+    shared; re-derive only the dynamic subdir per graph."""
+    return mesh_dir, f"dynamic_{graph_id}"
