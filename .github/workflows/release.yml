@@ -20,6 +20,11 @@ on:
         type: boolean
         required: true
         default: false
+      update-chart:
+        description: "Also bump the pychunkedgraph Helm chart appVersion (needs HELM_CHART_UPDATE_TOKEN)"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   bump:
@@ -40,28 +45,29 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Compute next version from the latest tag
+      - name: Bump version in pychunkedgraph/_version.py
         id: get-version
         run: |
-          git fetch --tags origin
-          latest="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
-          latest="${latest#v}"
-          [ -z "$latest" ] && latest="0.0.0"
-          IFS=. read -r major minor patch <<< "$latest"
+          cur=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' pychunkedgraph/_version.py)
+          IFS=. read -r major minor patch <<< "$cur"
           case "${{ github.event.inputs.part }}" in
             major) major=$((major + 1)); minor=0; patch=0 ;;
             minor) minor=$((minor + 1)); patch=0 ;;
             patch) patch=$((patch + 1)) ;;
           esac
           version="$major.$minor.$patch"
+          sed -i "s/^__version__ = .*/__version__ = \"$version\"/" pychunkedgraph/_version.py
           echo "VERSION=$version" >> $GITHUB_OUTPUT
           echo "MAJOR_VERSION=$major" >> $GITHUB_OUTPUT
           echo "MINOR_VERSION=$minor" >> $GITHUB_OUTPUT
           echo "SHORT_VERSION=$major.$minor" >> $GITHUB_OUTPUT
-      - name: Create and push the tag
+      - name: Commit the bump and push the tag
         if: ${{ github.event.inputs.dry-run == 'false' }}
         run: |
+          git add pychunkedgraph/_version.py
+          git commit -m "release v${{ steps.get-version.outputs.VERSION }}"
           git tag "v${{ steps.get-version.outputs.VERSION }}"
+          git push origin HEAD
           git push origin "v${{ steps.get-version.outputs.VERSION }}"
       - name: Show short version
         run: echo ${{ steps.get-version.outputs.SHORT_VERSION }}
@@ -88,7 +94,7 @@ jobs:
     name: Update pychunkedgraph Helm chart
     runs-on: ubuntu-latest
     needs: bump
-    if: ${{ github.event.inputs.dry-run == 'false' }}
+    if: ${{ github.event.inputs.dry-run == 'false' && github.event.inputs.update-chart == 'true' }}
     permissions:
       contents: read
       id-token: write

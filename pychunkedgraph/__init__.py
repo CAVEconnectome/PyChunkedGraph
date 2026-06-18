@@ -1,9 +1,4 @@
-from importlib.metadata import PackageNotFoundError, version as _version
-
-try:
-    __version__ = _version("PyChunkedGraph")
-except PackageNotFoundError:  # source tree that was never pip-installed
-    __version__ = "0.0.0+unknown"
+from pychunkedgraph._version import __version__  # noqa: F401
 
 import sys
 import warnings

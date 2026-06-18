@@ -3,6 +3,10 @@ from setuptools import setup, find_packages
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
+version = {}
+with open("pychunkedgraph/_version.py") as fh:
+    exec(fh.read(), version)
+
 with open("requirements.txt", "r") as f:
     required = f.read().splitlines()
 
@@ -21,6 +25,7 @@ for i_l in del_ls[::-1]:
 
 setup(
     name="PyChunkedGraph",
+    version=version["__version__"],
     author="Sven Dorkenwald",
     author_email="svenmd@princeton.edu",
     description="Proofreading backend for Neuroglancer",
