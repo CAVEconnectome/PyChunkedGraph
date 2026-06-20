@@ -307,10 +307,13 @@ def calculate_stop_layer(cg, chunk_id):
 
     # Find lowest common chunk
     neigh_parent_chunk_ids = np.array(neigh_parent_chunk_ids)
-    layer_agreement = np.all(
-        (neigh_parent_chunk_ids - neigh_parent_chunk_ids[0]) == 0, axis=0
-    )
-    stop_layer = np.where(layer_agreement)[0][0] + chunk_layer
+    if chunk_layer + 1 == cg.meta.layer_count:
+        stop_layer = cg.meta.layer_count
+    else:
+        layer_agreement = np.all(
+            (neigh_parent_chunk_ids - neigh_parent_chunk_ids[0]) == 0, axis=0
+        )
+        stop_layer = np.where(layer_agreement)[0][0] + chunk_layer
 
     return stop_layer, neigh_chunk_ids
 
