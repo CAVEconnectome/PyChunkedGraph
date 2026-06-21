@@ -388,7 +388,7 @@ s3transfer==0.17.0
     # via boto3
 scikit-image==0.26.0
     # via supervoxel-splitter
-scipy==1.17.1
+scipy==1.18.0
     # via
     #   scikit-image
     #   supervoxel-splitter

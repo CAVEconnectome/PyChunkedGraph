@@ -15,6 +15,7 @@ cachetools
 werkzeug
 tensorstore
 rich
+scipy>=1.18.0
 
 # PyPI only:
 cloud-files>=6.0.0
