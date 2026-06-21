@@ -1,4 +1,4 @@
-"""Comprehensive tests for pychunkedgraph.graph.edges_sv — edge routing after SV split."""
+"""Comprehensive tests for pychunkedgraph.graph.sv_split.edges — edge routing after SV split."""
 
 import numpy as np
 import pytest
@@ -6,15 +6,17 @@ from scipy.spatial import cKDTree
 
 from pychunkedgraph.graph import basetypes
 from pychunkedgraph.graph.exceptions import PostconditionError
-from pychunkedgraph.graph.edges_sv import (
+from pychunkedgraph.graph.sv_split.edges import (
     _get_new_edges,
     _match_by_label,
     _match_by_proximity,
     _match_inf_unsplit,
     _match_partner,
     _expand_partners,
+    _compute_partner_distances,
     validate_split_edges,
 )
+from pychunkedgraph.graph.sv_split.edges import cKDTree as ProdKDTree
 
 ROOT_ID = np.uint64(1)
 OTHER_ROOT = np.uint64(2)
@@ -38,7 +40,7 @@ def _make_coords_and_trees(positions, old_new_map):
         for sv_id, pos in positions.items()
     }
     new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
-    new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
+    new_kdtrees = [ProdKDTree(coords_by_label[int(k)]) for k in new_ids]
     return coords_by_label, new_kdtrees, new_ids
 
 
@@ -550,7 +552,7 @@ class TestValidateSplitEdges:
     def test_unsplit_partner_inf_to_fragments_from_different_old_svs(self):
         """Unsplit partner connecting via inf to fragments from different old SVs is valid."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 2, 201: 1, 202: 2}
         partner = np.uint64(50)
         # Partner connects to one fragment from each old SV — different old SVs, same label
         edges, affs = self._make_valid_edges(
@@ -563,7 +565,7 @@ class TestValidateSplitEdges:
     def test_allows_same_label_inf_to_unsplit_partner(self):
         """Multiple fragments with same label connecting to unsplit partner is valid."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 0, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 1, 201: 1, 202: 2}
         partner = np.uint64(50)
         edges, affs = self._make_valid_edges(
             old_new_map,
@@ -573,17 +575,30 @@ class TestValidateSplitEdges:
         validate_split_edges(edges, affs, old_new_map, label_map)
 
     def test_catches_cross_label_inf_bridge(self):
-        """Fragments with different labels connecting to unsplit partner via inf is invalid."""
+        """Fragments with source+sink labels connecting to unsplit partner via inf is invalid."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 2, 201: 1, 202: 2}
         partner = np.uint64(50)
         edges, affs = self._make_valid_edges(
             old_new_map,
             extra_edges=[[101, partner], [102, partner]],
             extra_affs=[np.inf, np.inf],
         )
-        with pytest.raises(PostconditionError, match="different labels"):
+        with pytest.raises(PostconditionError, match="source-side and sink-side"):
             validate_split_edges(edges, affs, old_new_map, label_map)
+
+    def test_allows_label_3_inf_bridge(self):
+        """{1, 3} / {2, 3} bridges via unsplit partner are valid — label 3 is an
+        unresolved fragment with no seed; the mincut places it via topology."""
+        old_new_map = self._make_multi_sv_map()
+        label_map = {101: 1, 102: 3, 201: 2, 202: 3}
+        partner = np.uint64(50)
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, partner], [102, partner]],
+            extra_affs=[np.inf, np.inf],
+        )
+        validate_split_edges(edges, affs, old_new_map, label_map)
 
     def test_no_label_map_skips_inf_check(self):
         """Without label map, inf check is skipped (no false positives)."""
@@ -636,7 +651,7 @@ class TestValidateSplitEdges:
     def test_inf_to_split_partner_allowed(self):
         """Inf edges to a split partner (in all_new_ids) are allowed from multiple fragments."""
         old_new_map = self._make_multi_sv_map()
-        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        label_map = {101: 1, 102: 2, 201: 1, 202: 2}
         # 201 is a split partner (in all_new_ids), so inf from both 101 and 102 is fine
         edges, affs = self._make_valid_edges(
             old_new_map,
@@ -644,3 +659,45 @@ class TestValidateSplitEdges:
             extra_affs=[np.inf, np.inf],
         )
         validate_split_edges(edges, affs, old_new_map, label_map)
+
+
+class TestComputePartnerDistances:
+    """Smart-size dispatch in _compute_partner_distances must match scipy on
+    both directions (kt.n <= partner.n and kt.n > partner.n) and at F=1."""
+
+    @staticmethod
+    def _reference(new_kdtrees_sci, partner_tree_sci):
+        distances = np.empty(len(new_kdtrees_sci), dtype=float)
+        for i, kt in enumerate(new_kdtrees_sci):
+            if kt.n <= partner_tree_sci.n:
+                d, _ = partner_tree_sci.query(kt.data, k=1, workers=-1)
+            else:
+                d, _ = kt.query(partner_tree_sci.data, k=1, workers=-1)
+            distances[i] = float(np.min(d))
+        return distances
+
+    def _compare(self, frag_sizes, partner_size, seed=0):
+        rng = np.random.default_rng(seed)
+        partner_coords = rng.integers(0, 40000, size=(partner_size, 3)).astype(np.int32)
+        frag_coords = [
+            rng.integers(0, 40000, size=(n, 3)).astype(np.int32) for n in frag_sizes
+        ]
+        prod_partner = ProdKDTree(partner_coords)
+        prod_frags = [ProdKDTree(c) for c in frag_coords]
+        got = _compute_partner_distances(prod_frags, partner_coords, prod_partner)
+        sci_partner = cKDTree(partner_coords)
+        sci_frags = [cKDTree(c) for c in frag_coords]
+        ref = self._reference(sci_frags, sci_partner)
+        np.testing.assert_allclose(got, ref, rtol=0, atol=1e-9)
+
+    def test_fragments_smaller_than_partner(self):
+        self._compare(frag_sizes=[50, 200], partner_size=1000)
+
+    def test_fragments_larger_than_partner_engages_fallback_path(self):
+        self._compare(frag_sizes=[2000, 5000], partner_size=500)
+
+    def test_mixed_sizes(self):
+        self._compare(frag_sizes=[50, 2000, 100], partner_size=500)
+
+    def test_single_fragment(self):
+        self._compare(frag_sizes=[300], partner_size=1000)

@@ -5,19 +5,20 @@ Ingest / create chunkedgraph with workers on a cluster.
 """
 
 from os import environ
-
-from pychunkedgraph import get_logger
-
-logger = get_logger(__name__)
 from time import sleep
 from typing import Callable, Dict, Iterable, Tuple, Sequence
 
 import numpy as np
 from rq import Queue as RQueue, Retry
 
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
+
 
 from .utils import chunk_id_str, get_chunks_not_done, randomize_grid_points
 from .manager import IngestionManager
+from .ocdbt import get_coordinator_address, populate_chunk
 from .ran_agglomeration import (
     get_active_edges,
     read_raw_edge_data,
@@ -27,11 +28,10 @@ from .create.atomic_layer import add_atomic_chunk
 from .create.parent_layer import add_parent_chunk
 from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
 from .upgrade.parent_layer import update_chunk as update_parent_chunk
-from ..graph.edges import EDGE_TYPES, Edges, put_edges
+from ..graph.edges import EDGE_TYPES
 from ..graph import ChunkedGraph, ChunkedGraphMeta
-from ..graph.ocdbt import copy_ws_chunk_multiscale, open_base_ocdbt
+from ..graph.ocdbt import is_chunk_populated
 from ..graph.chunks.hierarchy import get_children_chunk_coords
-from ..graph.basetypes import NODE_ID
 from ..io.edges import get_chunk_edges
 from ..io.components import get_chunk_components
 from ..utils.redis import keys as r_keys, get_redis_connection
@@ -64,18 +64,47 @@ def _post_task_completion(
 def create_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
+    mode: str = "full",
 ) -> None:
+    """One parent-chunk task. ``mode`` (bound at queue time via partial)
+    selects which halves run:
+      ``full``   : OCDBT populate (if eligible) + add_parent_chunk
+      ``ocdbt``  : only OCDBT populate (skip add_parent_chunk)
+      ``ingest`` : only add_parent_chunk (skip OCDBT populate)
+
+    ``_post_task_completion`` always runs so the layer's progress tracking
+    in redis stays consistent.
+
+    OCDBT populate runs FIRST so any failure aborts the task BEFORE graph
+    mutation; otherwise a half-built graph would force corrupt-state retries.
+    """
     imanager = _get_imanager()
-    add_parent_chunk(
-        imanager.cg,
-        parent_layer,
-        parent_coords,
-        get_children_chunk_coords(
-            imanager.cg_meta,
+
+    do_ocdbt = mode in ("full", "ocdbt") and imanager.is_ocdbt_populate_layer(
+        parent_layer
+    )
+    do_ingest = mode in ("full", "ingest")
+
+    if do_ocdbt:
+        ws = imanager.cg.meta.data_source.WATERSHED
+        if not is_chunk_populated(ws, parent_layer, parent_coords):
+            address = get_coordinator_address(imanager.redis)
+            populate_chunk(
+                imanager, ws, parent_layer, parent_coords, coordinator_address=address
+            )
+
+    if do_ingest:
+        add_parent_chunk(
+            imanager.cg,
             parent_layer,
             parent_coords,
-        ),
-    )
+            get_children_chunk_coords(
+                imanager.cg_meta,
+                parent_layer,
+                parent_coords,
+            ),
+        )
+
     _post_task_completion(imanager, parent_layer, parent_coords)
 
 
@@ -146,21 +175,6 @@ def create_atomic_chunk(coords: Sequence[int]):
     for k, v in chunk_edges_active.items():
         logger.debug(f"active_{k}: {len(v)}")
 
-    if imanager.ocdbt_seg and imanager.ocdbt_populate_base:
-        # Populate the shared base OCDBT with precomputed chunks (one-time
-        # per watershed). Uses the raw base handles, NOT the per-CG fork
-        # spec — the fork only stores SV-split deltas.
-        src_list, dst_list, resolutions = open_base_ocdbt(
-            imanager.cg.meta.data_source.WATERSHED
-        )
-        copy_ws_chunk_multiscale(
-            src_list,
-            dst_list,
-            resolutions,
-            imanager.cg.meta.graph_config.CHUNK_SIZE,
-            coords,
-            imanager.cg.meta.voxel_bounds,
-        )
     _post_task_completion(imanager, 2, coords)
 
 
@@ -169,47 +183,6 @@ def upgrade_atomic_chunk(coords: Sequence[int]):
     imanager = _get_imanager()
     coords = np.array(list(coords), dtype=int)
     update_atomic_chunk(imanager.cg, coords)
-    _post_task_completion(imanager, 2, coords)
-
-
-def convert_edges_to_ocdbt(coords: Sequence[int]):
-    """
-    Convert edges stored per chunk to ajacency list in the tensorstore ocdbt kv store.
-    """
-    imanager = _get_imanager()
-    coords = np.array(list(coords), dtype=int)
-    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
-
-    node_ids1 = []
-    node_ids2 = []
-    affinities = []
-    areas = []
-    for edges in chunk_edges_all.values():
-        node_ids1.extend(edges.node_ids1)
-        node_ids2.extend(edges.node_ids2)
-        affinities.extend(edges.affinities)
-        areas.extend(edges.areas)
-
-    edges = Edges(node_ids1, node_ids2, affinities=affinities, areas=areas)
-    nodes = np.concatenate(
-        [edges.node_ids1, edges.node_ids2, np.fromiter(mapping.keys(), dtype=NODE_ID)]
-    )
-    nodes = np.unique(nodes)
-
-    chunk_id = imanager.cg.get_chunk_id(layer=1, x=coords[0], y=coords[1], z=coords[2])
-    chunk_ids = imanager.cg.get_chunk_ids_from_node_ids(nodes)
-
-    host = imanager.redis.get("OCDBT_COORDINATOR_HOST").decode()
-    port = imanager.redis.get("OCDBT_COORDINATOR_PORT").decode()
-    environ["OCDBT_COORDINATOR_HOST"] = host
-    environ["OCDBT_COORDINATOR_PORT"] = port
-    logger.note(f"OCDBT Coordinator address {host}:{port}")
-
-    put_edges(
-        f"{imanager.cg.meta.data_source.EDGES}/ocdbt",
-        nodes[chunk_ids == chunk_id],
-        edges,
-    )
     _post_task_completion(imanager, 2, coords)
 
 

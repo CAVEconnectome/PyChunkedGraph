@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-import time, os
+import time
 
 from pychunkedgraph import get_logger
 
@@ -110,7 +110,7 @@ def update_nodes(cg: ChunkedGraph, nodes, nodes_ts, children_map=None) -> list:
     return rows
 
 
-def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
+def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], clean: bool = False):
     """
     Iterate over all L2 IDs in a chunk and update their cross chunk edges,
     within the periods they were valid/active.
@@ -124,11 +124,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
 
     nodes = []
     nodes_ts = []
-    try:
-        earliest_ts = os.environ["EARLIEST_TS"]
-        earliest_ts = datetime.fromisoformat(earliest_ts)
-    except KeyError:
-        earliest_ts = cg.get_earliest_timestamp()
+    earliest_ts = datetime.fromisoformat(cg.meta.custom_data["earliest_ts"])
 
     corrupt_nodes = []
     for k, v in rr.items():
@@ -144,8 +140,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
             if ts > earliest_ts:
                 corrupt_nodes.append(k)
 
-    clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
-    if clean_task:
+    if clean:
         logger.note(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
         fix_corrupt_nodes(cg, corrupt_nodes, CHILDREN)
         return

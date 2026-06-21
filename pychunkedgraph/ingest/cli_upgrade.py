@@ -4,43 +4,29 @@
 cli for running upgrade
 """
 
-from time import sleep
-
-from pychunkedgraph import get_logger
-
-logger = get_logger(__name__)
-
 import click
-import tensorstore as ts
 from flask.cli import AppGroup
-from pychunkedgraph import __version__
+
+from pychunkedgraph import __version__, get_logger
 from pychunkedgraph.graph.meta import GraphConfig
 
 from . import IngestConfig
-from .cluster import (
-    convert_edges_to_ocdbt,
-    enqueue_l2_tasks,
-    upgrade_atomic_chunk,
-    upgrade_parent_chunk,
-)
+from .cluster import enqueue_l2_tasks, upgrade_atomic_chunk, upgrade_parent_chunk
 from .manager import IngestionManager
+from .ocdbt import setup_base
 from .utils import (
-    chunk_id_str,
+    job_type_guard,
     print_completion_rate,
     print_status,
     queue_layer_helper,
-    start_ocdbt_server,
-    job_type_guard,
+    requeue_chunk,
 )
 from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
-from ..graph.ocdbt import (
-    base_exists,
-    create_base_ocdbt,
-    fork_base_manifest,
-    wipe_base_ocdbt,
-)
+from ..graph.ocdbt import OcdbtConfig
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
+
+logger = get_logger(__name__)
 
 group_name = "upgrade"
 upgrade_cli = AppGroup(group_name)
@@ -63,26 +49,18 @@ def flush_redis():
 @click.argument("graph_id", type=str)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @click.option("--ocdbt", is_flag=True, help="Enable ocdbt seg (SV splitting support).")
-@click.option("--ocdbt-edges", is_flag=True, help="Convert edges to ocdbt kv store.")
 @click.option(
     "--sv-split-threshold",
     type=int,
     default=10,
     help="Distance threshold for SV split edge matching.",
 )
-@click.option(
-    "--reset-ocdbt",
-    is_flag=True,
-    help="Wipe base AND this CG's delta OCDBT, then recreate from scratch.",
-)
 @job_type_guard(group_name)
 def upgrade_graph(
     graph_id: str,
     test: bool,
     ocdbt: bool,
-    ocdbt_edges: bool,
     sv_split_threshold: int,
-    reset_ocdbt: bool,
 ):
     """
     Main upgrade command. Queues atomic tasks.
@@ -103,38 +81,18 @@ def upgrade_graph(
         cg = ChunkedGraph(graph_id=graph_id)
 
     if ocdbt:
-        ws = cg.meta.data_source.WATERSHED
-        cg.meta.custom_data["seg"] = {
-            "ocdbt": True,
-            "sv_split_threshold": sv_split_threshold,
-        }
-        cg.update_meta(cg.meta, overwrite=True)
+        ocdbt_cfg = OcdbtConfig.from_dict(cg.meta.custom_data.get("ocdbt_config"))
+        ocdbt_cfg.enabled = True
+        ocdbt_cfg.sv_split_threshold = sv_split_threshold
+        setup_base(cg, ocdbt_cfg)
         logger.note(f"enabled ocdbt seg with sv_split_threshold={sv_split_threshold}")
-
-        if reset_ocdbt:
-            wipe_base_ocdbt(ws)
-
-        if not base_exists(ws):
-            create_base_ocdbt(ws)
-
-        fork_base_manifest(ws, graph_id, wipe_existing=reset_ocdbt)
     try:
         cg.client.create_column_family("4")
     except Exception:
         ...
 
     imanager = IngestionManager(ingest_config, cg.meta)
-    if ocdbt_edges:
-        server = ts.ocdbt.DistributedCoordinatorServer()
-        start_ocdbt_server(imanager, server)
-
-    fn = convert_edges_to_ocdbt if ocdbt_edges else upgrade_atomic_chunk
-    enqueue_l2_tasks(imanager, fn)
-
-    if ocdbt_edges:
-        logger.note("All tasks queued. Keep this alive for ocdbt coordinator server.")
-        while True:
-            sleep(60)
+    enqueue_l2_tasks(imanager, upgrade_atomic_chunk)
 
 
 @upgrade_cli.command("layer")
@@ -153,13 +111,14 @@ def queue_layer(parent_layer: int, splits: int = 0):
 
 
 @upgrade_cli.command("status")
+@click.option("--refresh", type=int, default=5, help="Seconds between redis polls.")
 @job_type_guard(group_name)
-def upgrade_status():
+def upgrade_status(refresh: int):
     """Print upgrade status to console."""
     redis = get_redis_connection()
     try:
         imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-        print_status(imanager, redis, upgrade=True)
+        print_status(imanager, redis, upgrade=True, refresh_seconds=refresh)
     except TypeError as err:
         print(f"\nNo current `{group_name}` job found in redis: {err}")
 
@@ -170,23 +129,7 @@ def upgrade_status():
 @job_type_guard(group_name)
 def upgrade_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    layer, coords = chunk_info[0], chunk_info[1:]
-
-    func = upgrade_parent_chunk
-    args = (layer, coords)
-    if layer == 2:
-        func = upgrade_atomic_chunk
-        args = (coords,)
-    queue = imanager.get_task_queue(queue)
-    queue.enqueue(
-        func,
-        job_id=chunk_id_str(layer, coords),
-        job_timeout=f"{int(layer * layer)}m",
-        result_ttl=0,
-        args=args,
-    )
+    requeue_chunk(queue, chunk_info, upgrade_atomic_chunk, upgrade_parent_chunk)
 
 
 @upgrade_cli.command("rate")

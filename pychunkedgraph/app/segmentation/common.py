@@ -2,6 +2,7 @@
 
 import json
 import os
+import pickle
 import time
 from datetime import datetime, timezone
 from functools import reduce
@@ -9,8 +10,8 @@ from collections import deque, defaultdict
 
 import numpy as np
 import pandas as pd
-import fastremap
 from flask import current_app, g, jsonify, make_response, request
+from messagingclient import MessagingClient
 from pytz import UTC
 
 from pychunkedgraph import __version__, get_logger
@@ -25,12 +26,9 @@ from pychunkedgraph.graph import (
     exceptions as cg_exceptions,
 )
 from pychunkedgraph.graph.analysis import pathing
-from pychunkedgraph.graph.edits_sv import split_supervoxel
 from pychunkedgraph.graph.misc import get_contact_sites
-from pychunkedgraph.debug.sv_split import check_unsplit_sv_bridges
 from pychunkedgraph.graph.operation import GraphEditOperation
 from pychunkedgraph.graph import basetypes
-from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
@@ -106,11 +104,25 @@ def handle_info(table_id):
     combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
         "verify", False
     )
-    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", None)
+    mesh_meta = cg.meta.custom_data.get("mesh", {})
+    mesh_dir = mesh_meta.get("dir", None)
     if mesh_dir is not None:
         combined_info["mesh_dir"] = mesh_dir
     elif combined_info.get("mesh_dir", None) is not None:
         combined_info["mesh_dir"] = "graphene_meshes"
+    # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
+    # subdir explicitly. Default `"dynamic"` matches mesh_worker.py's
+    # fallback and NG's current hardcoded subdir name in graphene
+    # backend.ts (`${fragmentUrl}dynamic/<fragmentId>`). NG must read
+    # this info field before non-default values route correctly.
+    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    combined_info["dynamic_mesh_dir"] = dynamic_dir
+    # cloud-volume reads the dynamic dir from mesh_metadata.unsharded_mesh_dir, not
+    # dynamic_mesh_dir; mirror it so an unpatched client fetches dynamic meshes from
+    # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
+    mesh_metadata = dict(combined_info.get("mesh_metadata", {}))
+    mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
+    combined_info["mesh_metadata"] = mesh_metadata
     return jsonify(combined_info)
 
 
@@ -322,15 +334,13 @@ def publish_edit(
     is_priority=True,
     remesh: bool = True,
 ):
-    import pickle
-
-    from messagingclient import MessagingClient
-
+    downsample = bool(result.seg_bbox)
     attributes = {
         "table_id": table_id,
         "user_id": user_id,
         "remesh_priority": "true" if is_priority else "false",
         "remesh": "true" if remesh else "false",
+        "downsample": "true" if downsample else "false",
     }
     payload = {
         "operation_id": int(result.operation_id),
@@ -338,6 +348,13 @@ def publish_edit(
         "new_root_ids": result.new_root_ids.tolist(),
         "old_root_ids": result.old_root_ids.tolist(),
     }
+    if downsample:
+        # Each entry is the base-resolution bbox of one supervoxel split's
+        # writes. Kept as a list (not merged) so the worker only rewrites
+        # tiles whose base footprint actually changed.
+        payload["seg_bboxes"] = [
+            [bbs.tolist(), bbe.tolist()] for bbs, bbe in result.seg_bbox
+        ]
 
     exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
     c = MessagingClient()
@@ -434,84 +451,6 @@ def _get_sources_and_sinks(cg: ChunkedGraph, data):
     return (source_ids, sink_ids, source_coords, sink_coords)
 
 
-def split_with_sv_splits(cg, data, user_id="test", mincut=True):
-    """Remove edges with automatic supervoxel splitting when needed.
-
-    Attempts remove_edges. If source/sink SVs share a cross-chunk representative,
-    splits the overlapping SVs in the segmentation and retries.
-    """
-    sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
-    logger.note(f"pre-split: sources={sources}, sinks={sinks}")
-    t0 = time.time()
-    try:
-        ret = cg.remove_edges(
-            user_id=user_id,
-            source_ids=sources,
-            sink_ids=sinks,
-            source_coords=source_coords,
-            sink_coords=sink_coords,
-            mincut=mincut,
-        )
-        logger.note(f"remove_edges ({time.time() - t0:.2f}s)")
-    except cg_exceptions.SupervoxelSplitRequiredError as e:
-        logger.note(f"sv split required ({time.time() - t0:.2f}s): {e}")
-        sources_remapped = fastremap.remap(
-            sources,
-            e.sv_remapping,
-            preserve_missing_labels=True,
-            in_place=False,
-        )
-        sinks_remapped = fastremap.remap(
-            sinks,
-            e.sv_remapping,
-            preserve_missing_labels=True,
-            in_place=False,
-        )
-        logger.note(f"remapped sources={sources_remapped}, sinks={sinks_remapped}")
-        overlap_mask = np.isin(sources_remapped, sinks_remapped)
-        logger.note(f"overlapping reps: {np.unique(sources_remapped[overlap_mask])}")
-        t1 = time.time()
-        for rep in np.unique(sources_remapped[overlap_mask]):
-            _mask0 = sources_remapped == rep
-            _mask1 = sinks_remapped == rep
-            split_supervoxel(
-                cg,
-                sources[_mask0][0],
-                source_coords[_mask0],
-                sink_coords[_mask1],
-                e.operation_id,
-                sv_remapping=e.sv_remapping,
-            )
-        logger.note(f"sv splits done ({time.time() - t1:.2f}s)")
-
-        sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
-        logger.note(f"post-split: sources={sources}, sinks={sinks}")
-        t1 = time.time()
-        try:
-            ret = cg.remove_edges(
-                user_id=user_id,
-                source_ids=sources,
-                sink_ids=sinks,
-                source_coords=source_coords,
-                sink_coords=sink_coords,
-                mincut=mincut,
-            )
-        except cg_exceptions.SupervoxelSplitRequiredError as e2:
-            # The cross-chunk representative group extends beyond the split
-            # bbox. Unsplit SVs inside the bbox still have inf edges to SVs
-            # outside, bridging source and sink through the broader component.
-
-            logger.note(f"retry still requires sv split")
-            # check_unsplit_sv_bridges(cg, e2.sv_remapping, sources, sinks)
-            raise cg_exceptions.PreconditionError(
-                "Supervoxel split succeeded but the split region is too small "
-                "to fully separate source and sink. "
-                "Try placing source and sink points farther apart."
-            ) from e2
-        logger.note(f"remove_edges after sv split ({time.time() - t1:.2f}s)")
-    return ret
-
-
 def handle_split(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user.get("id", current_app.user_id))
@@ -523,8 +462,17 @@ def handle_split(table_id):
 
     cg = app_utils.get_cg(table_id, skip_cache=True)
     current_app.logger.debug(data)
+    sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
+    logger.note(f"split inputs: sources={sources}, sinks={sinks}")
     try:
-        ret = split_with_sv_splits(cg, data, user_id, mincut)
+        ret = cg.remove_edges(
+            user_id=user_id,
+            source_ids=sources,
+            sink_ids=sinks,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+            mincut=mincut,
+        )
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
     except cg_exceptions.PreconditionError as e:
@@ -1157,6 +1105,9 @@ def handle_split_preview(table_id):
 
 
 def handle_find_path(table_id, precision_mode):
+    # nested: pulls meshing/cloudvolume, only needed at call time
+    from pychunkedgraph.meshing import mesh_analysis
+
     current_app.table_id = table_id
     user_id = str(g.auth_user.get("id", current_app.user_id))
 

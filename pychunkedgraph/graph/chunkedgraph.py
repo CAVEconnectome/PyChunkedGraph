@@ -19,8 +19,9 @@ from pychunkedgraph.graph import ClientType
 from pychunkedgraph.graph import get_client_class
 from pychunkedgraph.graph import get_default_client_info
 from .cache import CacheService
-from .meta import ChunkedGraphMeta, GraphConfig
+from .meta import ChunkedGraphMeta
 from pychunkedgraph.graph import basetypes
+from .sv_lookup import utils as sv_lookup_utils
 from .utils import id_helpers
 from pychunkedgraph.graph import serializers
 from pychunkedgraph.graph import get_valid_timestamp
@@ -41,15 +42,9 @@ class ChunkedGraph:
         meta: ChunkedGraphMeta = None,
         client_info: BackendClientInfo = get_default_client_info(),
     ):
-        """
-        1. New graph
-           Requires `meta`; if `client_info` is not passed the default client is used.
-           After creating `ChunkedGraph` instance, run instance.create().
-        2. Existing graph in default client
-           Requires `graph_id`.
-        3. Existing graphs in other projects/clients,
-           Requires `graph_id` and `client_info`.
-        """
+        """Open a chunked graph: `meta` for a new graph (then `.create()`), else `graph_id`
+        (+ `client_info` for other projects/clients). A graph_id naming a table copied from
+        another graph gets its graph-id-bearing meta (id, mesh dirs) rewritten here."""
         ClientClass = get_client_class(client_info.TYPE)
 
         if meta:
@@ -71,15 +66,11 @@ class ChunkedGraph:
         self._cache_service = None
         self.mock_edges = None  # hack for unit tests
 
-        # shim to update graph_id in meta for copied graphs
+        # A copied/restored table carries the source's graph-id-bearing meta;
+        # on first access under a new id, rewrite + persist it once (later
+        # instantiations match this id and no-op).
         if graph_id != self.graph_id:
-            gc = self.meta.graph_config._asdict()
-            gc["ID"] = graph_id
-            new_meta = ChunkedGraphMeta(
-                GraphConfig(**gc), self.meta.data_source, self.meta.custom_data
-            )
-            self.update_meta(new_meta, overwrite=True)
-            self._meta = new_meta
+            self.update_meta(self.meta.for_copied_graph(graph_id), overwrite=True)
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -107,7 +98,7 @@ class ChunkedGraph:
 
     @property
     def segmentation_resolution(self) -> np.ndarray:
-        return np.array(self.meta.ws_cv.scale["resolution"])
+        return self.meta.resolution
 
     @cache.setter
     def cache(self, cache_service: CacheService):
@@ -159,7 +150,7 @@ class ChunkedGraph:
         """Determines atomic id given a coordinate."""
         if self.get_chunk_layer(parent_id) == 1:
             return parent_id
-        return id_helpers.get_atomic_id_from_coord(
+        return sv_lookup_utils.get_atomic_id_from_coord(
             self.meta,
             self.get_root,
             x,
@@ -193,7 +184,7 @@ class ChunkedGraph:
             if layer == 1
             else self.get_node_timestamps([parent_id], return_numpy=False)[0]
         )
-        return id_helpers.get_atomic_ids_from_coords(
+        return sv_lookup_utils.get_atomic_ids_from_coords(
             self.meta,
             coordinates,
             parent_id,
@@ -1046,6 +1037,21 @@ class ChunkedGraph:
         assert len(layers) == 0 or np.all(layers == layers[0]), "must be same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
 
+    def get_chunk_center_voxel(self, node_or_chunk_id: basetypes.NODE_ID) -> np.ndarray:
+        """Approximate base-resolution voxel coord at the chunk's center.
+
+        Useful for debugging: feed the returned ``[x, y, z]`` to NGL's
+        position bar to navigate to where a chunk lives in the volume.
+        Layer L chunk side = ``CHUNK_SIZE * 2 ** (L - 2)`` base voxels.
+        """
+        layer = int(self.get_chunk_layer(node_or_chunk_id))
+        cx, cy, cz = self.get_chunk_coordinates(node_or_chunk_id)
+        chunk_size = np.asarray(self.meta.graph_config.CHUNK_SIZE, dtype=int) * (
+            2 ** (layer - 2)
+        )
+        origin = self.meta.voxel_bounds[:, 0] + np.array([cx, cy, cz]) * chunk_size
+        return (origin + chunk_size // 2).astype(int)
+
     def get_chunk_id(
         self,
         node_id: basetypes.NODE_ID = None,
@@ -1115,6 +1121,11 @@ class ChunkedGraph:
                 return self.client.read_node(
                     op_id, properties=attributes.OperationLogs.Status
                 )[-1].timestamp
+        # no ops: the ingest-completion boundary stamped during the root-layer build
+        stamped = self.meta.custom_data.get("earliest_ts")
+        if stamped is not None:
+            return datetime.datetime.fromisoformat(stamped)
+        return datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
 
     def get_operation_ids(self, node_ids: typing.Sequence):
         response = self.client.read_nodes(node_ids=node_ids)

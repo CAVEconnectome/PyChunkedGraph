@@ -6,9 +6,17 @@ from typing import Sequence
 from collections import namedtuple
 
 import numpy as np
-from cloudvolume import CloudVolume
+import tensorstore as ts
 
-from pychunkedgraph.graph.ocdbt import get_seg_source_and_destination_ocdbt
+from pychunkedgraph.graph.ocdbt import (
+    OcdbtConfig,
+    build_cg_ocdbt_spec,
+    ensure_fork_synced,
+    fork_base_manifest,
+    fork_exists,
+    get_seg_source_and_destination_ocdbt,
+    read_populate_meta,
+)
 
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
@@ -50,6 +58,29 @@ GraphConfig = namedtuple(
 )
 
 
+def _redis_cached_json(key: str, loader):
+    """Return JSON-decoded value at ``key`` in Redis, or call ``loader()`` and
+    write the result through. Spares distributed workers from re-fetching the
+    same GCS object on every CG instantiation. Silently bypasses Redis if it
+    is unreachable; returns ``loader()`` directly in that case.
+    """
+    redis = None
+    try:
+        redis = get_redis_connection()
+        cached = redis.get(key)
+        if cached is not None:
+            return json.loads(cached)
+    except Exception:
+        redis = None
+    value = loader()
+    if value is not None and redis is not None:
+        try:
+            redis.set(key, json.dumps(value))
+        except Exception:
+            ...
+    return value
+
+
 class ChunkedGraphMeta:
     def __init__(
         self, graph_config: GraphConfig, data_source: DataSource, custom_data: Dict = {}
@@ -62,6 +93,8 @@ class ChunkedGraphMeta:
         self._custom_data = custom_data
 
         self._ws_cv = None
+        self._ws_ts_scales = {}
+        self._ws_info_d = None
         # Multi-scale OCDBT handles + per-scale resolutions, populated lazily
         # from source's info JSON. ws_ocdbt returns scale 0 for backward
         # compatibility; ws_ocdbt_scales exposes the full pyramid.
@@ -71,6 +104,7 @@ class ChunkedGraphMeta:
         self._layer_count = None
         self._bitmasks = None
         self._ocdbt_seg = None
+        self._ocdbt_config_cached = None
 
     @property
     def graph_id(self):
@@ -89,32 +123,117 @@ class ChunkedGraphMeta:
     def custom_data(self):
         return self._custom_data
 
+    def for_copied_graph(self, graph_id: str) -> "ChunkedGraphMeta":
+        """Rewrite this meta in place for a table copied/restored under ``graph_id`` — its
+        graph id and mesh dirs — so the copy's meshes never alias the source's; returns self
+        for a one-line ``update_meta`` call."""
+        gc = self._graph_config._asdict()
+        gc["ID"] = graph_id
+        self._graph_config = GraphConfig(**gc)
+        mesh = self._custom_data.get("mesh")
+        if mesh and "dir" in mesh:
+            # Only an explicit graph-suffixed dynamic_mesh_dir shares initial meshes; a bare
+            # "dynamic" or an unset value defaults to a private per-graph top-level dir, so a
+            # copy can never alias the source.
+            rewrite = (
+                shared_initial_mesh_dirs
+                if mesh.get("dynamic_mesh_dir") not in (None, "dynamic")
+                else private_mesh_dirs
+            )
+            mesh["dir"], mesh["dynamic_mesh_dir"] = rewrite(mesh["dir"], graph_id)
+        return self
+
     @property
     def ws_cv(self):
+        """Watershed CloudVolume — back-compat hatch (meshing / diagnostics)."""
         if self._ws_cv:
             return self._ws_cv
+        from cloudvolume import CloudVolume
 
-        cache_key = f"{self.graph_config.ID}:ws_cv_info_cached"
-        try:
-            # try reading a cached info file for distributed workers
-            # useful to avoid md5 errors on high gcs load
-            redis = get_redis_connection()
-            cached_info = json.loads(redis.get(cache_key))
-            self._ws_cv = CloudVolume(
-                self._data_source.WATERSHED, info=cached_info, progress=False
-            )
-        except Exception:
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED, progress=False)
-            try:
-                redis.set(cache_key, json.dumps(self._ws_cv.info))
-            except Exception:
-                ...
+        ws = self._data_source.WATERSHED
+        info = _redis_cached_json(
+            f"ws_cv_info_cached:{ws}",
+            lambda: CloudVolume(ws, progress=False).info,
+        )
+        self._ws_cv = CloudVolume(ws, info=info, progress=False)
         return self._ws_cv
+
+    def ws_ts_scale(self, mip: int):
+        """Watershed handle (tensorstore neuroglancer_precomputed) at scale ``mip``."""
+        if mip not in self._ws_ts_scales:
+            ws = self._data_source.WATERSHED.rstrip("/")
+            self._ws_ts_scales[mip] = ts.open(
+                {
+                    "driver": "neuroglancer_precomputed",
+                    "kvstore": ws,
+                    "scale_index": mip,
+                }
+            ).result()
+        return self._ws_ts_scales[mip]
+
+    @property
+    def ws_ts(self):
+        """Watershed handle at base scale (mip 0)."""
+        return self.ws_ts_scale(0)
+
+    @property
+    def _ws_info(self):
+        """Watershed precomputed ``info`` JSON, Redis-cached."""
+        if self._ws_info_d is None:
+            # Base must not end in '/'; the leading '/' in '/info' supplies the
+            # separator — otherwise the GCS read returns empty.
+            ws = self._data_source.WATERSHED.rstrip("/")
+            self._ws_info_d = _redis_cached_json(
+                f"ws_info_cached:{ws}",
+                lambda: json.loads(
+                    ts.KvStore.open(ws).result().read("/info").result().value
+                ),
+            )
+        return self._ws_info_d
+
+    @property
+    def ocdbt_config(self) -> OcdbtConfig:
+        """Per-CG OCDBT settings with precedence info-file > custom_data > defaults.
+
+        The watershed's ``<ws>/ocdbt/.populated/meta.json`` is the authoritative
+        on-disk source for fields that affect the OCDBT format (compression,
+        max_inline_value_bytes, populate_layer). custom_data fills per-CG
+        fields (enabled, sv_split_threshold) and anything the info file
+        doesn't pin. Both layers fall through to dataclass defaults.
+
+        The info-file fetch goes through a Redis cache (same pattern as
+        ``ws_cv``) so distributed workers don't re-read the same GCS
+        object on every CG instantiation. Result is also cached in
+        instance state after first access. Legacy ``custom_data["seg"]``
+        shape is read when ``"ocdbt_config"`` is absent so pre-refactor
+        CGs still open.
+        """
+        if self._ocdbt_config_cached is not None:
+            return self._ocdbt_config_cached
+
+        meta_d = self._custom_data.get("ocdbt_config")
+        if meta_d is None:
+            seg = self._custom_data.get("seg", {})
+            meta_d = {
+                "enabled": bool(seg.get("ocdbt", False)),
+                "sv_split_threshold": int(seg.get("sv_split_threshold", 10)),
+            }
+
+        info_d = None
+        ws = self._data_source.WATERSHED
+        if ws:
+            info_d = _redis_cached_json(
+                f"ocdbt_info_cached:{ws}",
+                lambda: read_populate_meta(ws),
+            )
+
+        self._ocdbt_config_cached = OcdbtConfig.resolve(meta_d, info_d)
+        return self._ocdbt_config_cached
 
     @property
     def ocdbt_seg(self) -> bool:
         if self._ocdbt_seg is None:
-            self._ocdbt_seg = self._custom_data.get("seg", {}).get("ocdbt", False)
+            self._ocdbt_seg = self.ocdbt_config.enabled
         return self._ocdbt_seg
 
     @property
@@ -131,9 +250,22 @@ class ChunkedGraphMeta:
         """
         assert self.ocdbt_seg, "make sure this pcg has segmentation in ocdbt format"
         if self._ws_ocdbt_scales is None:
+            ws = self.data_source.WATERSHED
+            # Auto-create the fork on first open if missing — e.g. after a
+            # bigtable copy that gave us a new graph_id. Idempotent and
+            # race-safe: concurrent opens write identical base-manifest
+            # bytes to the same path. Can't race with an edit because an
+            # edit pre-supposes the fork exists.
+            if not fork_exists(ws, self.graph_id):
+                fork_base_manifest(ws, self.graph_id)
+            # Refresh the fork manifest from base if it's stale and edit-free.
+            # See ensure_fork_synced docstring; without this, post-fork-creation
+            # populate writes to base are invisible through the kvstack view
+            # and reads return zeros.
+            ensure_fork_synced(ws, self.graph_id)
             _, self._ws_ocdbt_scales, self._ws_ocdbt_resolutions = (
                 get_seg_source_and_destination_ocdbt(
-                    self.data_source.WATERSHED, self.graph_id
+                    ws, self.graph_id, self.ocdbt_config
                 )
             )
         return self._ws_ocdbt_scales
@@ -147,7 +279,7 @@ class ChunkedGraphMeta:
 
     @property
     def resolution(self):
-        return self.ws_cv.resolution  # pylint: disable=no-member
+        return np.array(self._ws_info["scales"][0]["resolution"])
 
     @property
     def layer_count(self) -> int:
@@ -155,8 +287,6 @@ class ChunkedGraphMeta:
 
         if self._layer_count:
             return self._layer_count
-        bbox = np.array(self.ws_cv.bounds.to_list())  # pylint: disable=no-member
-        bbox = bbox.reshape(2, 3)
         n_chunks = get_chunks_boundary(
             self.voxel_counts, np.array(self._graph_config.CHUNK_SIZE, dtype=int)
         )
@@ -190,18 +320,14 @@ class ChunkedGraphMeta:
 
     @property
     def voxel_bounds(self):
-        bounds = np.array(self.ws_cv.bounds.to_list())  # pylint: disable=no-member
-        return bounds.reshape(2, -1).T
+        s0 = self._ws_info["scales"][0]
+        vo = np.array(s0["voxel_offset"])
+        return np.array([vo, vo + np.array(s0["size"])]).T
 
     @property
     def voxel_counts(self) -> Sequence[int]:
         """returns number of voxels in each dimension"""
-        cv_bounds = np.array(self.ws_cv.bounds.to_list())  # pylint: disable=no-member
-        cv_bounds = cv_bounds.reshape(2, -1).T
-        voxel_counts = cv_bounds.copy()
-        voxel_counts -= cv_bounds[:, 0:1]  # pylint: disable=unsubscriptable-object
-        voxel_counts = voxel_counts[:, 1]
-        return voxel_counts
+        return np.array(self._ws_info["scales"][0]["size"])
 
     @property
     def layer_chunk_bounds(self) -> Dict:
@@ -272,7 +398,7 @@ class ChunkedGraphMeta:
 
     @property
     def sv_split_threshold(self) -> int:
-        return self._custom_data.get("seg", {}).get("sv_split_threshold", 10)
+        return self.ocdbt_config.sv_split_threshold
 
     @property
     def split_bounding_offset(self):
@@ -283,7 +409,7 @@ class ChunkedGraphMeta:
 
     @property
     def dataset_info(self) -> Dict:
-        info = self.ws_cv.info  # pylint: disable=no-member
+        info = dict(self._ws_info)
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,
@@ -296,12 +422,22 @@ class ChunkedGraphMeta:
                     "n_layers": self.layer_count,
                     "spatial_bit_masks": self.bitmasks,
                     "ocdbt_seg": self.ocdbt_seg,
-                    # Per-CG delta OCDBT path. Neuroglancer must open this
-                    # via the kvstack spec from build_cg_ocdbt_spec() to see
-                    # both base + delta data. Opening it as plain OCDBT only
-                    # sees the delta.
-                    "ocdbt_path": (
-                        f"ocdbt/{self.graph_id}" if self._graph_config.ID else None
+                    # Full kvstore spec a reader hands to tensorstore's
+                    # `neuroglancer_precomputed` driver. Server owns the
+                    # contract — paths, data prefixes, and OCDBT config
+                    # (e.g. `max_inline_value_bytes`) are all resolved
+                    # here, so readers don't duplicate configuration and
+                    # future schema changes are picked up on re-fetch.
+                    # Readers pass this verbatim as `kvstore`; add a
+                    # `version` field for time-travel reads.
+                    "ocdbt_kvstore_spec": (
+                        build_cg_ocdbt_spec(
+                            self._data_source.WATERSHED,
+                            self.graph_id,
+                            self.ocdbt_config,
+                        )
+                        if self.ocdbt_seg and self._graph_config.ID
+                        else None
                     ),
                 },
             }
@@ -344,3 +480,17 @@ class ChunkedGraphMeta:
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.bitmasks[1]
         )
+
+
+def private_mesh_dirs(mesh_dir: str, graph_id: str) -> tuple[str, str]:
+    """(dir, dynamic_mesh_dir) for a copied table whose meshes are all its own (source
+    dynamic dir unset or the bare "dynamic"). Suffix the top-level dir per graph so even
+    initial meshes stay private; the dynamic subdir keeps the bare "dynamic" inside it."""
+    return f"{mesh_dir}_{graph_id}", "dynamic"
+
+
+def shared_initial_mesh_dirs(mesh_dir: str, graph_id: str) -> tuple[str, str]:
+    """(dir, dynamic_mesh_dir) for a copied table that shares initial meshes with siblings
+    from the same backup — the source dynamic dir was graph-suffixed. Keep the top-level dir
+    shared; re-derive only the dynamic subdir per graph."""
+    return mesh_dir, f"dynamic_{graph_id}"

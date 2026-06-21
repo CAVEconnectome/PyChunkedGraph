@@ -1,28 +1,44 @@
 # pylint: disable=invalid-name, missing-docstring
 
 import functools
+import math
+import sys
+from os import environ
+from time import sleep
+from typing import Dict, Generator, Tuple
+
+import numpy as np
+from kvdbclient import BigTableConfig, HBaseConfig
+from rich import box
+from rich.console import Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
+from rq import Queue, Retry
+from rq.registry import (
+    CanceledJobRegistry,
+    DeferredJobRegistry,
+    FailedJobRegistry,
+    FinishedJobRegistry,
+    ScheduledJobRegistry,
+    StartedJobRegistry,
+)
+from rq.worker_registration import WORKERS_BY_QUEUE_KEY
 
 from pychunkedgraph import get_logger
 
-logger = get_logger(__name__)
-import math, random, sys
-from os import environ
-from time import sleep
-from typing import Any, Generator, Tuple
-
-import numpy as np
-import tensorstore as ts
-from rq import Queue, Retry, Worker
-from rq.worker import WorkerStatus
-
 from . import IngestConfig
 from .manager import IngestionManager
-from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
 from ..graph import BackendClientInfo
-from kvdbclient import BigTableConfig, HBaseConfig
+from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
+from ..graph.ocdbt import OcdbtConfig
 from ..utils.general import chunked
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
+
+logger = get_logger(__name__)
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -32,8 +48,13 @@ def bootstrap(
     config: dict,
     raw: bool = False,
     test_run: bool = False,
-) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo]:
-    """Parse config loaded from a yaml file."""
+) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo, Dict]:
+    """Parse config loaded from a yaml file.
+
+    Returns ``(meta, ingest_config, client_info, ocdbt_config_dict)`` where the
+    ocdbt config dict is sanitized through ``OcdbtConfig.from_dict(...).to_dict()``
+    so unknown yaml keys are dropped and missing fields take dataclass defaults.
+    """
     ingest_config = IngestConfig(
         **config.get("ingest_config", {}),
         USE_RAW_EDGES=raw,
@@ -55,7 +76,8 @@ def bootstrap(
     data_source = DataSource(**config["data_source"])
 
     meta = ChunkedGraphMeta(graph_config, data_source)
-    return (meta, ingest_config, client_info)
+    ocdbt_config_dict = OcdbtConfig.from_dict(config.get("ocdbt_config")).to_dict()
+    return (meta, ingest_config, client_info, ocdbt_config_dict)
 
 
 def move_up(lines: int = 1):
@@ -93,16 +115,6 @@ def postprocess_edge_data(im, edge_dict):
         return new_edge_dict
     else:
         raise ValueError(f"Unknown data_version: {data_version}")
-
-
-def start_ocdbt_server(imanager: IngestionManager, server: Any):
-    spec = {"driver": "ocdbt", "base": f"{imanager.cg.meta.data_source.EDGES}/ocdbt"}
-    spec["coordinator"] = {"address": f"localhost:{server.port}"}
-    ts.KvStore.open(spec).result()
-    imanager.redis.set("OCDBT_COORDINATOR_PORT", str(server.port))
-    ocdbt_host = environ.get("MY_POD_IP", "localhost")
-    imanager.redis.set("OCDBT_COORDINATOR_HOST", ocdbt_host)
-    logger.note(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
 
 
 def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
@@ -148,64 +160,237 @@ def print_completion_rate(imanager: IngestionManager, layer: int, span: int = 30
         move_up()
 
 
-def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
+def _workers_busy_per_queue(redis, worker_keys_per_layer):
+    """For each layer's set of worker keys, return parallel (workers, busy)
+    string lists — "-" / "-" when no workers are registered for that layer.
+
+    Two-round-trip approach: caller already fetched the SMEMBERS sets; this
+    function pipelines HGET state for every worker key and counts busy.
     """
-    Helper to print status to console.
+    state_pipe = redis.pipeline()
+    for keys in worker_keys_per_layer:
+        for wk in keys:
+            state_pipe.hget(wk, "state")
+    states = state_pipe.execute() if any(worker_keys_per_layer) else []
+
+    workers, busy = [], []
+    idx = 0
+    for keys in worker_keys_per_layer:
+        total = len(keys)
+        b = 0
+        for _ in keys:
+            if states[idx] == b"busy":
+                b += 1
+            idx += 1
+        workers.append(f"{total}" if total else "-")
+        busy.append(f"{b}" if total else "-")
+    return workers, busy
+
+
+def _layer_keys(layers) -> list:
+    """Stable per-layer redis keys (completed-set, queue list, failed zset, workers set).
+
+    Returned once before the refresh loop so each refresh skips Queue /
+    FailedJobRegistry construction and the lazy rq.registry import.
+    """
+    return [
+        (
+            f"{layer}c",
+            f"rq:queue:l{layer}",
+            f"rq:failed:l{layer}",
+            WORKERS_BY_QUEUE_KEY % f"l{layer}",
+        )
+        for layer in layers
+    ]
+
+
+def _layer_status(redis, layer_keys):
+    """Pipelined fetch of job_type + per-layer counts + busy-worker ratios."""
+    pipeline = redis.pipeline()
+    pipeline.get(r_keys.JOB_TYPE)
+    for completed_key, queue_key, failed_key, workers_key in layer_keys:
+        pipeline.scard(completed_key)
+        pipeline.llen(queue_key)
+        pipeline.zcard(failed_key)
+        pipeline.smembers(workers_key)
+    results = pipeline.execute()
+
+    job_type = results[0].decode() if results[0] else "not_available"
+    completed, queued, failed, worker_keys_per_layer = [], [], [], []
+    for i in range(1, len(results), 4):
+        completed.append(results[i])
+        queued.append(results[i + 1])
+        failed.append(results[i + 2])
+        worker_keys_per_layer.append(results[i + 3])
+
+    workers, busy = _workers_busy_per_queue(redis, worker_keys_per_layer)
+    return job_type, completed, queued, failed, workers, busy
+
+
+def _sized_table(columns: list, rows: list, **table_kwargs) -> Table:
+    """Build a Rich Table whose column widths are sized to the actual data.
+
+    `columns` is a list of (name, justify) tuples.
+    `rows` is a list of tuples of cell strings (one per column).
+    Each column gets width = max(len(name), max(len(cell)) over rows) so Rich
+    never wraps or crops because no column is implicitly squeezed.
+    """
+    table = Table(
+        box=None,
+        pad_edge=False,
+        padding=(0, 2),
+        show_header=True,
+        header_style="bold",
+        **table_kwargs,
+    )
+    for col_idx, (name, justify) in enumerate(columns):
+        width = max(len(name), max((len(row[col_idx]) for row in rows), default=0))
+        # Header wrapped in Text so any brackets in `name` render literally
+        # rather than being parsed as Rich markup tags.
+        table.add_column(
+            Text(name, style="bold"), justify=justify, width=width, no_wrap=True
+        )
+    for row in rows:
+        table.add_row(*row)
+    return table
+
+
+def _aligned_kv_table(pairs: list, widths: list) -> Table:
+    """One-data-row mini-table with externally-provided per-column widths."""
+    table = Table(
+        box=None, pad_edge=False, padding=(0, 1), show_header=True, header_style="bold"
+    )
+    for (name, _), w in zip(pairs, widths):
+        table.add_column(name, justify="left", width=w, no_wrap=True)
+    table.add_row(*(v for _, v in pairs))
+    return table
+
+
+def _header_renderables(imanager: IngestionManager) -> list:
+    """Graph and ocdbt rows as mini-tables sharing column widths so columns line up."""
+    graph_pairs = [
+        ("version", str(imanager.cg.version)),
+        ("graph_id", imanager.cg.graph_id),
+        ("chunk_size", str(imanager.cg.meta.graph_config.CHUNK_SIZE)),
+    ]
+    ocdbt_pairs = []
+    if imanager.ocdbt_seg:
+        ocdbt_pairs = [
+            ("ocdbt", str(imanager.ocdbt_seg)),
+            ("populate_base", str(imanager.ocdbt_populate_base)),
+            ("populate_layer", str(imanager.ocdbt_populate_layer)),
+        ]
+
+    # Per-column width = max length seen in EITHER row's header or value at that index.
+    n = max(len(graph_pairs), len(ocdbt_pairs))
+    widths = []
+    for i in range(n):
+        sizes = []
+        if i < len(graph_pairs):
+            sizes.append(len(graph_pairs[i][0]))
+            sizes.append(len(graph_pairs[i][1]))
+        if i < len(ocdbt_pairs):
+            sizes.append(len(ocdbt_pairs[i][0]))
+            sizes.append(len(ocdbt_pairs[i][1]))
+        widths.append(max(sizes))
+
+    out = [_aligned_kv_table(graph_pairs, widths)]
+    if ocdbt_pairs:
+        out.append(Rule(style="dim"))
+        out.append(_aligned_kv_table(ocdbt_pairs, widths))
+    return out
+
+
+def _status_table(
+    layers, layer_counts, completed, queued, failed, workers, busy
+) -> Table:
+    """One row per layer with progress, queue, and worker stats."""
+    columns = [
+        ("layer", "center"),
+        ("queued", "right"),
+        ("completed", "right"),
+        ("total", "right"),
+        ("progress", "right"),
+        ("failed", "right"),
+        ("workers", "right"),
+        ("busy", "right"),
+    ]
+    rows = []
+    for layer, done, count, q, f, w, b in zip(
+        layers, completed, layer_counts, queued, failed, workers, busy
+    ):
+        pct = math.floor((done / count) * 100) if count else 0
+        rows.append(
+            (
+                str(layer),
+                f"{q:,}",
+                f"{done:,}",
+                f"{count:,}",
+                f"{pct}%",
+                f"{f:,}",
+                str(w),
+                str(b),
+            )
+        )
+    return _sized_table(columns, rows)
+
+
+def _status_renderable(
+    imanager,
+    layers,
+    layer_counts,
+    job_type,
+    completed,
+    queued,
+    failed,
+    workers,
+    busy,
+):
+    """Combine header rows + per-layer table inside one Panel; job_type goes in the title."""
+    body = Group(
+        *_header_renderables(imanager),
+        Rule(style="dim"),
+        _status_table(layers, layer_counts, completed, queued, failed, workers, busy),
+    )
+    return Panel(
+        body,
+        title=job_type,
+        title_align="left",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        expand=False,
+    )
+
+
+def print_status(
+    imanager: IngestionManager,
+    redis,
+    upgrade: bool = False,
+    refresh_seconds: int = 5,
+):
+    """
+    Print status to console.
     If `upgrade=True`, status does not include the root layer,
     since there is no need to update cross edges for root ids.
+    `refresh_seconds` is how often redis is re-polled between redraws.
     """
     layers = range(2, imanager.cg_meta.layer_count + 1)
     if upgrade:
         layers = range(2, imanager.cg_meta.layer_count)
-
-    def _refresh_status():
-        pipeline = redis.pipeline()
-        pipeline.get(r_keys.JOB_TYPE)
-        worker_busy = ["-"] * len(layers)
-        for layer in layers:
-            pipeline.scard(f"{layer}c")
-            queue = Queue(f"l{layer}", connection=redis)
-            pipeline.llen(queue.key)
-            pipeline.zcard(queue.failed_job_registry.key)
-
-        results = pipeline.execute()
-        job_type = "not_available"
-        if results[0] is not None:
-            job_type = results[0].decode()
-        completed = []
-        queued = []
-        failed = []
-        for i in range(1, len(results), 3):
-            result = results[i : i + 3]
-            completed.append(result[0])
-            queued.append(result[1])
-            failed.append(result[2])
-        return job_type, completed, queued, failed, worker_busy
-
-    job_type, completed, queued, failed, worker_busy = _refresh_status()
-
     layer_counts = imanager.cg_meta.layer_chunk_counts
-    header = (
-        f"\njob_type: \t{job_type}"
-        f"\nversion: \t{imanager.cg.version}"
-        f"\ngraph_id: \t{imanager.cg.graph_id}"
-        f"\nchunk_size: \t{imanager.cg.meta.graph_config.CHUNK_SIZE}"
-        "\n\nlayer status:"
-    )
-    print(header)
-    while True:
-        for layer, done, count in zip(layers, completed, layer_counts):
-            print(
-                f"{layer}\t| {done:9} / {count} \t| {math.floor((done/count)*100):6}%"
-            )
+    layer_keys = _layer_keys(layers)
 
-        print("\n\nqueue status:")
-        for layer, q, f, wb in zip(layers, queued, failed, worker_busy):
-            print(f"l{layer}\t| queued: {q:<10} failed: {f:<10} busy: {wb}")
+    def render():
+        return _status_renderable(
+            imanager, layers, layer_counts, *_layer_status(redis, layer_keys)
+        )
 
-        sleep(1)
-        _, completed, queued, failed, worker_busy = _refresh_status()
-        move_up(lines=2 * len(layers) + 3)
+    # Start Live with a placeholder so the panel paints instantly; the first
+    # real fetch (which includes redis connection setup) replaces it.
+    with Live(Text("loading…"), screen=False) as live:
+        while True:
+            live.update(render())
+            sleep(refresh_seconds)
 
 
 def queue_layer_helper(
@@ -265,6 +450,54 @@ def queue_layer_helper(
                 )
         q.enqueue_many(job_datas)
         logger.note(f"Queued {len(job_datas)} chunks.")
+
+
+_RQ_REGISTRY_CLASSES = (
+    FailedJobRegistry,
+    StartedJobRegistry,
+    DeferredJobRegistry,
+    ScheduledJobRegistry,
+    FinishedJobRegistry,
+    CanceledJobRegistry,
+)
+
+
+def purge_layer_state(redis, layer: int) -> None:
+    """Reset per-layer state so a layer can be re-run from a previous
+    layer's backup: drop the RQ queue (deletes jobs too), wipe each RQ
+    registry by its own ``.key`` attribute (so we don't hardcode RQ's
+    internal key naming), and clear the pychunkedgraph completion set
+    ``f"{layer}c"``.
+    """
+    name = f"l{layer}"
+    Queue(name=name, connection=redis).delete(delete_jobs=True)
+    for cls in _RQ_REGISTRY_CLASSES:
+        redis.delete(cls(name=name, connection=redis).key)
+    redis.delete(f"{layer}c")
+
+
+def requeue_chunk(queue_name: str, chunk_info, atomic_fn, parent_fn):
+    """Body of the ``chunk`` CLI command (shared by ingest and upgrade).
+
+    Loads the manager from Redis, dispatches ``atomic_fn`` for L2 or
+    ``parent_fn`` for L3+, and enqueues a single task with the standard
+    job_id / timeout convention.
+    """
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    layer, coords = chunk_info[0], chunk_info[1:]
+    if layer == 2:
+        fn, args = atomic_fn, (coords,)
+    else:
+        fn, args = parent_fn, (layer, coords)
+    queue = imanager.get_task_queue(queue_name)
+    queue.enqueue(
+        fn,
+        job_id=chunk_id_str(layer, coords),
+        job_timeout=f"{int(layer * layer)}m",
+        result_ttl=0,
+        args=args,
+    )
 
 
 def job_type_guard(job_type: str):

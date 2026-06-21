@@ -1,5 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad-exception-raised
 
+import time
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
@@ -17,26 +18,38 @@ from functools import reduce
 import numpy as np
 from pychunkedgraph import get_logger
 
-logger = get_logger(__name__)
-
+from . import err_dump
 from . import locks
 from . import edits
+from . import sv_split
 from . import types
+from .ocdbt import write_seg_chunks
+from .dry_run import is_dry_run
 from pychunkedgraph.graph import attributes
 from .edges import Edges
 from .edges.utils import get_edges_status
 from pychunkedgraph.graph import basetypes
 from pychunkedgraph.graph import serializers
 from .cache import CacheService
-from .cutting import run_multicut
-from .exceptions import PreconditionError, SupervoxelSplitRequiredError
+from .cutting import Cut, SvSplitRequired, run_multicut
+from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .utils.generic import get_bounding_box as get_bbox
+from .utils.generic import get_bounding_box as get_bbox, assert_same_root
 from pychunkedgraph.graph import get_valid_timestamp
-from ..logging.log_db import TimeIt
 
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
+
+logger = get_logger(__name__)
+
+
+def _log_edit_done(result, op_type, elapsed):
+    new_roots = list(map(int, np.asarray(result.new_root_ids).tolist()))
+    old_roots = list(map(int, np.asarray(result.old_root_ids).tolist()))
+    logger.note(
+        f"<{result.operation_id}> {op_type} done "
+        f"new_roots={new_roots} old_roots={old_roots} elapsed={elapsed:.2f}s"
+    )
 
 
 class GraphEditOperation(ABC):
@@ -50,7 +63,9 @@ class GraphEditOperation(ABC):
         "do_sanity_check",
     ]
     Result = namedtuple(
-        "Result", ["operation_id", "new_root_ids", "new_lvl2_ids", "old_root_ids"]
+        "Result",
+        ["operation_id", "new_root_ids", "new_lvl2_ids", "old_root_ids", "seg_bbox"],
+        defaults=(None,),
     )
 
     def __init__(
@@ -421,6 +436,7 @@ class GraphEditOperation(ABC):
         is_merge = isinstance(self, MergeOperation)
         op_type = "merge" if is_merge else "split"
         self.parent_ts = parent_ts
+        t_edit_start = time.time()
         root_ids = self._update_root_ids()
         with locks.RootLock(
             self.cg,
@@ -444,15 +460,14 @@ class GraphEditOperation(ABC):
                 operation_ts=override_ts if override_ts else timestamp,
                 status=attributes.OperationLogs.StatusCodes.CREATED.value,
             )
-            self.cg.client.write([log_record_before_edit])
+            self._persist_rows([log_record_before_edit])
 
             try:
-                with TimeIt(f"{op_type}.apply", self.cg.graph_id, lock.operation_id):
-                    new_root_ids, new_lvl2_ids, affected_records = self._apply(
-                        operation_id=lock.operation_id,
-                        timestamp=override_ts if override_ts else timestamp,
-                    )
-                if self.cg.meta.READ_ONLY:
+                new_root_ids, new_lvl2_ids, affected_records = self._apply(
+                    operation_id=lock.operation_id,
+                    timestamp=override_ts if override_ts else timestamp,
+                )
+                if is_dry_run():
                     # return without persisting changes
                     return GraphEditOperation.Result(
                         operation_id=lock.operation_id,
@@ -460,11 +475,6 @@ class GraphEditOperation(ABC):
                         new_lvl2_ids=new_lvl2_ids,
                         old_root_ids=root_ids,
                     )
-            except SupervoxelSplitRequiredError as err:
-                # no need for self.cg.cache = None, the cache must be retained after sv split
-                raise SupervoxelSplitRequiredError(
-                    str(err), err.sv_remapping, operation_id=lock.operation_id
-                ) from err
             except PreconditionError as err:
                 self.cg.cache = None
                 raise PreconditionError(err) from err
@@ -473,10 +483,30 @@ class GraphEditOperation(ABC):
                 raise PostconditionError(err) from err
             except (AssertionError, RuntimeError) as err:
                 self.cg.cache = None
+                dump_url = err_dump.dump_err_artifact(
+                    self.cg,
+                    lock.operation_id,
+                    err_dump.build_err_payload(self, lock.operation_id, err),
+                )
+                logger.error(
+                    f"<{lock.operation_id}> {type(self).__name__} failed: "
+                    f"{type(err).__name__}: {err}"
+                    f"{err_dump.payload_summary(self)} dump={dump_url}"
+                )
                 raise RuntimeError(err) from err
             except Exception as err:
                 # unknown exception, update log record with error
                 self.cg.cache = None
+                dump_url = err_dump.dump_err_artifact(
+                    self.cg,
+                    lock.operation_id,
+                    err_dump.build_err_payload(self, lock.operation_id, err),
+                )
+                logger.error(
+                    f"<{lock.operation_id}> {type(self).__name__} failed: "
+                    f"{type(err).__name__}: {err}"
+                    f"{err_dump.payload_summary(self)} dump={dump_url}"
+                )
                 log_record_error = self._create_log_record(
                     operation_id=lock.operation_id,
                     new_root_ids=types.empty_1d,
@@ -485,19 +515,19 @@ class GraphEditOperation(ABC):
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
                     exception=repr(err),
                 )
-                self.cg.client.write([log_record_error])
+                self._persist_rows([log_record_error])
                 raise Exception(err) from err
 
-            with TimeIt(f"{op_type}.write", self.cg.graph_id, lock.operation_id):
-                result = self._write(
-                    lock,
-                    override_ts if override_ts else timestamp,
-                    new_root_ids,
-                    new_lvl2_ids,
-                    affected_records,
-                    root_ids,
-                )
-                return result
+            result = self._write(
+                lock,
+                override_ts if override_ts else timestamp,
+                new_root_ids,
+                new_lvl2_ids,
+                affected_records,
+                root_ids,
+            )
+            _log_edit_done(result, op_type, time.time() - t_edit_start)
+            return result
 
     def _write(
         self,
@@ -550,7 +580,17 @@ class GraphEditOperation(ABC):
             new_root_ids=new_root_ids,
             new_lvl2_ids=new_lvl2_ids,
             old_root_ids=old_root_ids,
+            # Only set when the operation actually ran SV splits (MulticutOperation
+            # populates this; other operations leave the attr absent and it defaults
+            # to None via the Result namedtuple's default).
+            seg_bbox=getattr(self, "seg_bboxes", None) or None,
         )
+
+    def _persist_rows(self, rows):
+        """Persist BT mutation rows; no-op under ``PCG_DRY_RUN=1``."""
+        if is_dry_run():
+            return
+        self.cg.client.write(rows)
 
 
 class MergeOperation(GraphEditOperation):
@@ -630,13 +670,14 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
-        root_ids = set(
-            self.cg.get_roots(
-                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
-            )
-        )
+        sv_ids = self.added_edges.ravel()
+        roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
+        root_ids = set(roots)
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
-            raise PreconditionError("Supervoxels must belong to different objects.")
+            raise PreconditionError(
+                f"[MergeOperation._apply] Supervoxels must belong to different "
+                f"objects. sv_id->root: {dict(zip(sv_ids.tolist(), roots.tolist()))}"
+            )
 
         atomic_edges = self.added_edges
         fake_edge_rows = []
@@ -667,17 +708,16 @@ class MergeOperation(GraphEditOperation):
                 parent_ts=self.parent_ts,
             )
 
-        with TimeIt("add_edges", self.cg.graph_id, operation_id):
-            new_roots, new_l2_ids, new_entries = edits.add_edges(
-                self.cg,
-                atomic_edges=atomic_edges,
-                operation_id=operation_id,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-                allow_same_segment_merge=self.allow_same_segment_merge,
-                do_sanity_check=self.do_sanity_check,
-                stitch_mode=self.stitch_mode,
-            )
+        new_roots, new_l2_ids, new_entries = edits.add_edges(
+            self.cg,
+            atomic_edges=atomic_edges,
+            operation_id=operation_id,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+            allow_same_segment_merge=self.allow_same_segment_merge,
+            do_sanity_check=self.do_sanity_check,
+            stitch_mode=self.stitch_mode,
+        )
         return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
     def _create_log_record(
@@ -761,43 +801,25 @@ class SplitOperation(GraphEditOperation):
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
-        root_ids = np.unique(
-            self.cg.get_roots(
-                self.removed_edges.ravel(),
-                assert_roots=True,
-                time_stamp=self.parent_ts,
-            )
-        )
-        if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same object.")
-        return root_ids
+        sv_ids = self.removed_edges.ravel()
+        roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
+        return assert_same_root(sv_ids, roots, source="SplitOperation._update_root_ids")
 
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
-        if (
-            len(
-                set(
-                    self.cg.get_roots(
-                        self.removed_edges.ravel(),
-                        assert_roots=True,
-                        time_stamp=self.parent_ts,
-                    )
-                )
-            )
-            > 1
-        ):
-            raise PreconditionError("Supervoxels must belong to the same object.")
+        sv_ids = self.removed_edges.ravel()
+        roots = self.cg.get_roots(sv_ids, assert_roots=True, time_stamp=self.parent_ts)
+        assert_same_root(sv_ids, roots, source="SplitOperation._apply")
 
-        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
-            return edits.remove_edges(
-                self.cg,
-                operation_id=operation_id,
-                atomic_edges=self.removed_edges,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-                do_sanity_check=self.do_sanity_check,
-            )
+        return edits.remove_edges(
+            self.cg,
+            operation_id=operation_id,
+            atomic_edges=self.removed_edges,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+            do_sanity_check=self.do_sanity_check,
+        )
 
     def _create_log_record(
         self,
@@ -866,6 +888,11 @@ class MulticutOperation(GraphEditOperation):
         "path_augment",
         "disallow_isolating_cut",
         "do_sanity_check",
+        # Base-resolution bboxes of SV splits done as part of this op, one
+        # per rep. Populated only when the multicut hit SvSplitRequired and
+        # split_supervoxels actually ran. Surfaced on the Result so the
+        # downsample worker knows which regions to re-mip.
+        "seg_bboxes",
     ]
 
     def __init__(
@@ -893,6 +920,7 @@ class MulticutOperation(GraphEditOperation):
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
         self.do_sanity_check = do_sanity_check
+        self.seg_bboxes = []
 
         ids = np.concatenate([self.source_ids, self.sink_ids]).astype(basetypes.NODE_ID)
         layers = self.cg.get_chunk_layers(ids)
@@ -902,72 +930,137 @@ class MulticutOperation(GraphEditOperation):
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids)).astype(
             basetypes.NODE_ID
         )
-        root_ids = np.unique(
-            self.cg.get_roots(
-                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
-            )
+        roots = self.cg.get_roots(
+            sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
         )
-        if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same segment.")
-        return root_ids
+        return assert_same_root(
+            sink_and_source_ids,
+            roots,
+            source="MulticutOperation._update_root_ids",
+        )
 
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
-        # Verify that sink and source are from the same root object
-        root_ids = set(
-            self.cg.get_roots(
-                np.concatenate([self.source_ids, self.sink_ids]).astype(
-                    basetypes.NODE_ID
-                ),
-                assert_roots=True,
-                time_stamp=self.parent_ts,
+        result = self._run_multicut(operation_id)
+        if isinstance(result, SvSplitRequired):
+            # Running under GraphEditOperation.execute's RootLock — no same-root
+            # edit can interleave between the SV split and the retry multicut.
+            # `plan_sv_splits` returns the chunk scope for both locks below,
+            # `split_supervoxels` is a pure planner that computes the full
+            # payload. Writes happen here inside nested L2 chunk locks:
+            #   - `L2ChunkLock` (temporal) spans the seg reads (inside
+            #     `split_supervoxels`) and the writes, so no concurrent
+            #     op can mutate our chunks mid-compute.
+            #   - `IndefiniteL2ChunkLock` is scoped tightly to the writes
+            #     only. A worker death inside it leaves the indefinite
+            #     cell set on every chunk row in scope, blocking future
+            #     ops until operator replay clears them.
+            tasks, chunk_ids = sv_split.edits.plan_sv_splits(
+                self.cg,
+                sv_remapping=result.sv_remapping,
+                source_ids=self.source_ids,
+                sink_ids=self.sink_ids,
+                source_coords=self.source_coords,
+                sink_coords=self.sink_coords,
             )
+            with locks.L2ChunkLock(
+                self.cg,
+                chunk_ids,
+                operation_id,
+                privileged_mode=self.privileged_mode,
+            ):
+                sv_result = sv_split.edits.split_supervoxels(
+                    self.cg,
+                    tasks=tasks,
+                    sv_remapping=result.sv_remapping,
+                    source_ids=self.source_ids,
+                    sink_ids=self.sink_ids,
+                    operation_id=operation_id,
+                    timestamp=timestamp,
+                    parent_ts=self.parent_ts,
+                )
+                with locks.IndefiniteL2ChunkLock(
+                    self.cg,
+                    chunk_ids,
+                    operation_id,
+                    privileged_mode=self.privileged_mode,
+                ):
+                    write_seg_chunks(self.cg.meta, sv_result.seg_writes)
+                    self._persist_rows(sv_result.bigtable_rows)
+            self.seg_bboxes = sv_result.seg_bboxes
+            self.source_ids = sv_result.source_ids_fresh
+            self.sink_ids = sv_result.sink_ids_fresh
+            result = self._run_multicut(operation_id)
+            if isinstance(result, SvSplitRequired):
+                raise PreconditionError(
+                    "Supervoxel split succeeded but source and sink remain "
+                    "connected; place source and sink farther apart."
+                )
+
+        assert isinstance(result, Cut), f"unexpected multicut result: {result!r}"
+        self.removed_edges = result.atomic_edges
+        if not self.removed_edges.size:
+            raise PostconditionError("Mincut could not find any edges to remove.")
+
+        return edits.remove_edges(
+            self.cg,
+            operation_id=operation_id,
+            atomic_edges=self.removed_edges,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+            do_sanity_check=self.do_sanity_check,
         )
-        if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same object.")
+
+    def _run_multicut(self, operation_id):
+        """Build the local subgraph and run multicut; returns the tagged result.
+
+        Factored so `_apply` can call it twice — once for initial detection
+        and again after an SV split to get fresh atomic_edges against the
+        post-split graph topology.
+        """
+        sink_and_source_ids = np.concatenate([self.source_ids, self.sink_ids]).astype(
+            basetypes.NODE_ID
+        )
+        roots = self.cg.get_roots(
+            sink_and_source_ids,
+            assert_roots=True,
+            time_stamp=self.parent_ts,
+        )
+        root_ids = set(
+            assert_same_root(
+                sink_and_source_ids,
+                roots,
+                source="MulticutOperation._run_multicut",
+            ).tolist()
+        )
 
         bbox = get_bbox(
             self.source_coords,
             self.sink_coords,
             self.cg.meta.split_bounding_offset,
         )
-        with TimeIt("get_subgraph", self.cg.graph_id, operation_id):
-            l2id_agglomeration_d, edges_tuple = self.cg.get_subgraph(
-                root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
-            )
-
-            edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
-            supervoxels = np.concatenate(
-                [agg.supervoxels for agg in l2id_agglomeration_d.values()]
-            ).astype(basetypes.NODE_ID)
-            mask0 = np.isin(edges.node_ids1, supervoxels)
-            mask1 = np.isin(edges.node_ids2, supervoxels)
-            edges = edges[mask0 & mask1]
+        l2id_agglomeration_d, edges_tuple = self.cg.get_subgraph(
+            root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
+        )
+        edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
+        supervoxels = np.concatenate(
+            [agg.supervoxels for agg in l2id_agglomeration_d.values()]
+        ).astype(basetypes.NODE_ID)
+        mask0 = np.isin(edges.node_ids1, supervoxels)
+        mask1 = np.isin(edges.node_ids2, supervoxels)
+        edges = edges[mask0 & mask1]
         if len(edges) == 0:
             raise PreconditionError("No local edges found.")
 
-        with TimeIt("multicut", self.cg.graph_id, operation_id):
-            self.removed_edges = run_multicut(
-                edges,
-                self.source_ids,
-                self.sink_ids,
-                path_augment=self.path_augment,
-                disallow_isolating_cut=self.disallow_isolating_cut,
-                sv_split_supported=self.cg.meta.ocdbt_seg,
-            )
-        if not self.removed_edges.size:
-            raise PostconditionError("Mincut could not find any edges to remove.")
-
-        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
-            return edits.remove_edges(
-                self.cg,
-                operation_id=operation_id,
-                atomic_edges=self.removed_edges,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-                do_sanity_check=self.do_sanity_check,
-            )
+        return run_multicut(
+            edges,
+            self.source_ids,
+            self.sink_ids,
+            path_augment=self.path_augment,
+            disallow_isolating_cut=self.disallow_isolating_cut,
+            sv_split_supported=self.cg.meta.ocdbt_seg,
+        )
 
     def _create_log_record(
         self,

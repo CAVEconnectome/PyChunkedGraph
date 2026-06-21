@@ -9,7 +9,6 @@ from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.app.app_utils import get_cg
 from pychunkedgraph.app.app_utils import remap_public
 
-
 bp = Blueprint(
     "pcg_meshing_v1", __name__, url_prefix=f"/{common.__meshing_url_prefix__}/api/v1"
 )
@@ -98,3 +97,12 @@ def handle_remesh(table_id):
 def handle_clear_manifest_cache(table_id, node_id):
     cg = get_cg(table_id)
     common.clear_manifest_cache(cg, node_id)
+
+
+@bp.route("/table/<table_id>/clear_manifest_cache", methods=["GET"])
+@auth_requires_permission("edit")
+def handle_clear_manifest_cache_all(table_id):
+    """Drop every cached manifest fragment for this graph."""
+    cg = get_cg(table_id)
+    deleted = common.clear_manifest_cache_all(cg)
+    return {"deleted": deleted}

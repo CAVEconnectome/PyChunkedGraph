@@ -23,14 +23,12 @@ Edge classification:
 Distance computation:
     For partners within the segmentation bbox, distances are precomputed via
     kdtree pairwise distances. For active partners outside the bbox (e.g.
-    cross-chunk fragments excluded by _get_whole_sv's bbox clipping), distances
-    are computed from each new fragment's kdtree to the partner's chunk boundary.
+    cross-chunk fragments not in the rep's CC member set), distances are
+    computed from each new fragment's kdtree to the partner's chunk boundary.
 """
 
 from __future__ import annotations
 
-import time
-from functools import reduce
 from typing import TYPE_CHECKING
 from datetime import datetime
 
@@ -38,11 +36,11 @@ import fastremap
 import numpy as np
 
 from pychunkedgraph import get_logger
+from pychunkedgraph.profiler import get_profiler
 from pychunkedgraph.graph import attributes, basetypes, serializers
+from pychunkedgraph.graph.chunks import utils as chunk_utils
 from pychunkedgraph.graph.exceptions import PostconditionError
-from scipy.spatial import cKDTree
-from pychunkedgraph.graph.cutting_sv import build_coords_by_label
-from pychunkedgraph.graph.edges import Edges
+from pykdtree.kdtree import KDTree as cKDTree
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
@@ -136,25 +134,29 @@ def _expand_partners(active_partners, active_affs, active_areas, old_new_map):
     return partners, affs, areas
 
 
-def _compute_partner_distances(new_kdtrees, partner_coords):
-    """Compute min distance from each new fragment kdtree to a partner's voxel coords."""
-    partner_tree = cKDTree(partner_coords)
+def _compute_partner_distances(new_kdtrees, partner_coords, partner_tree=None):
+    """Min distance from each new fragment to a partner's voxel coords.
+
+    `partner_tree` may be supplied pre-built; otherwise built from `partner_coords`.
+    """
+    if partner_tree is None:
+        partner_tree = cKDTree(partner_coords)
     distances = np.empty(len(new_kdtrees), dtype=float)
     for i, kt in enumerate(new_kdtrees):
         if kt.n <= partner_tree.n:
-            d, _ = partner_tree.query(kt.data, k=1, workers=-1)
+            d, _ = partner_tree.query(kt.data.reshape(-1, 3), k=1)
         else:
-            d, _ = kt.query(partner_tree.data, k=1, workers=-1)
+            d, _ = kt.query(partner_coords, k=1)
         distances[i] = float(np.min(d))
     return distances
 
 
-def _compute_boundary_distances(cg, new_kdtrees, partner, old_chunk, chunk_size):
+def _compute_boundary_distances(new_kdtrees, partner_chunk, old_chunk, chunk_size):
     """Compute distance from each new fragment to a partner's chunk boundary.
+
     Used for active partners outside the bbox that have no kdtree entry.
-    old_chunk and chunk_size should be precomputed by the caller.
+    `partner_chunk`, `old_chunk`, `chunk_size` are precomputed by the caller.
     """
-    partner_chunk = cg.get_chunk_coordinates(partner)
     diff = partner_chunk.astype(int) - old_chunk.astype(int)
     axis = np.argmax(np.abs(diff))
     if diff[axis] > 0:
@@ -179,12 +181,24 @@ def _get_new_edges(
     edge_batches, aff_batches, area_batches = [], [], []
     edges, affinities, areas = edges_info
 
+    # `new_kdtrees[id_to_idx[nid]]` retrieves the precomputed tree for any
+    # new fragment id — every per-old subset draws from this one pool.
+    id_to_idx = {int(nid): i for i, nid in enumerate(new_ids_arr)}
+    # Partner trees are pure functions of the partner's voxel coords;
+    # cache across the whole call so a partner shared by multiple olds
+    # builds its tree once.
+    partner_tree_cache: dict = {}
+
     for old, new in old_new_map.items():
         new_ids = np.array(list(new), dtype=basetypes.NODE_ID)
-        edges_m = np.any(edges == old, axis=1)
+        edges_m = (edges[:, 0] == old) | (edges[:, 1] == old)
         selected_edges = edges[edges_m]
         sel_m = selected_edges != old
-        assert np.all(np.sum(sel_m, axis=1) == 1)
+        bad_rows = np.sum(sel_m, axis=1) != 1
+        assert not bad_rows.any(), (
+            f"each selected edge must touch old={old} exactly once; "
+            f"bad_rows={selected_edges[bad_rows].tolist()}"
+        )
 
         partners = selected_edges[sel_m]
         edge_affs = affinities[edges_m]
@@ -214,19 +228,43 @@ def _get_new_edges(
             partners[active_m], edge_affs[active_m], edge_areas[active_m], old_new_map
         )
         if len(active_partners) > 0:
-            # Build kdtrees for this old SV's fragments only
-            frag_kdtrees = [cKDTree(coords_by_label[int(nid)]) for nid in new_ids]
+            frag_kdtrees = [new_kdtrees[id_to_idx[int(nid)]] for nid in new_ids]
             old_chunk = cg.get_chunk_coordinates(new_ids[0]) if cg else None
             chunk_size = cg.meta.graph_config.CHUNK_SIZE if cg else None
+            # Pre-resolve chunk coords for partners that will hit the
+            # boundary-distance fallback (no in-bbox voxel coords). One
+            # batched bit-shift beats N scalar calls and removes `cg` from
+            # `_compute_boundary_distances`.
+            boundary_partners = [
+                int(p) for p in active_partners if coords_by_label.get(int(p)) is None
+            ]
+            if boundary_partners and cg is not None:
+                boundary_arr = np.array(boundary_partners, dtype=np.uint64)
+                boundary_coords = chunk_utils.get_chunk_coordinates_multiple(
+                    cg.meta, boundary_arr
+                )
+                partner_chunk_map = {
+                    p: boundary_coords[i] for i, p in enumerate(boundary_partners)
+                }
+            else:
+                partner_chunk_map = {}
             for k, partner in enumerate(active_partners):
-                partner_coords = coords_by_label.get(int(partner))
+                partner_int = int(partner)
+                partner_coords = coords_by_label.get(partner_int)
                 if partner_coords is not None:
+                    pt = partner_tree_cache.get(partner_int)
+                    if pt is None:
+                        pt = cKDTree(partner_coords)
+                        partner_tree_cache[partner_int] = pt
                     act_dist_row = _compute_partner_distances(
-                        frag_kdtrees, partner_coords
+                        frag_kdtrees, partner_coords, partner_tree=pt
                     )
                 else:
                     act_dist_row = _compute_boundary_distances(
-                        cg, frag_kdtrees, partner, old_chunk, chunk_size
+                        frag_kdtrees,
+                        partner_chunk_map[partner_int],
+                        old_chunk,
+                        chunk_size,
                     )
                 e, a, ar = _match_partner(
                     new_ids,
@@ -313,10 +351,16 @@ def validate_split_edges(edges, affinities, old_new_map, new_id_label_map=None):
                             for f in p_frags
                             if int(f) in new_id_label_map
                         }
-                        if len(labels) > 1:
+                        # Only {1, 2} forces a source↔sink uncuttable path
+                        # through the partner. Bridges that include label-3
+                        # (unresolved fragment, no seed) ride to whichever
+                        # seeded side the inf-cluster ends up on — a valid
+                        # cut. The label is a routing hint, not a cut
+                        # constraint; the mincut decides side membership.
+                        if {1, 2}.issubset(labels):
                             raise PostconditionError(
                                 f"Inf-affinity edge to unsplit partner {p} bridges "
-                                f"fragments with different labels {labels}. "
+                                f"source-side and sink-side fragments {labels}. "
                                 f"This creates an uncuttable bridge in mincut."
                             )
 
@@ -340,67 +384,6 @@ def validate_split_edges(edges, affinities, old_new_map, new_id_label_map=None):
                     raise PostconditionError(
                         f"Missing inter-fragment edge between {ids[i]} and {ids[j]}"
                     )
-
-
-def update_edges(
-    cg: "ChunkedGraph",
-    root_id: basetypes.NODE_ID,
-    bbox: np.ndarray,
-    new_seg: np.ndarray,
-    old_new_map: dict,
-    new_id_label_map: dict = None,
-):
-    old_new_map = dict(old_new_map)
-    t0 = time.time()
-    coords_by_label = build_coords_by_label(new_seg)
-    new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
-    new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
-    logger.note(
-        f"build_coords {len(coords_by_label)} labels, {len(new_ids)} fragment trees ({time.time() - t0:.2f}s)"
-    )
-
-    t0 = time.time()
-    _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
-    edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
-    logger.note(
-        f"get_subgraph {len(edges_.get_pairs())} edges ({time.time() - t0:.2f}s)"
-    )
-
-    edges = edges_.get_pairs()
-    affinities = edges_.affinities
-    areas = edges_.areas
-
-    edges = np.sort(edges, axis=1)
-    _, edges_idx = np.unique(edges, axis=0, return_index=True)
-    edges_idx = edges_idx[edges[edges_idx, 0] != edges[edges_idx, 1]]
-
-    edges = edges[edges_idx]
-    affinities = affinities[edges_idx]
-    areas = areas[edges_idx]
-
-    t0 = time.time()
-    all_edge_svs = np.unique(edges)
-    all_roots = cg.get_roots(all_edge_svs)
-    sv_root_map = dict(zip(all_edge_svs, all_roots))
-    logger.note(f"get_roots {len(all_edge_svs)} svs ({time.time() - t0:.2f}s)")
-
-    t0 = time.time()
-    result = _get_new_edges(
-        (edges, affinities, areas),
-        old_new_map,
-        coords_by_label,
-        root_id,
-        sv_root_map,
-        cg,
-        new_kdtrees,
-        new_ids,
-        new_id_label_map,
-        threshold=cg.meta.sv_split_threshold,
-    )
-    logger.note(f"_get_new_edges {result[0].shape} ({time.time() - t0:.2f}s)")
-
-    validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)
-    return result
 
 
 def _edges_to_bidirectional(edges_, affinities_, areas_):
@@ -437,8 +420,6 @@ def add_new_edges(
     time_stamp: datetime = None,
 ):
     edges_, affinities_, areas_ = edges_tuple
-    logger.note(f"new edges: {edges_.shape}")
-
     nodes = fastremap.unique(edges_)
     chunks = cg.get_chunk_ids_from_node_ids(cg.get_parents(nodes))
     node_chunks = dict(zip(nodes, chunks))

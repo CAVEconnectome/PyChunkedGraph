@@ -2,12 +2,13 @@ name: pychunkedgraph
 channels:
   - conda-forge
 dependencies:
-  - python==3.12.8
+  - python==3.14
   - pip
   - tox
   - numpy
-  - uwsgi
   - graph-tool-base==2.98
+  # uwsgi has no conda-forge py314 build; pip-installed from sdist below.
   - pip:
+    - uwsgi==2.0.31
     - -r requirements.txt
     - -r requirements-dev.txt

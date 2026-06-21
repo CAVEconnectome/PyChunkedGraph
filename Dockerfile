@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
-ARG PYTHON_VERSION=3.12
-ARG BASE_IMAGE=tiangolo/uwsgi-nginx-flask:python${PYTHON_VERSION}
+ARG PYTHON_VERSION=3.14
+# python:X-slim is the official upstream image. Pin by digest once a
+# known-good build is identified so cache invalidation stays explicit;
+# until then, the tag follows the latest 3.14 patch release.
+ARG BASE_IMAGE=python:${PYTHON_VERSION}-slim
 
 
 ######################################################
@@ -48,19 +51,40 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM ${BASE_IMAGE}
 ENV VIRTUAL_ENV=/app/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+# Force ld to resolve libpython3.x.so to the conda venv's copy. The
+# slim base ships its own /usr/local/lib/libpython, which the loader
+# would otherwise pair with conda-built C extensions, segfaulting in
+# PyObject_Hash during the first import.
+ENV LD_LIBRARY_PATH="$VIRTUAL_ENV/lib"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      nginx supervisor redis-tools procps \
+  && (id nginx >/dev/null 2>&1 || useradd -r -d /home/nginx -s /bin/bash nginx) \
+  && mkdir -p /etc/uwsgi /home/nginx/.cloudvolume/secrets \
+  && chown -R nginx /home/nginx \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=conda-deps /app/venv /app/venv
 COPY --from=bigtable-emulator /go/bin/emulator /app/venv/bin/cbtemulator
 COPY override/gcloud /app/venv/bin/gcloud
 COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
+COPY override/nginx.conf /etc/nginx/nginx.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-RUN pip install --no-cache-dir --no-deps --force-reinstall zstandard>=0.23.0 \
-  && mkdir -p /home/nginx/.cloudvolume/secrets \
-  && chown -R nginx /home/nginx \
-  && usermod -d /home/nginx -s /bin/bash nginx
+COPY uwsgi.ini /etc/uwsgi/uwsgi.ini
+
+# PyPI wheel bundles the zstd C source; conda-forge's system-linked
+# build lacks `multi_decompress_to_buffer`, used by io/edges.py.
+RUN pip install --no-cache-dir --no-deps --force-reinstall zstandard>=0.23.0
 
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade -r requirements.txt
 
 COPY . /app
+WORKDIR /app
+
+# --no-deps: graph-tool/cloudvolume etc. are already in the venv. __version__ comes from
+# the committed pychunkedgraph/_version.py literal (bumped by the release workflow).
+RUN pip install --no-deps -e .
+
+CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisor/supervisord.conf"]

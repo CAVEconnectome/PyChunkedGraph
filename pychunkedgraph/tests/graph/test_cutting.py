@@ -4,8 +4,10 @@ import numpy as np
 import pytest
 
 from pychunkedgraph.graph.cutting import (
+    Cut,
     IsolatingCutException,
     LocalMincutGraph,
+    PreviewCut,
     merge_cross_chunk_edges_graph_tool,
     run_multicut,
 )
@@ -336,8 +338,9 @@ class TestRunMulticut:
             path_augment=True,
             disallow_isolating_cut=False,
         )
-        assert len(result) > 0
-        result_set = set(map(tuple, result))
+        assert isinstance(result, Cut)
+        assert len(result.atomic_edges) > 0
+        result_set = set(map(tuple, result.atomic_edges))
         assert (2, 3) in result_set or (3, 2) in result_set
 
     def test_basic_split_direct(self):
@@ -354,8 +357,9 @@ class TestRunMulticut:
             path_augment=False,
             disallow_isolating_cut=False,
         )
-        assert len(result) > 0
-        result_set = set(map(tuple, result))
+        assert isinstance(result, Cut)
+        assert len(result.atomic_edges) > 0
+        result_set = set(map(tuple, result.atomic_edges))
         assert (2, 3) in result_set or (3, 2) in result_set
 
     def test_no_edges_raises(self):
@@ -377,7 +381,7 @@ class TestRunMulticut:
             )
 
     def test_split_preview_mode(self):
-        """run_multicut with split_preview=True returns (ccs, illegal_split)."""
+        """run_multicut with split_preview=True returns a PreviewCut."""
         node_ids1 = np.array([1, 2, 3], dtype=np.uint64)
         node_ids2 = np.array([2, 3, 4], dtype=np.uint64)
         affinities = np.array([0.9, 0.05, 0.9], dtype=np.float32)
@@ -391,10 +395,10 @@ class TestRunMulticut:
             path_augment=False,
             disallow_isolating_cut=False,
         )
-        supervoxel_ccs, illegal_split = result
-        assert isinstance(supervoxel_ccs, list)
-        assert len(supervoxel_ccs) >= 2
-        assert isinstance(illegal_split, bool)
+        assert isinstance(result, PreviewCut)
+        assert isinstance(result.supervoxel_ccs, list)
+        assert len(result.supervoxel_ccs) >= 2
+        assert isinstance(result.illegal_split, bool)
 
 
 class TestMergeCrossChunkEdgesOverlap:
@@ -641,7 +645,7 @@ class TestRunMulticutSplitPreview:
     """Test run_multicut in split_preview mode returns correct structure."""
 
     def test_split_preview_returns_ccs_and_flag(self):
-        """run_multicut with split_preview=True should return (ccs, illegal_split)."""
+        """run_multicut with split_preview=True should return a PreviewCut."""
         node_ids1 = np.array([1, 2, 3], dtype=np.uint64)
         node_ids2 = np.array([2, 3, 4], dtype=np.uint64)
         affinities = np.array([0.9, 0.01, 0.9], dtype=np.float32)
@@ -656,15 +660,15 @@ class TestRunMulticutSplitPreview:
             disallow_isolating_cut=False,
         )
 
-        supervoxel_ccs, illegal_split = result
-        assert isinstance(supervoxel_ccs, list)
-        assert len(supervoxel_ccs) >= 2
-        assert isinstance(illegal_split, bool)
+        assert isinstance(result, PreviewCut)
+        assert isinstance(result.supervoxel_ccs, list)
+        assert len(result.supervoxel_ccs) >= 2
+        assert isinstance(result.illegal_split, bool)
 
         # Source side CC
-        assert 1 in supervoxel_ccs[0]
+        assert 1 in result.supervoxel_ccs[0]
         # Sink side CC
-        assert 4 in supervoxel_ccs[1]
+        assert 4 in result.supervoxel_ccs[1]
 
     def test_split_preview_with_path_augment(self):
         """run_multicut with split_preview=True and path_augment=True."""
@@ -682,12 +686,12 @@ class TestRunMulticutSplitPreview:
             disallow_isolating_cut=False,
         )
 
-        supervoxel_ccs, illegal_split = result
-        assert len(supervoxel_ccs) >= 2
+        assert isinstance(result, PreviewCut)
+        assert len(result.supervoxel_ccs) >= 2
         # Source side
-        assert 1 in supervoxel_ccs[0]
+        assert 1 in result.supervoxel_ccs[0]
         # Sink side
-        assert 5 in supervoxel_ccs[1]
+        assert 5 in result.supervoxel_ccs[1]
 
     def test_split_preview_larger_graph(self):
         """split_preview on a larger graph with a clear cut point."""
@@ -709,14 +713,14 @@ class TestRunMulticutSplitPreview:
             disallow_isolating_cut=False,
         )
 
-        supervoxel_ccs, illegal_split = result
-        source_cc = set(supervoxel_ccs[0])
-        sink_cc = set(supervoxel_ccs[1])
+        assert isinstance(result, PreviewCut)
+        source_cc = set(result.supervoxel_ccs[0])
+        sink_cc = set(result.supervoxel_ccs[1])
         # Source cluster
         assert {1, 2, 3}.issubset(source_cc)
         # Sink cluster
         assert {4, 5, 6}.issubset(sink_cc)
-        assert not illegal_split
+        assert not result.illegal_split
 
 
 class TestLocalMincutGraphWithLogger:
@@ -1040,7 +1044,7 @@ class TestRunSplitPreview:
     """
 
     def test_basic_split_preview(self):
-        """run_multicut with split_preview should return CCs and a flag."""
+        """run_multicut with split_preview should return a PreviewCut."""
         edges_sv = Edges(
             np.array([1, 2, 3, 4], dtype=np.uint64),
             np.array([2, 3, 4, 5], dtype=np.uint64),
@@ -1049,16 +1053,17 @@ class TestRunSplitPreview:
         )
         sources = np.array([1], dtype=np.uint64)
         sinks = np.array([5], dtype=np.uint64)
-        ccs, illegal_split = run_multicut(
+        result = run_multicut(
             edges_sv,
             sources,
             sinks,
             split_preview=True,
             disallow_isolating_cut=False,
         )
-        assert isinstance(ccs, list)
-        assert isinstance(illegal_split, bool)
-        assert len(ccs) >= 2
+        assert isinstance(result, PreviewCut)
+        assert isinstance(result.supervoxel_ccs, list)
+        assert isinstance(result.illegal_split, bool)
+        assert len(result.supervoxel_ccs) >= 2
 
     def test_split_preview_with_areas(self):
         """Split preview with areas provided."""
@@ -1070,7 +1075,7 @@ class TestRunSplitPreview:
         )
         sources = np.array([10], dtype=np.uint64)
         sinks = np.array([40], dtype=np.uint64)
-        ccs, illegal_split = run_multicut(
+        result = run_multicut(
             edges_sv,
             sources,
             sinks,
@@ -1078,12 +1083,10 @@ class TestRunSplitPreview:
             path_augment=False,
             disallow_isolating_cut=False,
         )
-        assert isinstance(ccs, list)
-        assert len(ccs) >= 2
-        # Source side should contain 10
-        assert 10 in ccs[0]
-        # Sink side should contain 40
-        assert 40 in ccs[1]
+        assert isinstance(result, PreviewCut)
+        assert len(result.supervoxel_ccs) >= 2
+        assert 10 in result.supervoxel_ccs[0]
+        assert 40 in result.supervoxel_ccs[1]
 
     def test_split_preview_path_augment(self):
         """Split preview with path_augment=True."""
@@ -1094,7 +1097,7 @@ class TestRunSplitPreview:
         )
         sources = np.array([1], dtype=np.uint64)
         sinks = np.array([6], dtype=np.uint64)
-        ccs, illegal_split = run_multicut(
+        result = run_multicut(
             edges_sv,
             sources,
             sinks,
@@ -1102,11 +1105,11 @@ class TestRunSplitPreview:
             path_augment=True,
             disallow_isolating_cut=False,
         )
-        assert isinstance(ccs, list)
-        assert len(ccs) >= 2
-        assert 1 in ccs[0]
-        assert 6 in ccs[1]
-        assert not illegal_split
+        assert isinstance(result, PreviewCut)
+        assert len(result.supervoxel_ccs) >= 2
+        assert 1 in result.supervoxel_ccs[0]
+        assert 6 in result.supervoxel_ccs[1]
+        assert not result.illegal_split
 
 
 class TestFilterGraphCCsWithLogger:

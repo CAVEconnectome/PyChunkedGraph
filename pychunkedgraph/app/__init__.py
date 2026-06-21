@@ -96,6 +96,7 @@ def configure_app(app):
     formatter.converter = time.gmtime
     handler.setFormatter(formatter)
     app.logger.removeHandler(default_handler)
+    logging.getLogger().removeHandler(default_handler)
     app.logger.addHandler(handler)
     app.logger.setLevel(app.config["LOGGING_LEVEL"])
     app.logger.propagate = False
@@ -103,9 +104,14 @@ def configure_app(app):
     # Ensure pychunkedgraph logger always works at NOTICE level
     # regardless of app config or environment log level
     configure_logging(level=NOTICE)
+    pcg_logger = logging.getLogger("pychunkedgraph")
+    # Root logger on the server image has a BASIC_FORMAT StreamHandler
+    # (installed by uwsgi/gunicorn or an upstream basicConfig); propagating
+    # past our own handler would re-emit every record in the
+    # `LEVELNAME:logger.name:message` form.
+    pcg_logger.propagate = False
     # app.logger.propagate = False blocks children under pychunkedgraph.app
     # from reaching the pychunkedgraph handler — attach it directly
-    pcg_logger = logging.getLogger("pychunkedgraph")
     app_ns_logger = logging.getLogger("pychunkedgraph.app")
     for h in pcg_logger.handlers:
         if isinstance(h, logging.StreamHandler) and not isinstance(

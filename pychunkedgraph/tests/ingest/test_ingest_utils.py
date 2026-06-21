@@ -44,10 +44,13 @@ class TestBootstrap:
             },
             "ingest_config": {},
         }
-        meta, ingest_config, client_info = bootstrap("test_graph", config=config)
+        meta, ingest_config, client_info, ocdbt_config_dict = bootstrap(
+            "test_graph", config=config
+        )
         assert meta.graph_config.ID == "test_graph"
         assert meta.graph_config.FANOUT == 2
         assert ingest_config.USE_RAW_EDGES is False
+        assert isinstance(ocdbt_config_dict, dict)
 
 
 class TestPostprocessEdgeData:
@@ -329,7 +332,6 @@ class TestJobTypeGuard:
 # =====================================================================
 # Additional pure unit tests
 # =====================================================================
-from pychunkedgraph.ingest.utils import start_ocdbt_server
 
 
 class TestGetChunksNotDoneWithSplits:
@@ -388,57 +390,6 @@ class TestGetChunksNotDoneWithSplits:
         call_args = imanager.redis.smismember.call_args
         assert call_args[0][0] == "3c"
         assert call_args[0][1] == ["2_3_4_0"]
-
-
-class TestStartOcdbtServer:
-    """Test start_ocdbt_server function."""
-
-    @patch("pychunkedgraph.ingest.utils.ts")
-    @patch.dict("os.environ", {"MY_POD_IP": "10.0.0.1"})
-    def test_start_ocdbt_server(self, mock_ts):
-        """start_ocdbt_server should open a KvStore and set redis keys."""
-        imanager = MagicMock()
-        imanager.cg.meta.data_source.EDGES = "gs://bucket/edges"
-        mock_redis = MagicMock()
-        imanager.redis = mock_redis
-
-        server = MagicMock()
-        server.port = 12345
-
-        mock_kv_future = MagicMock()
-        mock_ts.KvStore.open.return_value = mock_kv_future
-
-        start_ocdbt_server(imanager, server)
-
-        # Verify tensorstore was called with the right spec
-        call_args = mock_ts.KvStore.open.call_args[0][0]
-        assert call_args["driver"] == "ocdbt"
-        assert "gs://bucket/edges/ocdbt" in call_args["base"]
-        assert call_args["coordinator"]["address"] == "localhost:12345"
-        mock_kv_future.result.assert_called_once()
-
-        # Verify redis keys were set
-        mock_redis.set.assert_any_call("OCDBT_COORDINATOR_PORT", "12345")
-        mock_redis.set.assert_any_call("OCDBT_COORDINATOR_HOST", "10.0.0.1")
-
-    @patch("pychunkedgraph.ingest.utils.ts")
-    @patch.dict("os.environ", {}, clear=True)
-    def test_start_ocdbt_server_default_host(self, mock_ts):
-        """When MY_POD_IP is not set, should default to localhost."""
-        imanager = MagicMock()
-        imanager.cg.meta.data_source.EDGES = "gs://bucket/edges"
-        mock_redis = MagicMock()
-        imanager.redis = mock_redis
-
-        server = MagicMock()
-        server.port = 9999
-
-        mock_kv_future = MagicMock()
-        mock_ts.KvStore.open.return_value = mock_kv_future
-
-        start_ocdbt_server(imanager, server)
-
-        mock_redis.set.assert_any_call("OCDBT_COORDINATOR_HOST", "localhost")
 
 
 class TestPostprocessEdgeDataNoneValues:

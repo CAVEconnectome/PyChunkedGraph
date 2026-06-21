@@ -1,14 +1,16 @@
-"""Tests for pychunkedgraph.graph.edits_sv"""
+"""Tests for pychunkedgraph.graph.sv_split.edits"""
 
 import numpy as np
 import pytest
 from collections import defaultdict
 from unittest.mock import MagicMock, patch
 
-from pychunkedgraph.graph.edits_sv import (
+from pychunkedgraph.graph.sv_split.edits import (
+    _coords_bbox,
     _voxel_crop,
     _parse_results,
     copy_parents_and_add_lineage,
+    plan_sv_splits,
 )
 from pychunkedgraph.graph import attributes, basetypes
 
@@ -107,6 +109,41 @@ class TestParseResults:
         assert updated_seg[0, 0, 1] == 400
         assert 300 in old_new_map[100]
         assert 400 in old_new_map[200]
+
+    def test_dedupes_per_voxel_pairs(self):
+        # old/new arrive as parallel per-voxel arrays with many duplicates;
+        # the dict must collapse to the unique (old, new) set per old SV.
+        n = 100
+        seg = np.zeros((1, 1, 2 * n), dtype=basetypes.NODE_ID)
+        bbs = np.array([0, 0, 0])
+        bbe = np.array([1, 1, 2 * n])
+        indices = np.stack(
+            [
+                np.zeros(2 * n, dtype=int),
+                np.zeros(2 * n, dtype=int),
+                np.arange(2 * n),
+            ],
+            axis=1,
+        )
+        old_values = np.concatenate(
+            [
+                np.full(n, 100, dtype=basetypes.NODE_ID),
+                np.full(n, 100, dtype=basetypes.NODE_ID),
+            ]
+        )
+        new_values = np.concatenate(
+            [
+                np.full(n, 300, dtype=basetypes.NODE_ID),
+                np.full(n, 301, dtype=basetypes.NODE_ID),
+            ]
+        )
+        results = [
+            (indices, old_values, new_values, {1: np.uint64(300), 2: np.uint64(301)})
+        ]
+
+        _, old_new_map, _ = _parse_results(results, seg, bbs, bbe)
+        assert set(old_new_map.keys()) == {100}
+        assert old_new_map[100] == {300, 301}
 
 
 # ============================================================
@@ -237,3 +274,131 @@ class TestCopyParentsAndAddLineage:
                 assert val_dict[attributes.OperationLogs.OperationID] == 99
                 op_id_found = True
         assert op_id_found
+
+    def test_time_stamp_threaded_to_new_sv_writes(self):
+        """New-SV writes (FormerIdentity/OperationID on new, NewIdentity
+        on old) land at `time_stamp`. Parent-copy and Child-list writes
+        preserve the old cell's timestamp so pre-op readers still see
+        the old hierarchy.
+        """
+        from datetime import datetime, timezone
+
+        old = np.uint64(10)
+        new1 = np.uint64(101)
+        parent = np.uint64(1000)
+
+        old_cell_ts = 42  # old cell's timestamp, preserved on Parent/Child copies
+        op_ts = datetime(2026, 4, 23, tzinfo=timezone.utc)  # op's logical write time
+
+        parent_cells_map = {old: [_FakeCell(parent, timestamp=old_cell_ts)]}
+        children_cells_map = {
+            parent: [
+                _FakeCell(
+                    np.array([old], dtype=basetypes.NODE_ID), timestamp=old_cell_ts
+                )
+            ]
+        }
+        cg = self._make_cg(parent_cells_map, children_cells_map)
+
+        copy_parents_and_add_lineage(
+            cg, operation_id=7, old_new_map={old: {new1}}, time_stamp=op_ts
+        )
+
+        # Classify each mutate_row call by which column it writes.
+        for call in cg.client.mutate_row.call_args_list:
+            val_dict = call[0][1]
+            kw = call[1]
+            ts = kw.get("time_stamp")
+            cols = set(val_dict.keys())
+
+            if attributes.Hierarchy.FormerIdentity in cols:
+                # New-SV lineage write — should use op's time_stamp.
+                assert ts == op_ts, f"FormerIdentity write ts={ts}, expected {op_ts}"
+            elif attributes.Hierarchy.NewIdentity in cols:
+                # Old-SV NewIdentity write — should use op's time_stamp.
+                assert ts == op_ts, f"NewIdentity write ts={ts}, expected {op_ts}"
+            elif attributes.Hierarchy.Parent in cols:
+                # Copied-parent write — preserves old cell's timestamp.
+                assert (
+                    ts == old_cell_ts
+                ), f"Parent-copy write ts={ts}, expected {old_cell_ts}"
+            elif attributes.Hierarchy.Child in cols:
+                # Updated-children write on L2 parent — preserves old timestamp.
+                assert (
+                    ts == old_cell_ts
+                ), f"Child-list write ts={ts}, expected {old_cell_ts}"
+
+
+# ============================================================
+# Tests: _coords_bbox / plan_sv_splits bbox is seed-driven, not rep-driven
+# ============================================================
+class TestCoordsBbox:
+    def _make_cg(self, chunk_size=(64, 64, 64), volume=(1024, 1024, 1024)):
+        cg = MagicMock()
+        cg.meta.resolution = np.array([4, 4, 40], dtype=float)
+        cg.meta.graph_config.CHUNK_SIZE = list(chunk_size)
+        cg.meta.voxel_bounds = np.array(
+            [[0, volume[0]], [0, volume[1]], [0, volume[2]]]
+        )
+        cg.get_chunk_id.side_effect = lambda layer, x, y, z: (
+            (layer << 60) | (x << 40) | (y << 20) | z
+        )
+        return cg
+
+    def test_envelope_around_seeds_with_one_chunk_margin(self):
+        cg = self._make_cg(chunk_size=(64, 64, 64))
+        src = np.array([[100, 200, 300]])
+        sink = np.array([[150, 250, 350]])
+        bbs, bbe = _coords_bbox(cg, src, sink)
+        # min - chunk_size, max + chunk_size, clipped to volume bounds.
+        np.testing.assert_array_equal(bbs, np.array([100 - 64, 200 - 64, 300 - 64]))
+        np.testing.assert_array_equal(bbe, np.array([150 + 64, 250 + 64, 350 + 64]))
+
+    def test_clipped_to_volume_bounds(self):
+        cg = self._make_cg(chunk_size=(64, 64, 64), volume=(256, 256, 256))
+        src = np.array([[10, 10, 10]])
+        sink = np.array([[250, 250, 250]])
+        bbs, bbe = _coords_bbox(cg, src, sink)
+        # Lower seed - 64 = -54 → clipped to 0; upper seed + 64 = 314 → clipped to 256.
+        np.testing.assert_array_equal(bbs, np.array([0, 0, 0]))
+        np.testing.assert_array_equal(bbe, np.array([256, 256, 256]))
+
+    def test_plan_sv_splits_bbox_independent_of_rep_extent(self):
+        """The returned per-task bbox follows the seeds, not the rep's
+        cross-chunk pieces. A rep whose pieces span the whole volume
+        produces the same tight bbox as a rep with one piece, given the
+        same src/sink coords.
+        """
+        cg = self._make_cg(chunk_size=(64, 64, 64), volume=(1024, 1024, 1024))
+
+        # Two source/sink IDs that map to the same rep — the SV-split
+        # trigger condition. The rep's other pieces (b..z) sit far from
+        # the seeds. They would have ballooned the old `_rep_bbox`; the
+        # new `_coords_bbox` ignores them.
+        rep = np.uint64(1)
+        sv_remapping = {
+            np.uint64(10): rep,  # src
+            np.uint64(20): rep,  # sink
+            **{np.uint64(100 + i): rep for i in range(28)},  # 28 distant pieces
+        }
+
+        source_ids = np.array([10], dtype=basetypes.NODE_ID)
+        sink_ids = np.array([20], dtype=basetypes.NODE_ID)
+        source_coords = np.array([[100, 200, 300]])
+        sink_coords = np.array([[150, 250, 350]])
+
+        tasks, _ = plan_sv_splits(
+            cg,
+            sv_remapping=sv_remapping,
+            source_ids=source_ids,
+            sink_ids=sink_ids,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+        )
+        assert len(tasks) == 1
+        np.testing.assert_array_equal(
+            tasks[0].bbs, np.array([100 - 64, 200 - 64, 300 - 64])
+        )
+        np.testing.assert_array_equal(
+            tasks[0].bbe, np.array([150 + 64, 250 + 64, 350 + 64])
+        )

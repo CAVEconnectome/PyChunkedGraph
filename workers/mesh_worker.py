@@ -15,6 +15,18 @@ from pychunkedgraph.meshing import meshgen
 
 PCG_CACHE = {}
 
+# Own handler + level: messagingclient/grpc configure root logging at import, so
+# logging.basicConfig is a no-op and root-level records below WARNING are dropped.
+logger = logging.getLogger("mesh_worker")
+logger.setLevel(logging.INFO)
+logger.propagate = False
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s %(message)s", datefmt="%m/%d/%Y %I:%M:%S %p")
+    )
+    logger.addHandler(_handler)
+
 
 def callback(payload):
     data = pickle.loads(payload.data)
@@ -32,13 +44,6 @@ def callback(payload):
         cg = ChunkedGraph(graph_id=table_id)
         PCG_CACHE[table_id] = cg
 
-    INFO_HIGH = 25
-    logging.basicConfig(
-        level=INFO_HIGH,
-        format="%(asctime)s %(message)s",
-        datefmt="%m/%d/%Y %I:%M:%S %p",
-    )
-
     try:
         mesh_meta = cg.meta.custom_data["mesh"]
         mesh_dir = mesh_meta["dir"]
@@ -47,14 +52,20 @@ def callback(payload):
         err = mesh_meta["max_error"]
         cv_unsharded_mesh_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
     except KeyError:
-        logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
+        logger.warning("no mesh metadata for %s; ignoring", table_id)
         return
 
     mesh_path = path.join(
         cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
     )
 
-    logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
+    logger.info(
+        "remeshing %s l2 ids %s; graph %s operation %s",
+        l2ids.size,
+        list(l2ids),
+        table_id,
+        op_id,
+    )
     meshgen.remeshing(
         cg,
         l2ids,
@@ -64,7 +75,7 @@ def callback(payload):
         cv_sharded_mesh_dir=mesh_dir,
         cv_unsharded_mesh_path=mesh_path,
     )
-    logging.log(INFO_HIGH, f"remeshing complete; graph {table_id} operation {op_id}.")
+    logger.info("remeshing complete; graph %s operation %s", table_id, op_id)
     gc.collect()
 
 

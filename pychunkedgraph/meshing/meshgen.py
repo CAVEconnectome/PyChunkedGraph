@@ -39,8 +39,13 @@ REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 def decode_draco_mesh_buffer(fragment):
     try:
         mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
-        vertices = np.array(mesh_object.points)
-        faces = np.array(mesh_object.faces)
+        # asarray, not array: points/faces are already ndarrays, so this is
+        # zero-copy and aliases mesh_object's buffers. Callers mutate
+        # "vertices" in place (transform_draco_vertices) but never read
+        # mesh_object.points again, and each decode allocates its own buffer,
+        # so the alias is safe.
+        vertices = np.asarray(mesh_object.points)
+        faces = np.asarray(mesh_object.faces)
     except ValueError as exc:
         raise ValueError("Not a valid draco mesh") from exc
 
@@ -302,10 +307,13 @@ def calculate_stop_layer(cg, chunk_id):
 
     # Find lowest common chunk
     neigh_parent_chunk_ids = np.array(neigh_parent_chunk_ids)
-    layer_agreement = np.all(
-        (neigh_parent_chunk_ids - neigh_parent_chunk_ids[0]) == 0, axis=0
-    )
-    stop_layer = np.where(layer_agreement)[0][0] + chunk_layer
+    if chunk_layer + 1 == cg.meta.layer_count:
+        stop_layer = cg.meta.layer_count
+    else:
+        layer_agreement = np.all(
+            (neigh_parent_chunk_ids - neigh_parent_chunk_ids[0]) == 0, axis=0
+        )
+        stop_layer = np.where(layer_agreement)[0][0] + chunk_layer
 
     return stop_layer, neigh_chunk_ids
 
@@ -326,7 +334,8 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, neigh_chunk_ids = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
+    if PRINT_FOR_DEBUGGING:
+        print(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -341,7 +350,8 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
-        print(f"Neigh: {neigh_chunk_id} --------------")
+        if PRINT_FOR_DEBUGGING:
+            print(f"Neigh: {neigh_chunk_id} --------------")
 
         lx_ids, root_ids, lx_id_remap = get_root_lx_remapping(
             cg, neigh_chunk_id, stop_layer, time_stamp=time_stamp, n_threads=n_threads
@@ -489,7 +499,8 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, _ = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
+    if PRINT_FOR_DEBUGGING:
+        print(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each node id and sv id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -955,10 +966,11 @@ def chunk_initial_mesh_task(
         mesh_dst = cv_unsharded_mesh_path
 
     result.append((chunk_id, layer, cx, cy, cz))
-    print(
-        "Retrieving remap table for chunk %s -- (%s, %s, %s, %s)"
-        % (chunk_id, layer, cx, cy, cz)
-    )
+    if PRINT_FOR_DEBUGGING:
+        print(
+            "Retrieving remap table for chunk %s -- (%s, %s, %s, %s)"
+            % (chunk_id, layer, cx, cy, cz)
+        )
     mesher = zmesh.Mesher(cg.meta.cv.mip_resolution(mip))
     draco_encoding_settings = get_draco_encoding_settings_for_chunk(
         cg, chunk_id, mip, high_padding
@@ -1117,16 +1129,19 @@ def chunk_stitch_remeshing_task(
 
     assert layer > 2
 
-    print(
-        "Retrieving children for chunk %s -- (%s, %s, %s, %s)"
-        % (chunk_id, layer, cx, cy, cz)
-    )
+    if PRINT_FOR_DEBUGGING:
+        print(
+            "Retrieving children for chunk %s -- (%s, %s, %s, %s)"
+            % (chunk_id, layer, cx, cy, cz)
+        )
 
     multi_child_nodes, _ = get_multi_child_nodes(cg, chunk_id, node_id_subset, False)
-    print(f"{len(multi_child_nodes)} nodes with more than one child")
+    if PRINT_FOR_DEBUGGING:
+        print(f"{len(multi_child_nodes)} nodes with more than one child")
     result.append((chunk_id, len(multi_child_nodes)))
     if not multi_child_nodes:
-        print("Nothing to do", cx, cy, cz)
+        if PRINT_FOR_DEBUGGING:
+            print("Nothing to do", cx, cy, cz)
         return ", ".join(str(x) for x in result)
 
     cv = CloudVolume(
@@ -1156,7 +1171,7 @@ def chunk_stitch_remeshing_task(
     fragments_d = {}
     for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
         i += 1
-        if i % max(1, len(multi_child_nodes) // 10) == 0:
+        if PRINT_FOR_DEBUGGING and i % max(1, len(multi_child_nodes) // 10) == 0:
             print(f"{i}/{len(multi_child_nodes)}")
 
         old_fragments = []
@@ -1250,6 +1265,10 @@ def chunk_stitch_remeshing_task(
 def chunk_initial_sharded_stitching_task(
     cg_name, chunk_id, mip, cg=None, high_padding=1, cache=True
 ):
+    """DEPRECATED: single-threaded sharded stitch. ``meshing.meshing_sqs.MeshTask``
+    now dispatches ``meshing.stitch.chunk_initial_sharded_stitching_task_mp``
+    (parallel, mesh-equivalent output) instead. Kept as the reference
+    implementation the parallel path is gated against."""
     start_existence_check_time = time.time()
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)

@@ -336,7 +336,10 @@ class LatestEdgesFinder:
         chunk_mask = np.isin(chunks_new, chunks_old)
         nodes_b_from_a = nodes_b_from_a[chunk_mask]
         _stale_nodes = get_stale_nodes(self.cg, nodes_b_from_a, parent_ts=max_ts)
-        assert _stale_nodes.size == 0, f"{edge}, {_stale_nodes}, {max_ts}"
+        assert _stale_nodes.size == 0, (
+            f"stale nodes remain after latest-edge resolve; "
+            f"edge={edge} stale_nodes={_stale_nodes.tolist()} max_ts={max_ts}"
+        )
         return nodes_b_from_a
 
     def _get_cx_edges(self, l2ids_a, max_node_ts, edge_layer, raw_only: bool = True):

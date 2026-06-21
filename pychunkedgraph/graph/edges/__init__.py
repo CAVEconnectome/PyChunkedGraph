@@ -3,7 +3,6 @@ Classes and types for edges
 """
 
 from .definitions import EDGE_TYPES, Edges
-from .ocdbt import put_edges, get_edges
 
 from .stale import (
     get_new_nodes,

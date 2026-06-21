@@ -1,4 +1,4 @@
-__version__ = "3.1.7"
+from pychunkedgraph._version import __version__  # noqa: F401
 
 import sys
 import warnings
@@ -15,11 +15,21 @@ warnings.filterwarnings(
 NOTICE = 25
 stdlib_logging.addLevelName(NOTICE, "NOTICE")
 
+# Diagnostic level above DEBUG (10) but below INFO (20). Lets the user
+# enable per-stage timing/count summaries without the much noisier DEBUG
+# tracing — set the logger to VERBOSE for performance/correctness diagnosis.
+VERBOSE = 15
+stdlib_logging.addLevelName(VERBOSE, "VERBOSE")
+
 
 class PCGLogger(stdlib_logging.Logger):
     def note(self, message, *args, **kwargs):
         if self.isEnabledFor(NOTICE):
             self._log(NOTICE, message, args, stacklevel=2, **kwargs)
+
+    def verbose(self, message, *args, **kwargs):
+        if self.isEnabledFor(VERBOSE):
+            self._log(VERBOSE, message, args, stacklevel=2, **kwargs)
 
 
 stdlib_logging.setLoggerClass(PCGLogger)
@@ -78,6 +88,9 @@ def configure_logging(level=stdlib_logging.INFO, format_str=None, stream=None):
     formatter.default_msec_format = "%s.%03d"
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+    # the package has its own handler; propagating would print every record a
+    # second time through any root handler (e.g. an entrypoint's basicConfig)
+    logger.propagate = False
 
     return logger
 

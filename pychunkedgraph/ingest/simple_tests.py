@@ -111,6 +111,8 @@ def existence(cg: ChunkedGraph):
                 layer = cg.get_chunk_layer(last_working_chunk)
                 print(f"Failed on layer {layer} in chunk {last_working_chunk}")
                 log_dict[node_id] = last_working_chunk
+        if log_dict:  # diagnostics above are informational; the suite must still fail
+            raise AssertionError(f"{len(log_dict)} nodes failed the existence check")
 
 
 def cross_edges(cg: ChunkedGraph):

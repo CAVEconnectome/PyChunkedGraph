@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from pychunkedgraph.graph.meta import ChunkedGraphMeta, GraphConfig, DataSource
+from pychunkedgraph.tests.helpers import mock_ws_info
 
 
 class TestChunkedGraphMeta:
@@ -399,7 +400,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 class TestWsCvRedisCached:
     """Test ws_cv property with Redis caching."""
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_redis_cached(self, mock_get_redis, mock_cv_cls):
         """When redis has cached info, ws_cv uses cached CloudVolume."""
@@ -422,10 +423,13 @@ class TestWsCvRedisCached:
             "gs://bucket/ws", info=cached_info, progress=False
         )
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_redis_failure_fallback(self, mock_get_redis, mock_cv_cls):
-        """When redis raises, ws_cv falls back to direct CloudVolume."""
+        """When redis raises, ws_cv still fetches `.info` (via the loader) and
+        then constructs the cached CloudVolume with that info — it just skips
+        writing the info back to redis.
+        """
         gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
@@ -439,10 +443,14 @@ class TestWsCvRedisCached:
         result = meta.ws_cv
 
         assert result is mock_cv_instance
-        # Should have been called without info kwarg (fallback)
-        mock_cv_cls.assert_called_with("gs://bucket/ws", progress=False)
+        # Loader path runs even when redis is dead — fetch .info first…
+        mock_cv_cls.assert_any_call("gs://bucket/ws", progress=False)
+        # …then construct the cached handle with explicit info=.
+        mock_cv_cls.assert_any_call(
+            "gs://bucket/ws", info={"scales": []}, progress=False
+        )
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_caches_to_redis(self, mock_get_redis, mock_cv_cls):
         """When redis is available but cache miss, ws_cv caches info to redis."""
@@ -462,12 +470,17 @@ class TestWsCvRedisCached:
         result = meta.ws_cv
 
         assert result is mock_cv_instance
-        # The fallback CloudVolume call (no info= kwarg)
-        mock_cv_cls.assert_called_with("gs://bucket/ws", progress=False)
-        # Should try to cache in redis
+        # Cache-miss path: loader fetches .info, then handle is constructed
+        # with explicit info=, and the info gets written to redis.
+        mock_cv_cls.assert_any_call("gs://bucket/ws", progress=False)
+        mock_cv_cls.assert_any_call(
+            "gs://bucket/ws",
+            info={"scales": [{"resolution": [8, 8, 40]}]},
+            progress=False,
+        )
         mock_redis.set.assert_called_once()
 
-    @patch("pychunkedgraph.graph.meta.CloudVolume")
+    @patch("cloudvolume.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
     def test_ws_cv_returns_cached_instance(self, mock_get_redis, mock_cv_cls):
         """Once ws_cv has been set, subsequent calls return the cached instance."""
@@ -494,13 +507,8 @@ class TestLayerCountComputed:
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
 
-        # Create a mock ws_cv with bounds
-        mock_cv = MagicMock()
-        # bounds.to_list() returns [x_min, y_min, z_min, x_max, y_max, z_max]
-        # With a 256x256x256 volume and 64x64x64 chunks: 4 chunks per dim
-        # log_2(4) = 2, +2 = 4 layers
-        mock_cv.bounds.to_list.return_value = [0, 0, 0, 256, 256, 256]
-        meta._ws_cv = mock_cv
+        # 256^3 volume, 64^3 chunks -> 4 chunks/dim -> log2(4)=2, +2 = 4 layers
+        meta._ws_info_d = mock_ws_info(size=(256, 256, 256))
 
         count = meta.layer_count
         assert isinstance(count, int)
@@ -582,8 +590,17 @@ class TestOcdbtSeg:
         with pytest.raises(AssertionError, match="ocdbt"):
             _ = meta.ws_ocdbt
 
+    @patch("pychunkedgraph.graph.meta.read_populate_meta", return_value=None)
+    @patch("pychunkedgraph.graph.meta.ensure_fork_synced")
+    @patch("pychunkedgraph.graph.meta.fork_exists", return_value=True)
     @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
-    def test_ws_ocdbt_returns_base_scale(self, mock_get_ocdbt):
+    def test_ws_ocdbt_returns_base_scale(
+        self,
+        mock_get_ocdbt,
+        _mock_fork_exists,
+        _mock_ensure_synced,
+        _mock_read_populate_meta,
+    ):
         gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
@@ -600,10 +617,23 @@ class TestOcdbtSeg:
         assert meta.ws_ocdbt is mock_dst_base
         assert meta.ws_ocdbt_scales == [mock_dst_base, mock_dst_mip1]
         assert meta.ws_ocdbt_resolutions == [[4, 4, 40], [8, 8, 40]]
-        mock_get_ocdbt.assert_called_once_with("gs://bucket/ws", "test_graph")
+        # `get_seg_source_and_destination_ocdbt` is called with a third positional
+        # arg (the resolved OcdbtConfig) — verify only the (ws, graph_id) part;
+        # the OcdbtConfig.resolve contract has its own unit tests.
+        mock_get_ocdbt.assert_called_once()
+        assert mock_get_ocdbt.call_args.args[:2] == ("gs://bucket/ws", "test_graph")
 
+    @patch("pychunkedgraph.graph.meta.read_populate_meta", return_value=None)
+    @patch("pychunkedgraph.graph.meta.ensure_fork_synced")
+    @patch("pychunkedgraph.graph.meta.fork_exists", return_value=True)
     @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
-    def test_ws_ocdbt_cached(self, mock_get_ocdbt):
+    def test_ws_ocdbt_cached(
+        self,
+        mock_get_ocdbt,
+        _mock_fork_exists,
+        _mock_ensure_synced,
+        _mock_read_populate_meta,
+    ):
         gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
@@ -626,9 +656,7 @@ class TestLayerChunkBoundsComputed:
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
 
-        mock_cv = MagicMock()
-        mock_cv.bounds.to_list.return_value = [0, 0, 0, 256, 256, 256]
-        meta._ws_cv = mock_cv
+        meta._ws_info_d = mock_ws_info(size=(256, 256, 256))
         # layer_count needs to be set to avoid recursive calls
         meta._layer_count = 4
 
@@ -648,9 +676,7 @@ class TestLayerChunkBoundsComputed:
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
 
-        mock_cv = MagicMock()
-        mock_cv.bounds.to_list.return_value = [0, 0, 0, 256, 256, 256]
-        meta._ws_cv = mock_cv
+        meta._ws_info_d = mock_ws_info(size=(256, 256, 256))
         meta._layer_count = 4
 
         bounds1 = meta.layer_chunk_bounds

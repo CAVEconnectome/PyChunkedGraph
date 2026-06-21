@@ -3,6 +3,8 @@ generic helper functions
 TODO categorize properly
 """
 
+from __future__ import annotations
+
 import bisect
 import datetime
 from typing import Dict
@@ -14,9 +16,33 @@ from typing import Tuple
 from collections import defaultdict
 
 import numpy as np
-import pandas as pd
 
 from ..chunks import utils as chunk_utils
+from ..exceptions import PreconditionError
+
+
+def assert_same_root(
+    sv_ids: np.ndarray, roots: np.ndarray, *, source: str
+) -> np.ndarray:
+    """Raise PreconditionError if `roots` spans more than one root.
+
+    Required root = the most common root. Offenders are the supervoxels
+    whose root differs from it. `source` tags the call site so the same
+    error wording fired from different places is greppable.
+    """
+    root_ids, root_counts = np.unique(roots, return_counts=True)
+    if len(root_ids) > 1:
+        required_root = int(root_ids[np.argmax(root_counts)])
+        offenders_by_root: dict = {}
+        for sv, r in zip(sv_ids.tolist(), roots.tolist()):
+            if int(r) != required_root:
+                offenders_by_root.setdefault(int(r), []).append(int(sv))
+        raise PreconditionError(
+            f"[{source}] Supervoxels must belong to the same object "
+            f"(required root {required_root}). "
+            f"offenders by root: {offenders_by_root}"
+        )
+    return root_ids
 
 
 def compute_indices_pandas(data) -> pd.Series:
@@ -26,6 +52,8 @@ def compute_indices_pandas(data) -> pd.Series:
     :param data: np.ndarray
     :return: pandas dataframe
     """
+    import pandas as pd
+
     d = data.ravel()
     f = lambda x: np.unravel_index(x.index, data.shape)
     return pd.Series(d).groupby(d).apply(f)
@@ -154,7 +182,7 @@ def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = F
 
 
 def get_local_segmentation(meta, bbox_start, bbox_end, mip: int = 0) -> np.ndarray:
-    """Read a segmentation region from OCDBT (or CloudVolume).
+    """Read a segmentation region from OCDBT (or the watershed via tensorstore).
 
     `bbox_start` and `bbox_end` must already be in the requested MIP level's
     coordinate space — this function does not rescale them. Meshing computes
@@ -168,13 +196,4 @@ def get_local_segmentation(meta, bbox_start, bbox_end, mip: int = 0) -> np.ndarr
         # meshing wants when it operates at a non-base MIP.
         store = meta.ws_ocdbt if mip == 0 else meta.ws_ocdbt_scales[mip]
         return store[xL:xH, yL:yH, zL:zH].read().result()
-    return meta.cv[xL:xH, yL:yH, zL:zH]
-
-
-def lookup_svs_from_seg(meta, coordinates):
-    """Read SV IDs directly from OCDBT segmentation at given coordinates."""
-    bbox_start = np.min(coordinates, axis=0)
-    bbox_end = np.max(coordinates, axis=0) + 1
-    seg = get_local_segmentation(meta, bbox_start, bbox_end)[..., 0]
-    local_coords = coordinates - bbox_start
-    return np.array([seg[tuple(c)] for c in local_coords], dtype=np.uint64)
+    return meta.ws_ts_scale(mip)[xL:xH, yL:yH, zL:zH].read().result()

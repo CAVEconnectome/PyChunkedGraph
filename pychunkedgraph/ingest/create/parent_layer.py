@@ -12,6 +12,9 @@ from typing import Sequence
 
 import fastremap
 import numpy as np
+
+from pychunkedgraph import get_logger
+
 from ...graph import types, attributes, basetypes, serializers, get_valid_timestamp
 from ...utils.general import chunked
 from ...graph.utils import flatgraph
@@ -21,6 +24,8 @@ from ...graph.utils.generic import filter_failed_node_ids
 from ...graph.chunks.hierarchy import get_children_chunk_coords
 from .cross_edges import get_children_chunk_cross_edges
 from .cross_edges import get_chunk_nodes_cross_edge_layer
+
+logger = get_logger(__name__)
 
 
 def add_parent_chunk(
@@ -50,14 +55,24 @@ def add_parent_chunk(
     raw_ccs = flatgraph.connected_components(graph)  # connected components with indices
     connected_components = [graph_ids[cc] for cc in raw_ccs]
 
-    _write_connected_components(
-        cg,
-        layer_id,
-        coords,
-        connected_components,
-        get_valid_timestamp(time_stamp),
-        n_threads > 1,
+    logger.note(
+        f"L{layer_id} chunk {tuple(map(int, coords))}: nodes={len(connected_components):,} "
+        f"cx_edges={len(cx_edges):,}"
     )
+
+    ts = get_valid_timestamp(time_stamp)
+    _write_connected_components(
+        cg, layer_id, coords, connected_components, ts, n_threads > 1
+    )
+
+    # Stamp the post-ingest boundary meshing reads to split initial from edited roots.
+    # ts is the explicit cell timestamp shared by every root just written; +500ms (the
+    # same guard get_earliest_timestamp puts below the first op) lifts the boundary
+    # strictly above them.
+    if layer_id == cg.meta.layer_count:
+        boundary = ts + datetime.timedelta(milliseconds=500)
+        cg.meta.custom_data["earliest_ts"] = boundary.isoformat()
+        cg.update_meta(cg.meta, overwrite=True)
 
 
 def _read_children_chunks(

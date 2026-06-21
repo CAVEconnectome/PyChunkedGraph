@@ -145,17 +145,29 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    mesh_meta = cg.meta.custom_data.get("mesh", {})
+    info["mesh"] = mesh_meta.get("dir", "graphene_meshes")
+    # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
+    # subdir explicitly. Default `"dynamic"` matches the mesh worker's
+    # fallback and NG's current hardcoded subdir name — see the
+    # spelunker-ocdbt graphene backend (looks up
+    # `<fragmentUrl>dynamic/<fragmentId>`). NG must be patched to read
+    # this info field before non-default values route correctly.
+    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    info["dynamic_mesh_dir"] = dynamic_dir
+    # cloud-volume reads the dynamic dir from mesh_metadata.unsharded_mesh_dir, not
+    # dynamic_mesh_dir; mirror it so an unpatched client fetches dynamic meshes from
+    # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
+    mesh_metadata = dict(info.get("mesh_metadata", {}))
+    mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
+    info["mesh_metadata"] = mesh_metadata
     info_str = dumps(info)
     return loads(info_str)
 
 
 def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
-    mip_diff = mip - cg.meta.cv.mip
-    mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int) / np.array(
-        [2**mip_diff, 2**mip_diff, 1]
-    )
-    mip_chunk_size = mip_chunk_size.astype(int)
+    layer = cg.get_chunk_layer(chunk_id)
+    mip_chunk_size = get_mesh_block_shape_for_mip(cg, layer, mip)
 
     chunk_start = (
         cg.meta.cv.mip_voxel_offset(mip)
@@ -167,8 +179,6 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
         cg.meta.cv.mip_voxel_offset(mip),
         cg.meta.cv.mip_voxel_offset(mip) + cg.meta.cv.mip_volume_size(mip),
     )
-    # Pass mip so that with multi-scale OCDBT we read from the correct
-    # coarser scale (smaller data, faster reads). Coordinates above are
-    # already computed at the target MIP level.
+    # Coordinates are at the target MIP; get_local_segmentation reads that scale.
     ws_seg = get_local_segmentation(cg.meta, chunk_start, chunk_end, mip=mip).squeeze()
     return ws_seg

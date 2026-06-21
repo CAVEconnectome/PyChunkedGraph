@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 import tempfile
+import time
+from datetime import datetime, timezone
 
 import numpy as np
 import pytest
@@ -12,6 +14,13 @@ from unittest.mock import MagicMock, patch
 
 from pychunkedgraph.graph import ocdbt as ocdbt_mod
 from pychunkedgraph.graph.meta import ChunkedGraphMeta, GraphConfig, DataSource
+
+SCALE_META_BASE = {
+    "encoding": "compressed_segmentation",
+    "compressed_segmentation_block_size": [8, 8, 8],
+    "chunk_size": [32, 32, 32],
+}
+MULTISCALE_META = {"type": "segmentation", "data_type": "uint64", "num_channels": 1}
 
 
 def _make_mock_src(num_scales=2):
@@ -62,7 +71,9 @@ def _setup_ts_mock(mock_ts, num_scales=2):
 class TestBuildCgOcdbtSpec:
     def test_spec_structure(self):
         """build_cg_ocdbt_spec returns the expected kvstack-layered spec."""
-        spec = ocdbt_mod.build_cg_ocdbt_spec("gs://bucket/ws", "my_graph")
+        spec = ocdbt_mod.build_cg_ocdbt_spec(
+            "gs://bucket/ws", "my_graph", ocdbt_mod.OcdbtConfig()
+        )
         assert spec["driver"] == "ocdbt"
         layers = spec["base"]["layers"]
         assert len(layers) == 3
@@ -80,41 +91,33 @@ class TestBuildCgOcdbtSpec:
 
 
 class TestForkBaseManifest:
-    def test_copies_manifest(self):
+    """Byte-level behavior of `fork_base_manifest` — manifest copy + wipe."""
+
+    def test_copies_manifest(self, local_ocdbt):
         """fork_base_manifest copies the base manifest via tensorstore kvstore."""
-        tmpdir = tempfile.mkdtemp()
-        ws = f"file://{tmpdir}"
-        try:
-            # Create a real base OCDBT with a manifest.
-            base_kvs = ts.KvStore.open(f"{ws}/ocdbt/base/").result()
-            base_kvs.write("manifest.ocdbt", b"fake_manifest_bytes").result()
+        ws = local_ocdbt["ws"]
+        base_kvs = ts.KvStore.open(f"{ws}/ocdbt/base/").result()
+        base_kvs.write("manifest.ocdbt", b"fake_manifest_bytes").result()
 
-            ocdbt_mod.fork_base_manifest(ws, "my_graph")
+        ocdbt_mod.fork_base_manifest(ws, "my_graph")
 
-            fork_kvs = ts.KvStore.open(f"{ws}/ocdbt/my_graph/").result()
-            result = fork_kvs.read("manifest.ocdbt").result()
-            assert result.value == b"fake_manifest_bytes"
-        finally:
-            shutil.rmtree(tmpdir)
+        fork_kvs = ts.KvStore.open(f"{ws}/ocdbt/my_graph/").result()
+        assert fork_kvs.read("manifest.ocdbt").result().value == b"fake_manifest_bytes"
 
-    def test_wipe_existing_cleans_fork_dir(self):
+    def test_wipe_existing_cleans_fork_dir(self, local_ocdbt):
         """wipe_existing=True removes the fork directory before copying."""
-        tmpdir = tempfile.mkdtemp()
-        ws = f"file://{tmpdir}"
-        try:
-            base_kvs = ts.KvStore.open(f"{ws}/ocdbt/base/").result()
-            base_kvs.write("manifest.ocdbt", b"manifest_v1").result()
+        ws = local_ocdbt["ws"]
+        base_kvs = ts.KvStore.open(f"{ws}/ocdbt/base/").result()
+        base_kvs.write("manifest.ocdbt", b"manifest_v1").result()
 
-            fork_kvs = ts.KvStore.open(f"{ws}/ocdbt/my_graph/").result()
-            fork_kvs.write("stale_file", b"stale").result()
+        fork_kvs = ts.KvStore.open(f"{ws}/ocdbt/my_graph/").result()
+        fork_kvs.write("stale_file", b"stale").result()
 
-            ocdbt_mod.fork_base_manifest(ws, "my_graph", wipe_existing=True)
+        ocdbt_mod.fork_base_manifest(ws, "my_graph", wipe_existing=True)
 
-            fork_kvs2 = ts.KvStore.open(f"{ws}/ocdbt/my_graph/").result()
-            assert fork_kvs2.read("manifest.ocdbt").result().value == b"manifest_v1"
-            assert len(fork_kvs2.read("stale_file").result().value) == 0
-        finally:
-            shutil.rmtree(tmpdir)
+        fork_kvs2 = ts.KvStore.open(f"{ws}/ocdbt/my_graph/").result()
+        assert fork_kvs2.read("manifest.ocdbt").result().value == b"manifest_v1"
+        assert len(fork_kvs2.read("stale_file").result().value) == 0
 
 
 class TestModeDownsample:
@@ -216,45 +219,80 @@ class TestCopyWsChunk:
 
 @pytest.fixture
 def local_ocdbt():
-    """Create a local precomputed multi-scale OCDBT store.
+    """Shared OCDBT test environment.
 
-    Builds 3 scales (factors 2,2,1 between each) with known segmentation IDs
-    so downsampling behaviour and propagation can be asserted against exact
-    values. Returns paths + handles for tests to work against directly.
+    Creates a local 3-scale precomputed base OCDBT (factors 2,2,1 per
+    level) and exposes helpers for fork-based tests. Every OCDBT test
+    that needs real storage uses this fixture — no duplicated tmpdir
+    scaffolding.
+
+    Yields:
+        tmpdir: on-disk workspace (cleaned up on teardown).
+        ws: `file://{tmpdir}` URL — what `build_cg_ocdbt_spec` expects.
+        base: base OCDBT kvstore URL.
+        scales: 3 precomputed handles on the base (multi-scale tests).
+        resolutions: per-scale [x,y,z] resolution arrays.
+        make_fork(graph_id, *, scale_index=0, pinned_at=None): opens a
+            precomputed handle through a fork of the base. Creates the
+            fork on first call per `graph_id` and reuses it thereafter;
+            repeated calls with the same id never re-copy the manifest
+            (which would clobber fork writes).
     """
     tmpdir = tempfile.mkdtemp()
-    base = f"file://{tmpdir}/ocdbt/base"
+    ws = f"file://{tmpdir}"
+    base = f"{ws}/ocdbt/base"
 
-    mm = {"type": "segmentation", "data_type": "uint64", "num_channels": 1}
-
-    def mk(scale_idx, size, resolution, extra_mm=None):
+    def _mk_scale(size, resolution, *, include_mm):
+        # Match OcdbtConfig defaults so forks (which always use them) don't
+        # trip the "Configuration mismatch on max_inline_value_bytes" check.
         spec = {
             "driver": "neuroglancer_precomputed",
-            "kvstore": {"driver": "ocdbt", "base": base},
+            "kvstore": {
+                "driver": "ocdbt",
+                "base": base,
+                "config": ocdbt_mod.OcdbtConfig().ts_config(),
+            },
             "scale_metadata": {
                 "size": size,
                 "resolution": resolution,
-                "encoding": "compressed_segmentation",
-                "compressed_segmentation_block_size": [8, 8, 8],
-                "chunk_size": [32, 32, 32],
+                **SCALE_META_BASE,
             },
         }
-        if extra_mm:
-            spec["multiscale_metadata"] = extra_mm
+        if include_mm:
+            spec["multiscale_metadata"] = MULTISCALE_META
         return ts.open(spec, create=True).result()
 
     scales = [
-        mk(0, [64, 64, 32], [4, 4, 40], extra_mm=mm),
-        mk(1, [32, 32, 32], [8, 8, 40]),
-        mk(2, [16, 16, 32], [16, 16, 40]),
+        _mk_scale([64, 64, 32], [4, 4, 40], include_mm=True),
+        _mk_scale([32, 32, 32], [8, 8, 40], include_mm=False),
+        _mk_scale([16, 16, 32], [16, 16, 40], include_mm=False),
     ]
     resolutions = [[4, 4, 40], [8, 8, 40], [16, 16, 40]]
 
+    _created_forks = set()
+
+    def make_fork(graph_id, *, scale_index=0, pinned_at=None):
+        if graph_id not in _created_forks:
+            ocdbt_mod.fork_base_manifest(ws, graph_id)
+            _created_forks.add(graph_id)
+        spec = ocdbt_mod.build_cg_ocdbt_spec(
+            ws, graph_id, ocdbt_mod.OcdbtConfig(), pinned_at=pinned_at
+        )
+        return ts.open(
+            {
+                "driver": "neuroglancer_precomputed",
+                "kvstore": spec,
+                "scale_index": scale_index,
+            }
+        ).result()
+
     yield {
         "tmpdir": tmpdir,
+        "ws": ws,
         "base": base,
         "scales": scales,
         "resolutions": resolutions,
+        "make_fork": make_fork,
     }
     shutil.rmtree(tmpdir)
 
@@ -398,220 +436,235 @@ class TestPropagateToCoarserScales:
         assert (scales[2][0:4, 0:4, 0:16, :].read().result() == 2).all()
 
 
-class TestWriteSeg:
-    def test_writes_base_and_propagates(self, local_ocdbt):
-        """`write_seg` writes to base scale AND propagates to all coarser scales."""
+class TestWriteSegChunks:
+    """`write_seg_chunks` now takes a flat list of (slices, data) pairs.
+
+    `sv_split.edits.split_supervoxels` is responsible for producing this list
+    across all reps so the outer rep loop is a pure data gather —
+    tensorstore writes fire in one parallel batch.
+    """
+
+    def test_writes_only_supplied_chunks(self, local_ocdbt):
+        """Chunks absent from `seg_writes` stay untouched (OCDBT delta
+        stays proportional to the actual SV change)."""
         scales = local_ocdbt["scales"]
-        res = local_ocdbt["resolutions"]
         meta = MagicMock()
         meta.ws_ocdbt = scales[0]
-        meta.ws_ocdbt_scales = scales
-        meta.ws_ocdbt_resolutions = res
 
-        data = np.full((16, 16, 16), 55, dtype=np.uint64)
-        ocdbt_mod.write_seg(meta, [0, 0, 0], [16, 16, 16], data)
+        # One chunk at [0..32] with label 55. The adjacent chunk at
+        # [32..64] is NOT in the write list, so it should stay zero.
+        chunk_data = np.full((32, 32, 32), 55, dtype=np.uint64)
+        seg_writes = [
+            (
+                (slice(0, 32), slice(0, 32), slice(0, 32)),
+                chunk_data,
+            )
+        ]
+        ocdbt_mod.write_seg_chunks(meta, seg_writes)
 
-        # Base scale: written region has label 55.
-        assert (scales[0][0:16, 0:16, 0:16, :].read().result() == 55).all()
-        # Coarser scales: propagated.
-        assert (scales[1][0:8, 0:8, 0:16, :].read().result() == 55).all()
-        assert (scales[2][0:4, 0:4, 0:16, :].read().result() == 55).all()
+        assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 55).all()
+        assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 0).all()
+        # Coarser scales untouched — downsample worker's job.
+        assert (scales[1][0:16, 0:16, 0:32, :].read().result() == 0).all()
+        assert (scales[2][0:8, 0:8, 0:32, :].read().result() == 0).all()
 
-    def test_single_scale_skips_propagation(self, local_ocdbt):
-        """With only one scale in the list, propagation is a no-op (no IndexError)."""
+    def test_multiple_chunks_in_one_batch(self, local_ocdbt):
+        """Multiple chunks (e.g. from different reps) fire in one call."""
+        scales = local_ocdbt["scales"]
         meta = MagicMock()
-        meta.ws_ocdbt = local_ocdbt["scales"][0]
-        meta.ws_ocdbt_scales = [local_ocdbt["scales"][0]]
-        meta.ws_ocdbt_resolutions = [local_ocdbt["resolutions"][0]]
+        meta.ws_ocdbt = scales[0]
 
-        data = np.full((8, 8, 8), 99, dtype=np.uint64)
-        ocdbt_mod.write_seg(meta, [0, 0, 0], [8, 8, 8], data)
-        assert (meta.ws_ocdbt[0:8, 0:8, 0:8, :].read().result() == 99).all()
+        seg_writes = [
+            (
+                (slice(0, 32), slice(0, 32), slice(0, 32)),
+                np.full((32, 32, 32), 11, dtype=np.uint64),
+            ),
+            (
+                (slice(32, 64), slice(0, 32), slice(0, 32)),
+                np.full((32, 32, 32), 22, dtype=np.uint64),
+            ),
+        ]
+        ocdbt_mod.write_seg_chunks(meta, seg_writes)
+
+        assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 11).all()
+        assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 22).all()
+
+    def test_offset_region(self, local_ocdbt):
+        """Writes at a non-origin offset land in the right chunk."""
+        scales = local_ocdbt["scales"]
+        meta = MagicMock()
+        meta.ws_ocdbt = scales[0]
+
+        seg_writes = [
+            (
+                (slice(32, 64), slice(0, 32), slice(0, 32)),
+                np.full((32, 32, 32), 99, dtype=np.uint64),
+            )
+        ]
+        ocdbt_mod.write_seg_chunks(meta, seg_writes)
+
+        assert (scales[0][32:64, 0:32, 0:32, :].read().result() == 99).all()
+        assert (scales[0][0:32, 0:32, 0:32, :].read().result() == 0).all()
 
 
-class TestMetaToForkEndToEnd:
-    """Full path: ChunkedGraphMeta.ws_ocdbt_scales → real kvstack fork → read/write."""
+class TestWsOcdbtScalesProperty:
+    """`ChunkedGraphMeta.ws_ocdbt_scales` opens a fork over the shared base.
 
-    def test_meta_opens_fork_and_merges_base(self):
-        """meta.ws_ocdbt_scales opens a real kvstack-backed OCDBT and reads
-        merge base + fork correctly.
+    Full path exercised: property → build_cg_ocdbt_spec → kvstack → OCDBT
+    read/write. Only `_read_source_scales` is mocked (it reads `/info`
+    which lives on the source watershed, not the OCDBT fork).
+    """
 
-        Only `_read_source_scales` is mocked (it reads `/info` which is a
-        GCS-only key). The full meta → build_cg_ocdbt_spec → kvstack →
-        OCDBT → read/write path is exercised for real.
-        """
-        tmpdir = tempfile.mkdtemp()
-        ws = f"file://{tmpdir}"
-        try:
-            MM = {"type": "segmentation", "data_type": "uint64", "num_channels": 1}
-            SCALE = {
-                "size": [64, 64, 32],
+    def test_opens_fork_and_merges_base(self, local_ocdbt):
+        ws = local_ocdbt["ws"]
+
+        # Source precomputed at ws root — needed by
+        # get_seg_source_and_destination_ocdbt to copy the schema.
+        ts.open(
+            {
+                "driver": "neuroglancer_precomputed",
+                "kvstore": f"{ws}/",
+                "multiscale_metadata": MULTISCALE_META,
+                "scale_metadata": {
+                    "size": [64, 64, 32],
+                    "resolution": [4, 4, 40],
+                    **SCALE_META_BASE,
+                },
+            },
+            create=True,
+        ).result()
+
+        # Seed base scale 0 with a known value via the fixture's handle.
+        local_ocdbt["scales"][0][...] = np.full((64, 64, 32, 1), 50, dtype=np.uint64)
+
+        gc = GraphConfig(ID="ws_scales_cg", CHUNK_SIZE=[32, 32, 32])
+        ds = DataSource(WATERSHED=f"{ws}/", DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
+
+        # Trigger fork creation through the same helper the property will use.
+        local_ocdbt["make_fork"]("ws_scales_cg")
+
+        fake_scales = [
+            {
                 "resolution": [4, 4, 40],
+                "size": [64, 64, 32],
+                "chunk_sizes": [[32, 32, 32]],
                 "encoding": "compressed_segmentation",
                 "compressed_segmentation_block_size": [8, 8, 8],
-                "chunk_size": [32, 32, 32],
             }
-            FAKE_SCALES = [
-                {
-                    "resolution": [4, 4, 40],
-                    "size": [64, 64, 32],
-                    "chunk_sizes": [[32, 32, 32]],
-                    "encoding": "compressed_segmentation",
-                    "compressed_segmentation_block_size": [8, 8, 8],
-                }
-            ]
+        ]
+        with patch.object(
+            ocdbt_mod.main, "_read_source_scales", return_value=fake_scales
+        ):
+            scales = meta.ws_ocdbt_scales
+            assert len(scales) == 1
 
-            # Source precomputed — needed by get_seg_source_and_destination_ocdbt
-            # to open the source handle and copy its schema.
-            ts.open(
-                {
-                    "driver": "neuroglancer_precomputed",
-                    "kvstore": f"{ws}/",
-                    "multiscale_metadata": MM,
-                    "scale_metadata": SCALE,
-                },
-                create=True,
-            ).result()
+            # Fork sees base data.
+            assert (scales[0][0:16, 0:16, 0:16, :].read().result() == 50).all()
 
-            # Create base OCDBT with known data.
-            base_kvstore = {
-                "driver": "ocdbt",
-                "base": f"{ws}/ocdbt/base/",
-                "config": dict(ocdbt_mod.OCDBT_CONFIG),
-            }
-            base_store = ts.open(
-                {
-                    "driver": "neuroglancer_precomputed",
-                    "kvstore": base_kvstore,
-                    "multiscale_metadata": MM,
-                    "scale_metadata": SCALE,
-                },
-                create=True,
-            ).result()
-            base_store[...] = np.full((64, 64, 32, 1), 50, dtype=np.uint64)
+            # Write to the fork and confirm isolation.
+            scales[0][0:16, 0:16, 0:16, :] = np.full(
+                (16, 16, 16, 1), 7, dtype=np.uint64
+            )
+            assert (scales[0][0:16, 0:16, 0:16, :].read().result() == 7).all()
+            assert (scales[0][32:48, 0:16, 0:16, :].read().result() == 50).all()
 
-            # Fork for graph "test_cg".
-            ocdbt_mod.fork_base_manifest(f"{ws}/", "test_cg")
-
-            gc = GraphConfig(ID="test_cg", CHUNK_SIZE=[32, 32, 32])
-            ds = DataSource(WATERSHED=f"{ws}/", DATA_VERSION=4)
-            meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
-
-            # Mock only _read_source_scales ('/info' is GCS-only).
-            with patch.object(
-                ocdbt_mod, "_read_source_scales", return_value=FAKE_SCALES
-            ):
-                scales = meta.ws_ocdbt_scales
-                assert len(scales) == 1
-
-                # Read: should see base data.
-                r = scales[0][0:16, 0:16, 0:16, :].read().result()
-                assert (r == 50).all(), f"fork should see base, got {np.unique(r)}"
-
-                # Write via the fork handle.
-                scales[0][0:16, 0:16, 0:16, :] = np.full(
-                    (16, 16, 16, 1), 7, dtype=np.uint64
-                )
-
-                # Read back: edited = 7, untouched = 50.
-                assert (scales[0][0:16, 0:16, 0:16, :].read().result() == 7).all()
-                assert (scales[0][32:48, 0:16, 0:16, :].read().result() == 50).all()
-
-            # Base unchanged.
-            base_ro = ts.open(
-                {
-                    "driver": "neuroglancer_precomputed",
-                    "kvstore": base_kvstore,
-                }
-            ).result()
-            assert (base_ro[0:16, 0:16, 0:16, :].read().result() == 50).all()
-        finally:
-            shutil.rmtree(tmpdir)
+        # Base still reports the original value (fork write didn't leak).
+        assert (
+            local_ocdbt["scales"][0][0:16, 0:16, 0:16, :].read().result() == 50
+        ).all()
 
 
 class TestForkIsolation:
-    """End-to-end: two forks on the same base, writes isolated, base immutable."""
+    """Two forks on the same base: writes isolated, base immutable."""
 
-    def test_two_forks_isolated(self):
-        tmpdir = tempfile.mkdtemp()
-        ws = f"file://{tmpdir}"
-        try:
-            # Build a base OCDBT with known data.
-            MM = {"type": "segmentation", "data_type": "uint64", "num_channels": 1}
-            SCALE = {
-                "size": [64, 64, 32],
-                "resolution": [4, 4, 40],
-                "encoding": "compressed_segmentation",
-                "compressed_segmentation_block_size": [8, 8, 8],
-                "chunk_size": [32, 32, 32],
-            }
-            base_kvstore = {
-                "driver": "ocdbt",
-                "base": f"{ws}/ocdbt/base/",
-                "config": dict(ocdbt_mod.OCDBT_CONFIG),
-            }
-            base_store = ts.open(
-                {
-                    "driver": "neuroglancer_precomputed",
-                    "kvstore": base_kvstore,
-                    "multiscale_metadata": MM,
-                    "scale_metadata": SCALE,
-                },
-                create=True,
-            ).result()
-            base_store[...] = np.full((64, 64, 32, 1), 50, dtype=np.uint64)
+    def test_two_forks_isolated(self, local_ocdbt):
+        tmpdir = local_ocdbt["tmpdir"]
+        # Seed base scale 0 with a known value.
+        local_ocdbt["scales"][0][...] = np.full((64, 64, 32, 1), 50, dtype=np.uint64)
 
-            base_path = f"{tmpdir}/ocdbt/base"
-            base_files_before = set(
-                os.path.relpath(os.path.join(r, f), base_path)
-                for r, _, fs in os.walk(base_path)
-                for f in fs
-            )
+        base_path = f"{tmpdir}/ocdbt/base"
+        base_files_before = {
+            os.path.relpath(os.path.join(r, f), base_path)
+            for r, _, fs in os.walk(base_path)
+            for f in fs
+        }
 
-            # Fork A and B via fork_base_manifest.
-            ocdbt_mod.fork_base_manifest(ws, "fork_a")
-            ocdbt_mod.fork_base_manifest(ws, "fork_b")
+        fork_a = local_ocdbt["make_fork"]("fork_a")
+        fork_b = local_ocdbt["make_fork"]("fork_b")
 
-            def open_fork(gid):
-                spec = ocdbt_mod.build_cg_ocdbt_spec(ws, gid)
-                return ts.open(
-                    {"driver": "neuroglancer_precomputed", "kvstore": spec},
-                ).result()
+        # Both see base data.
+        assert (fork_a[0:16, 0:16, 0:16, :].read().result() == 50).all()
+        assert (fork_b[0:16, 0:16, 0:16, :].read().result() == 50).all()
 
-            fork_a = open_fork("fork_a")
-            fork_b = open_fork("fork_b")
+        # Write different values to each fork.
+        fork_a[0:16, 0:16, 0:16, :] = np.full((16, 16, 16, 1), 1, dtype=np.uint64)
+        fork_b[32:48, 0:16, 0:16, :] = np.full((16, 16, 16, 1), 2, dtype=np.uint64)
 
-            # Both see base data.
-            assert (fork_a[0:16, 0:16, 0:16, :].read().result() == 50).all()
-            assert (fork_b[0:16, 0:16, 0:16, :].read().result() == 50).all()
+        # Each fork sees ONLY its own edit + base for the rest.
+        assert (fork_a[0:16, 0:16, 0:16, :].read().result() == 1).all()
+        assert (fork_a[32:48, 0:16, 0:16, :].read().result() == 50).all()
+        assert (fork_b[32:48, 0:16, 0:16, :].read().result() == 2).all()
+        assert (fork_b[0:16, 0:16, 0:16, :].read().result() == 50).all()
 
-            # Write different values to each fork.
-            fork_a[0:16, 0:16, 0:16, :] = np.full((16, 16, 16, 1), 1, dtype=np.uint64)
-            fork_b[32:48, 0:16, 0:16, :] = np.full((16, 16, 16, 1), 2, dtype=np.uint64)
+        # Base files unchanged (no new bytes written under ocdbt/base/).
+        base_files_after = {
+            os.path.relpath(os.path.join(r, f), base_path)
+            for r, _, fs in os.walk(base_path)
+            for f in fs
+        }
+        assert (
+            base_files_before == base_files_after
+        ), f"base was mutated: new={base_files_after - base_files_before}"
 
-            # Each fork sees ONLY its own edit + base for the rest.
-            assert (fork_a[0:16, 0:16, 0:16, :].read().result() == 1).all()
-            assert (fork_a[32:48, 0:16, 0:16, :].read().result() == 50).all()
-            assert (fork_b[32:48, 0:16, 0:16, :].read().result() == 2).all()
-            assert (fork_b[0:16, 0:16, 0:16, :].read().result() == 50).all()
+        # Fork writes went to their own directories.
+        assert any("fork_a_d" in f for f in os.listdir(f"{tmpdir}/ocdbt/fork_a"))
+        assert any("fork_b_d" in f for f in os.listdir(f"{tmpdir}/ocdbt/fork_b"))
 
-            # Base is unchanged.
-            base_files_after = set(
-                os.path.relpath(os.path.join(r, f), base_path)
-                for r, _, fs in os.walk(base_path)
-                for f in fs
-            )
-            assert (
-                base_files_before == base_files_after
-            ), f"base was mutated: new={base_files_after - base_files_before}"
 
-            # Fork writes went to their own directories.
-            fork_a_files = os.listdir(f"{tmpdir}/ocdbt/fork_a")
-            fork_b_files = os.listdir(f"{tmpdir}/ocdbt/fork_b")
-            assert any("fork_a_d" in f for f in fork_a_files)
-            assert any("fork_b_d" in f for f in fork_b_files)
-        finally:
-            shutil.rmtree(tmpdir)
+class TestPinnedAt:
+    """Versioned reads: pinning a fork to a prior generation/timestamp
+    returns pre-write state; default (unpinned) returns latest.
+
+    Documents both pin forms OCDBT accepts — integer generation (exact)
+    and ISO-8601 UTC timestamp with `Z` suffix (commit_time upper bound).
+    """
+
+    def test_pin_by_generation_and_by_timestamp(self, local_ocdbt):
+        # Seed base so fork reads see data even before the first fork write.
+        local_ocdbt["scales"][0][...] = np.full((64, 64, 32, 1), 50, dtype=np.uint64)
+
+        fork = local_ocdbt["make_fork"]("pin_cg")
+
+        # Write v1 then v2 at the same voxels. Capture pin markers between
+        # the two writes so pre-v2 state is what each pin should return.
+        fork[0:16, 0:16, 0:16, :] = np.full((16, 16, 16, 1), 1, dtype=np.uint64)
+
+        fork_manifest_kvs = ts.KvStore.open(
+            f"{local_ocdbt['ws']}/ocdbt/pin_cg/"
+        ).result()
+        pin_gen = ts.ocdbt.dump(fork_manifest_kvs).result()["versions"][-1][
+            "generation_number"
+        ]
+
+        time.sleep(0.01)
+        pin_ts = datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        time.sleep(0.01)
+
+        fork[0:16, 0:16, 0:16, :] = np.full((16, 16, 16, 1), 2, dtype=np.uint64)
+
+        fork_latest = local_ocdbt["make_fork"]("pin_cg")
+        assert (fork_latest[0:16, 0:16, 0:16, :].read().result() == 2).all()
+
+        fork_gen = local_ocdbt["make_fork"]("pin_cg", pinned_at=pin_gen)
+        assert (fork_gen[0:16, 0:16, 0:16, :].read().result() == 1).all()
+
+        fork_ts = local_ocdbt["make_fork"]("pin_cg", pinned_at=pin_ts)
+        assert (fork_ts[0:16, 0:16, 0:16, :].read().result() == 1).all()
+
+        # Untouched region still shows base data under every pin.
+        for handle in (fork_latest, fork_gen, fork_ts):
+            assert (handle[32:48, 0:16, 0:16, :].read().result() == 50).all()
 
 
 class TestCopyWsChunkMultiscale:
