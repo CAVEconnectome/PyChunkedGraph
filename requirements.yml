@@ -5,7 +5,7 @@ dependencies:
   - python==3.14
   - pip
   - tox
-  - numpy
+  - numpy==2.4.6  # sole numpy source (graph-tool ABI); pip excludes it from the lock
   - graph-tool-base==2.98
   # uwsgi has no conda-forge py314 build; pip-installed from sdist below.
   - pip:

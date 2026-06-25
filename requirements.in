@@ -1,7 +1,6 @@
 click>=8.0
 protobuf>=4.22.0
 requests>=2.25.0
-numpy
 pandas
 networkx>=2.1
 google-cloud-datastore>=1.8
@@ -36,3 +35,4 @@ cave-pipeline[distribution]>=0.0.3,<0.1
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool
+# numpy (graph-tool ABI; kept out of this lock via [tool.pip-tools] unsafe-package)

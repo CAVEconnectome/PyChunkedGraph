@@ -1,3 +1,9 @@
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
+
+[tool.pip-tools]
+# numpy is conda-managed (graph-tool ABI) and must stay out of the pip lock, else the conda
+# and pip versions skew and ship a broken mixed install. Listing any unsafe-package resets
+# pip-tools' defaults, so setuptools and pip are repeated to keep them excluded too.
+unsafe-package = ["numpy", "setuptools", "pip"]
