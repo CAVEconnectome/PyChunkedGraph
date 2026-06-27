@@ -35,6 +35,21 @@ The PyChunkedGraph can be locally deployed (`run_dev.py`), imported in a python 
 As a backend the PyChunkedGraph can be combined with any frontend that adheres to its API. We use an adapted version of [neuroglancer](https://github.com/seung-lab/neuroglancer/tree/nkem-multicut) which is publicly available.
 
 
+## Release
+
+PyChunkedGraph is versioned by a committed `pychunkedgraph/_version.py` literal, bumped by a
+one-click workflow — no manual edit. Versioning is per branch: `main` is 2.x, `pcgv3` is 3.x.
+
+- **Release:** Actions → **publish release** → **Run workflow** (from the target branch) → choose
+  `part` (`major`/`minor`/`patch`), or `gh workflow run release.yml --ref <branch> -f part=patch`.
+  It bumps `_version.py`, commits, tags `vX.Y.Z`, pushes, and creates a GitHub Release; the Cloud
+  Build trigger builds the image from the tag. Set `update-chart=true` to also bump the Helm chart.
+- **Preview:** `dry-run=true` prints the next version without committing or tagging.
+
+New tables are stamped with this version at creation; the server only serves tables whose major
+matches. See [.github/workflows/README.md](.github/workflows/README.md) for full CI/release detail.
+
+
 ## Publication 
 
 When using or referencing the PyChunkedGraph, please use the citation below. The FlyWire paper described and published the PyChunkedGraph v1.
