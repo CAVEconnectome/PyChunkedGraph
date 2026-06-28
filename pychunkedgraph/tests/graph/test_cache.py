@@ -1,13 +1,13 @@
 """Tests for pychunkedgraph.graph.cache"""
 
+from math import inf
 
 import numpy as np
 import pytest
 
 from pychunkedgraph.graph.cache import CacheService, update
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...ingest.create.parent_layer import add_parent_chunk
+from ..helpers import to_label, build_graph
 
 
 class TestUpdate:
@@ -25,31 +25,17 @@ class TestUpdate:
 class TestCacheService:
     def _build_simple_graph(self, gen_graph):
         """Build a simple 2-chunk graph with 2 SVs per chunk."""
-        from math import inf
-
-        graph = gen_graph(n_layers=4)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[
-                (to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1), 0.5),
-                (to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf),
+        cg, _ = build_graph(
+            gen_graph,
+            chunks=[
+                (
+                    [(0, 0, 0, 0), (0, 0, 0, 1)],
+                    [((0, 0, 0, 0), (0, 0, 0, 1), 0.5), ((0, 0, 0, 0), (1, 0, 0, 0), inf)],
+                ),
+                ([(1, 0, 0, 0)], [((1, 0, 0, 0), (0, 0, 0, 0), inf)]),
             ],
-            timestamp=fake_ts,
         )
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 1, 0, 0, 0)],
-            edges=[
-                (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 0), inf),
-            ],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
-        add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
-        return graph
+        return cg
 
     def test_len(self, gen_graph):
         graph = self._build_simple_graph(gen_graph)
