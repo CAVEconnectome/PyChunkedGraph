@@ -1,4 +1,5 @@
 import threading
+from collections import namedtuple
 from datetime import datetime, timedelta, UTC
 from functools import reduce
 from unittest.mock import MagicMock
@@ -163,27 +164,35 @@ def get_layer_chunk_bounds(
     return layer_bounds_d
 
 
-def build_graph(gen_graph, n_layers=4, chunks=(), *, timestamp=None, atomic_chunk_bounds=None):
-    """Build a test graph: atomic chunks plus the full parent hierarchy they imply, at one ts.
+SV = namedtuple("SV", ["x", "y", "z", "seg"], defaults=(0, 0, 0, 0))
+BuiltGraph = namedtuple("BuiltGraph", ["cg", "sv", "ts"])
 
-    A vertex is an (x, y, z, seg) atomic coordinate; an edge is ((x,y,z,seg), (x,y,z,seg),
-    affinity); chunks is a list of (vertices, edges). Parents are derived. Returns (cg, ts).
+
+def build_graph(gen_graph, n_layers, supervoxels, edges=(), *, timestamp=None, atomic_chunk_bounds=None):
+    """Build a test graph from named supervoxels and edges; parents derived, at one ts.
+
+    supervoxels maps a name to its (x, y, z, seg) atomic coordinate; edges are
+    (name, name, affinity). Returns BuiltGraph(cg, sv, ts); sv maps each name to its node id.
     """
     bounds = np.array([]) if atomic_chunk_bounds is None else atomic_chunk_bounds
     cg = gen_graph(n_layers=n_layers, atomic_chunk_bounds=bounds)
     ts = fake_timestamp() if timestamp is None else timestamp
-    atomic_coords = set()
-    for vertices, edges in chunks:
-        verts = [to_label(cg, 1, *v) for v in vertices]
-        labeled = [(to_label(cg, 1, *a), to_label(cg, 1, *b), aff) for a, b, aff in edges]
-        create_chunk(cg, vertices=verts, edges=labeled, timestamp=ts)
-        atomic_coords.update(v[:3] for v in vertices)
+    sv = {name: to_label(cg, 1, *coord) for name, coord in supervoxels.items()}
+    chunk = {name: tuple(coord[:3]) for name, coord in supervoxels.items()}
+    members = {}
+    for name in supervoxels:
+        members.setdefault(chunk[name], []).append(sv[name])
+    for coord, labels in members.items():
+        chunk_edges = [
+            (sv[a], sv[b], aff) for a, b, aff in edges if coord in (chunk[a], chunk[b])
+        ]
+        create_chunk(cg, vertices=labels, edges=chunk_edges, timestamp=ts)
     fanout = cg.meta.graph_config.FANOUT
     for layer in range(3, n_layers + 1):
-        coords = {tuple(np.array(c) // fanout ** (layer - 2)) for c in atomic_coords}
-        for coord in sorted(coords):
-            add_parent_chunk(cg, layer, list(coord), time_stamp=ts, n_threads=1)
-    return cg, ts
+        pcoords = {tuple(np.array(c) // fanout ** (layer - 2)) for c in members}
+        for pcoord in sorted(pcoords):
+            add_parent_chunk(cg, layer, list(pcoord), time_stamp=ts, n_threads=1)
+    return BuiltGraph(cg, sv, ts)
 
 
 class RowKeyLockRegistry:
