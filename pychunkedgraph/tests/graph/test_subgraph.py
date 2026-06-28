@@ -3,20 +3,18 @@
 from math import inf
 
 import numpy as np
-import pytest
 
 from pychunkedgraph.graph.subgraph import SubgraphProgress, get_subgraph_nodes
 
-from ..helpers import to_label, build_graph
+from ..helpers import SV, build_graph
 
 
 class TestSubgraphProgress:
     def test_init(self, gen_graph):
-        graph, _ = build_graph(gen_graph, chunks=[([(0, 0, 0, 0)], [])])
-
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
+        g = build_graph(gen_graph, n_layers=4, supervoxels={"a": SV()})
+        root = g.cg.get_root(g.sv["a"])
         progress = SubgraphProgress(
-            graph.meta,
+            g.cg.meta,
             node_ids=[root],
             return_layers=[2],
             serializable=False,
@@ -24,11 +22,10 @@ class TestSubgraphProgress:
         assert not progress.done_processing()
 
     def test_serializable_keys(self, gen_graph):
-        graph, _ = build_graph(gen_graph, chunks=[([(0, 0, 0, 0)], [])])
-
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
+        g = build_graph(gen_graph, n_layers=4, supervoxels={"a": SV()})
+        root = g.cg.get_root(g.sv["a"])
         progress = SubgraphProgress(
-            graph.meta,
+            g.cg.meta,
             node_ids=[root],
             return_layers=[2],
             serializable=True,
@@ -40,41 +37,36 @@ class TestSubgraphProgress:
 
 class TestGetSubgraphNodes:
     def _build_graph(self, gen_graph):
-        cg, _ = build_graph(
+        return build_graph(
             gen_graph,
-            chunks=[
-                (
-                    [(0, 0, 0, 0), (0, 0, 0, 1)],
-                    [((0, 0, 0, 0), (0, 0, 0, 1), 0.5), ((0, 0, 0, 0), (1, 0, 0, 0), inf)],
-                ),
-                ([(1, 0, 0, 0)], [((1, 0, 0, 0), (0, 0, 0, 0), inf)]),
-            ],
+            n_layers=4,
+            supervoxels={"a0": SV(), "a1": SV(seg=1), "b": SV(x=1)},
+            edges=[("a0", "a1", 0.5), ("a0", "b", inf)],
         )
-        return cg
 
     def test_single_node(self, gen_graph):
-        graph = self._build_graph(gen_graph)
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        result = get_subgraph_nodes(graph, root)
+        g = self._build_graph(gen_graph)
+        root = g.cg.get_root(g.sv["a0"])
+        result = get_subgraph_nodes(g.cg, root)
         assert isinstance(result, dict)
         assert 2 in result
 
     def test_return_flattened(self, gen_graph):
-        graph = self._build_graph(gen_graph)
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        result = get_subgraph_nodes(graph, root, return_flattened=True)
+        g = self._build_graph(gen_graph)
+        root = g.cg.get_root(g.sv["a0"])
+        result = get_subgraph_nodes(g.cg, root, return_flattened=True)
         assert isinstance(result, np.ndarray)
         assert len(result) > 0
 
     def test_multiple_nodes(self, gen_graph):
-        graph = self._build_graph(gen_graph)
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        result = get_subgraph_nodes(graph, [root])
+        g = self._build_graph(gen_graph)
+        root = g.cg.get_root(g.sv["a0"])
+        result = get_subgraph_nodes(g.cg, [root])
         assert root in result
 
     def test_serializable(self, gen_graph):
-        graph = self._build_graph(gen_graph)
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        result = get_subgraph_nodes(graph, root, serializable=True)
+        g = self._build_graph(gen_graph)
+        root = g.cg.get_root(g.sv["a0"])
+        result = get_subgraph_nodes(g.cg, root, serializable=True)
         # Keys should be layer ints, values should be arrays
         assert isinstance(result, dict)
