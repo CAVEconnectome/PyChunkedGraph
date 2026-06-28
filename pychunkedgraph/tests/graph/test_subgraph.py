@@ -11,10 +11,10 @@ from ..helpers import SV, build_graph
 
 class TestSubgraphProgress:
     def test_init(self, gen_graph):
-        g = build_graph(gen_graph, n_layers=4, supervoxels={"a": SV()})
-        root = g.cg.get_root(g.sv["a"])
+        cg, sv = build_graph(gen_graph, n_layers=4, supervoxels={"a": SV()})
+        root = cg.get_root(sv["a"])
         progress = SubgraphProgress(
-            g.cg.meta,
+            cg.meta,
             node_ids=[root],
             return_layers=[2],
             serializable=False,
@@ -22,10 +22,10 @@ class TestSubgraphProgress:
         assert not progress.done_processing()
 
     def test_serializable_keys(self, gen_graph):
-        g = build_graph(gen_graph, n_layers=4, supervoxels={"a": SV()})
-        root = g.cg.get_root(g.sv["a"])
+        cg, sv = build_graph(gen_graph, n_layers=4, supervoxels={"a": SV()})
+        root = cg.get_root(sv["a"])
         progress = SubgraphProgress(
-            g.cg.meta,
+            cg.meta,
             node_ids=[root],
             return_layers=[2],
             serializable=True,
@@ -36,7 +36,7 @@ class TestSubgraphProgress:
 
 
 class TestGetSubgraphNodes:
-    def _build_graph(self, gen_graph):
+    def _build(self, gen_graph):
         return build_graph(
             gen_graph,
             n_layers=4,
@@ -45,28 +45,28 @@ class TestGetSubgraphNodes:
         )
 
     def test_single_node(self, gen_graph):
-        g = self._build_graph(gen_graph)
-        root = g.cg.get_root(g.sv["a0"])
-        result = get_subgraph_nodes(g.cg, root)
+        cg, sv = self._build(gen_graph)
+        root = cg.get_root(sv["a0"])
+        result = get_subgraph_nodes(cg, root)
         assert isinstance(result, dict)
         assert 2 in result
 
     def test_return_flattened(self, gen_graph):
-        g = self._build_graph(gen_graph)
-        root = g.cg.get_root(g.sv["a0"])
-        result = get_subgraph_nodes(g.cg, root, return_flattened=True)
+        cg, sv = self._build(gen_graph)
+        root = cg.get_root(sv["a0"])
+        result = get_subgraph_nodes(cg, root, return_flattened=True)
         assert isinstance(result, np.ndarray)
         assert len(result) > 0
 
     def test_multiple_nodes(self, gen_graph):
-        g = self._build_graph(gen_graph)
-        root = g.cg.get_root(g.sv["a0"])
-        result = get_subgraph_nodes(g.cg, [root])
+        cg, sv = self._build(gen_graph)
+        root = cg.get_root(sv["a0"])
+        result = get_subgraph_nodes(cg, [root])
         assert root in result
 
     def test_serializable(self, gen_graph):
-        g = self._build_graph(gen_graph)
-        root = g.cg.get_root(g.sv["a0"])
-        result = get_subgraph_nodes(g.cg, root, serializable=True)
+        cg, sv = self._build(gen_graph)
+        root = cg.get_root(sv["a0"])
+        result = get_subgraph_nodes(cg, root, serializable=True)
         # Keys should be layer ints, values should be arrays
         assert isinstance(result, dict)
