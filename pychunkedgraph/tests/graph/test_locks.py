@@ -7,10 +7,9 @@ import pytest
 
 from ..helpers import (
     RowKeyLockRegistry,
-    create_chunk,
+    SV,
+    build_graph,
     make_cg_with_row_key_lock_registry,
-    to_label,
-    fake_timestamp,
 )
 from ...graph import attributes, exceptions
 from ...graph.locks import (
@@ -19,7 +18,6 @@ from ...graph.locks import (
     _l2_chunk_lock_row_key,
 )
 from ...graph.lineage import get_future_root_ids
-from ...ingest.create.parent_layer import add_parent_chunk
 
 
 class TestGraphLocks:
@@ -39,35 +37,14 @@ class TestGraphLocks:
         (4) Try lock (opid = 2)
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a1": SV(seg=1), "a2": SV(seg=2), "b1": SV(x=1, seg=1)},
         )
 
         operation_id_1 = cg.id_client.create_operation_id()
-        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+        root_id = cg.get_root(sv["a1"])
 
         future_root_ids_d = {root_id: get_future_root_ids(cg, root_id)}
         assert cg.client.lock_roots(
@@ -105,35 +82,14 @@ class TestGraphLocks:
         (2) Try lock (opid = 2)
         (3) Try lock (opid = 2) with retries
         """
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a1": SV(seg=1), "a2": SV(seg=2), "b1": SV(x=1, seg=1)},
         )
 
         operation_id_1 = cg.id_client.create_operation_id()
-        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+        root_id = cg.get_root(sv["a1"])
         future_root_ids_d = {root_id: get_future_root_ids(cg, root_id)}
         assert cg.client.lock_roots(
             root_ids=[root_id],
@@ -173,35 +129,14 @@ class TestGraphLocks:
         (3) Try lock (opid = 2) with retries
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a1": SV(seg=1), "a2": SV(seg=2), "b1": SV(x=1, seg=1)},
         )
 
         operation_id_1 = cg.id_client.create_operation_id()
-        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+        root_id = cg.get_root(sv["a1"])
         future_root_ids_d = {root_id: get_future_root_ids(cg, root_id)}
         assert cg.client.lock_roots(
             root_ids=[root_id],
@@ -225,38 +160,17 @@ class TestGraphLocks:
         (2) Try lock opid 2 --> should be successful and return new root id
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a1": SV(seg=1), "a2": SV(seg=2), "b1": SV(x=1, seg=1)},
         )
 
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
-        )
-
-        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+        root_id = cg.get_root(sv["a1"])
 
         new_root_ids = cg.add_edges(
             "Chuck Norris",
-            [to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            [sv["a1"], sv["a2"]],
             affinities=1.0,
         ).new_root_ids
 
@@ -291,35 +205,14 @@ class TestGraphLocks:
         (4) Try lock (opid = 2), should get the normal lock
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a1": SV(seg=1), "a2": SV(seg=2), "b1": SV(x=1, seg=1)},
         )
 
         operation_id_1 = cg.id_client.create_operation_id()
-        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+        root_id = cg.get_root(sv["a1"])
 
         future_root_ids_d = {root_id: get_future_root_ids(cg, root_id)}
         assert cg.client.lock_roots_indefinitely(
@@ -364,35 +257,14 @@ class TestGraphLocks:
         """
 
         # 1. TODO renew lock test when getting indefinite lock
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a1": SV(seg=1), "a2": SV(seg=2), "b1": SV(x=1, seg=1)},
         )
 
         operation_id_1 = cg.id_client.create_operation_id()
-        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+        root_id = cg.get_root(sv["a1"])
 
         future_root_ids_d = {root_id: get_future_root_ids(cg, root_id)}
 

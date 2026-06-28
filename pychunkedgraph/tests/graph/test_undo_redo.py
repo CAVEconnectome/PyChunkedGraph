@@ -8,8 +8,7 @@ operations through the BigTable emulator.
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...ingest.create.parent_layer import add_parent_chunk
+from ..helpers import SV, build_graph
 
 
 class TestUndoRedo:
@@ -23,30 +22,19 @@ class TestUndoRedo:
         │     │     │
         └─────┴─────┘
         """
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        return build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
+            edges=[("a0", "b", 0.5)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        return cg
 
     @pytest.mark.timeout(30)
     def test_undo_split_restores_merged_root(self, two_chunk_graph):
         """Split two nodes, undo — nodes should share a common root again."""
-        cg = two_chunk_graph
-        sv1 = to_label(cg, 1, 0, 0, 0, 0)
-        sv2 = to_label(cg, 1, 1, 0, 0, 0)
+        cg, sv = two_chunk_graph
+        sv1 = sv["a0"]
+        sv2 = sv["b"]
 
         # Initially, both SVs share a root
         assert cg.get_root(sv1) == cg.get_root(sv2)
@@ -67,9 +55,9 @@ class TestUndoRedo:
     @pytest.mark.timeout(30)
     def test_redo_restores_operation_result(self, two_chunk_graph):
         """Split, undo, redo the original split — state should match the post-split state."""
-        cg = two_chunk_graph
-        sv1 = to_label(cg, 1, 0, 0, 0, 0)
-        sv2 = to_label(cg, 1, 1, 0, 0, 0)
+        cg, sv = two_chunk_graph
+        sv1 = sv["a0"]
+        sv2 = sv["b"]
 
         # Split
         split_result = cg.remove_edges(
@@ -90,9 +78,9 @@ class TestUndoRedo:
     @pytest.mark.timeout(30)
     def test_undo_preserves_subgraph_leaves(self, two_chunk_graph):
         """After undo, subgraph leaves should match the pre-operation state."""
-        cg = two_chunk_graph
-        sv1 = to_label(cg, 1, 0, 0, 0, 0)
-        sv2 = to_label(cg, 1, 1, 0, 0, 0)
+        cg, sv = two_chunk_graph
+        sv1 = sv["a0"]
+        sv2 = sv["b"]
 
         # Get initial leaf set
         initial_root = cg.get_root(sv1)

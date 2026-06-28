@@ -5,7 +5,7 @@ import numpy as np
 from pychunkedgraph.graph.chunks import hierarchy
 from pychunkedgraph.graph.chunks import utils as chunk_utils
 
-from ..helpers import to_label
+from ..helpers import SV, label
 
 
 class TestGetChildrenChunkCoords:
@@ -20,7 +20,7 @@ class TestGetChildrenChunkCoords:
 class TestGetChildrenChunkIds:
     def test_layer_1_returns_empty(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        node_id = to_label(graph, 1, 0, 0, 0, 1)
+        node_id = label(graph, SV(seg=1))
         result = hierarchy.get_children_chunk_ids(graph.meta, node_id)
         assert len(result) == 0
 

@@ -16,14 +16,11 @@ from google.cloud import bigtable
 from ..ingest.utils import bootstrap
 from ..graph.edges import Edges
 from ..graph.chunkedgraph import ChunkedGraph
-from ..ingest.create.parent_layer import add_parent_chunk
 
 from .helpers import (
     CloudVolumeMock,
     TensorStoreMock,
     mock_ws_info,
-    create_chunk,
-    to_label,
     get_layer_chunk_bounds,
 )
 from .hbase_mock_server import start_hbase_mock_server
@@ -202,46 +199,6 @@ def gen_graph(request, bigtable_emulator, hbase_emulator):
         return graph
 
     return partial(_cgraph, request)
-
-
-@pytest.fixture(scope="function")
-def gen_graph_simplequerytest(request, gen_graph):
-    """
-    ┌─────┬─────┬─────┐
-    │  A¹ │  B¹ │  C¹ │
-    │  1  │ 3━2━┿━━4  │
-    │     │     │     │
-    └─────┴─────┴─────┘
-    """
-    from math import inf
-
-    graph = gen_graph(n_layers=4)
-
-    # Chunk A
-    create_chunk(graph, vertices=[to_label(graph, 1, 0, 0, 0, 0)], edges=[])
-
-    # Chunk B
-    create_chunk(
-        graph,
-        vertices=[to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 1)],
-        edges=[
-            (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 1), 0.5),
-            (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 2, 0, 0, 0), inf),
-        ],
-    )
-
-    # Chunk C
-    create_chunk(
-        graph,
-        vertices=[to_label(graph, 1, 2, 0, 0, 0)],
-        edges=[(to_label(graph, 1, 2, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf)],
-    )
-
-    add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
-    add_parent_chunk(graph, 3, [1, 0, 0], n_threads=1)
-    add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
-
-    return graph
 
 
 @pytest.fixture(scope="session")

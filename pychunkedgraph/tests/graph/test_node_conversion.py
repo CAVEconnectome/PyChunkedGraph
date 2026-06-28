@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 
-from ..helpers import to_label
 from ...graph import serializers
 
 

@@ -1,5 +1,6 @@
 import threading
 from collections import namedtuple
+from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
 from functools import reduce
 from unittest.mock import MagicMock
@@ -168,6 +169,11 @@ SV = namedtuple("SV", ["x", "y", "z", "seg"], defaults=(0, 0, 0, 0))
 BuiltGraph = namedtuple("BuiltGraph", ["cg", "sv"])
 
 
+def label(cg, sv, layer=1):
+    """Node id for supervoxel coordinate ``sv`` at ``layer`` (layer 1 = the supervoxel)."""
+    return to_label(cg, layer, sv.x, sv.y, sv.z, sv.seg)
+
+
 def build_graph(gen_graph, n_layers, supervoxels, edges=(), *, timestamp=None, atomic_chunk_bounds=None):
     """Build a test graph from named supervoxels and edges; parents derived, at one ts.
 
@@ -193,6 +199,17 @@ def build_graph(gen_graph, n_layers, supervoxels, edges=(), *, timestamp=None, a
         for pcoord in sorted(pcoords):
             add_parent_chunk(cg, layer, list(pcoord), time_stamp=ts, n_threads=1)
     return BuiltGraph(cg, sv)
+
+
+@contextmanager
+def assert_graph_unchanged(cg):
+    """Assert the (rejected) edit run inside the block leaves every stored row untouched."""
+    res_old = cg.client.read_all_rows()
+    res_old.consume_all()
+    yield
+    res_new = cg.client.read_all_rows()
+    res_new.consume_all()
+    assert res_new.rows == res_old.rows
 
 
 class RowKeyLockRegistry:

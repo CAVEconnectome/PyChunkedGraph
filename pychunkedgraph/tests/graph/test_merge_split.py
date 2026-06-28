@@ -1,17 +1,36 @@
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import SV, build_graph
 from ...graph import types
 
 
 class TestGraphMergeSplit:
     @pytest.mark.timeout(240)
-    def test_multiple_cuts_and_splits(self, gen_graph_simplequerytest):
-        cg = gen_graph_simplequerytest
+    def test_multiple_cuts_and_splits(self, gen_graph):
+        """
+        ┌─────┬─────┬─────┐
+        │  A¹ │  B¹ │  C¹ │
+        │  1  │ 3━2━┿━━4  │
+        │     │     │     │
+        └─────┴─────┴─────┘
+        """
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=4,
+            supervoxels={
+                "a0": SV(),
+                "b0": SV(x=1),
+                "b1": SV(x=1, seg=1),
+                "c0": SV(x=2),
+            },
+            edges=[
+                ("b0", "b1", 0.5),
+                ("b0", "c0", inf),
+            ],
+        )
 
         rr = cg.range_read_chunk(chunk_id=cg.get_chunk_id(layer=4, x=0, y=0, z=0))
         root_ids_t0 = list(rr.keys())
@@ -23,7 +42,7 @@ class TestGraphMergeSplit:
         for i in range(10):
             new_roots = cg.add_edges(
                 "Jane Doe",
-                [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
+                [sv["a0"], sv["b1"]],
                 affinities=0.9,
             ).new_root_ids
             assert len(new_roots) == 1, new_roots
@@ -35,8 +54,8 @@ class TestGraphMergeSplit:
 
             new_roots = cg.remove_edges(
                 "John Doe",
-                source_ids=to_label(cg, 1, 1, 0, 0, 0),
-                sink_ids=to_label(cg, 1, 1, 0, 0, 1),
+                source_ids=sv["b0"],
+                sink_ids=sv["b1"],
                 mincut=False,
             ).new_root_ids
             assert len(new_roots) == 2, new_roots
@@ -52,8 +71,8 @@ class TestGraphMergeSplit:
 
             new_roots = cg.remove_edges(
                 "Jane Doe",
-                source_ids=to_label(cg, 1, 0, 0, 0, 0),
-                sink_ids=to_label(cg, 1, 1, 0, 0, 1),
+                source_ids=sv["a0"],
+                sink_ids=sv["b1"],
                 mincut=False,
             ).new_root_ids
             assert len(new_roots) == 2, new_roots
@@ -64,7 +83,7 @@ class TestGraphMergeSplit:
 
             new_roots = cg.add_edges(
                 "Jane Doe",
-                [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
+                [sv["b0"], sv["b1"]],
                 affinities=0.9,
             ).new_root_ids
             assert len(new_roots) == 1, new_roots
