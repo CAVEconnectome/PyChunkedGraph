@@ -5,7 +5,7 @@ from math import inf
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label, fake_timestamp
+from ..helpers import SV, label, create_chunk, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
@@ -16,9 +16,9 @@ class TestAddParentChunk:
 
         create_chunk(
             graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
+            vertices=[label(graph, SV()), label(graph, SV(seg=1))],
             edges=[
-                (to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1), 0.5),
+                (label(graph, SV()), label(graph, SV(seg=1)), 0.5),
             ],
             timestamp=fake_ts,
         )
@@ -27,7 +27,7 @@ class TestAddParentChunk:
         add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
 
         # Verify parent was created
-        sv = to_label(graph, 1, 0, 0, 0, 0)
+        sv = label(graph, SV())
         parent = graph.get_parent(sv)
         assert parent is not None
         assert graph.get_chunk_layer(parent) == 2
@@ -38,17 +38,17 @@ class TestAddParentChunk:
 
         create_chunk(
             graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0)],
+            vertices=[label(graph, SV())],
             edges=[
-                (to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf),
+                (label(graph, SV()), label(graph, SV(x=1)), inf),
             ],
             timestamp=fake_ts,
         )
         create_chunk(
             graph,
-            vertices=[to_label(graph, 1, 1, 0, 0, 0)],
+            vertices=[label(graph, SV(x=1))],
             edges=[
-                (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 0), inf),
+                (label(graph, SV(x=1)), label(graph, SV()), inf),
             ],
             timestamp=fake_ts,
         )
@@ -57,6 +57,6 @@ class TestAddParentChunk:
         add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
 
         # Both SVs should share a root
-        root0 = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        root1 = graph.get_root(to_label(graph, 1, 1, 0, 0, 0))
+        root0 = graph.get_root(label(graph, SV()))
+        root1 = graph.get_root(label(graph, SV(x=1)))
         assert root0 == root1

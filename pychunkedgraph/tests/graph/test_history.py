@@ -3,11 +3,9 @@ from datetime import datetime, timedelta, UTC
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...graph import ChunkedGraph
+from ..helpers import SV, build_graph, fake_timestamp
 from ...graph.lineage import lineage_graph, get_root_id_history
 from ...graph.misc import get_delta_roots
-from ...ingest.create.parent_layer import add_parent_chunk
 
 
 class TestGraphHistory:
@@ -15,36 +13,22 @@ class TestGraphHistory:
 
     @pytest.mark.timeout(120)
     def test_cut_merge_history(self, gen_graph):
-        cg: ChunkedGraph = gen_graph(n_layers=3)
         fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
+            edges=[("a0", "b", 0.5)],
             timestamp=fake_ts,
         )
 
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
-        )
-
-        first_root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
-        assert first_root == cg.get_root(to_label(cg, 1, 1, 0, 0, 0))
+        first_root = cg.get_root(sv["a0"])
+        assert first_root == cg.get_root(sv["b"])
         timestamp_before_split = datetime.now(UTC)
         split_roots = cg.remove_edges(
             "Jane Doe",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            source_ids=sv["a0"],
+            sink_ids=sv["b"],
             mincut=False,
         ).new_root_ids
         assert len(split_roots) == 2
@@ -56,7 +40,7 @@ class TestGraphHistory:
         timestamp_after_split = datetime.now(UTC)
         merge_roots = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)],
+            [sv["a0"], sv["b"]],
             affinities=0.4,
         ).new_root_ids
         assert len(merge_roots) == 1

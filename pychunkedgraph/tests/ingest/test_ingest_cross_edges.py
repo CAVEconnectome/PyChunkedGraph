@@ -13,7 +13,7 @@ from pychunkedgraph.ingest.create.cross_edges import (
 )
 from pychunkedgraph.graph import basetypes
 
-from ..helpers import create_chunk, to_label, fake_timestamp
+from ..helpers import SV, label, create_chunk, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
@@ -72,7 +72,7 @@ class TestGetChildrenChunkCrossEdges:
 
         create_chunk(
             graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0)],
+            vertices=[label(graph, SV())],
             edges=[],
             timestamp=fake_ts,
         )
@@ -87,17 +87,17 @@ class TestGetChildrenChunkCrossEdges:
 
         create_chunk(
             graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0)],
+            vertices=[label(graph, SV())],
             edges=[
-                (to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf),
+                (label(graph, SV()), label(graph, SV(x=1)), inf),
             ],
             timestamp=fake_ts,
         )
         create_chunk(
             graph,
-            vertices=[to_label(graph, 1, 1, 0, 0, 0)],
+            vertices=[label(graph, SV(x=1))],
             edges=[
-                (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 0), inf),
+                (label(graph, SV(x=1)), label(graph, SV()), inf),
             ],
             timestamp=fake_ts,
         )
@@ -114,7 +114,7 @@ class TestGetChildrenChunkCrossEdges:
 
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            vertices=[label(cg, SV())],
             edges=[],
             timestamp=fake_ts,
         )
@@ -137,9 +137,9 @@ class TestGetChildrenChunkCrossEdges:
         # Chunk A (0,0,0): sv 0 connected cross-chunk to chunk B
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            vertices=[label(cg, SV())],
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
+                (label(cg, SV()), label(cg, SV(x=1)), inf),
             ],
             timestamp=fake_ts,
         )
@@ -147,9 +147,9 @@ class TestGetChildrenChunkCrossEdges:
         # Chunk B (1,0,0): sv 0 connected cross-chunk to chunk A
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            vertices=[label(cg, SV(x=1))],
             edges=[
-                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf),
+                (label(cg, SV(x=1)), label(cg, SV()), inf),
             ],
             timestamp=fake_ts,
         )
@@ -179,20 +179,20 @@ class TestGetChildrenChunkCrossEdgesAdditional:
         # Chunk A: two SVs, each cross-chunk connected
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            vertices=[label(cg, SV()), label(cg, SV(seg=1))],
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
-                (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 1), inf),
+                (label(cg, SV()), label(cg, SV(seg=1)), 0.5),
+                (label(cg, SV()), label(cg, SV(x=1)), inf),
+                (label(cg, SV(seg=1)), label(cg, SV(x=1, seg=1)), inf),
             ],
             timestamp=fake_ts,
         )
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
+            vertices=[label(cg, SV(x=1)), label(cg, SV(x=1, seg=1))],
             edges=[
-                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf),
-                (to_label(cg, 1, 1, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 1), inf),
+                (label(cg, SV(x=1)), label(cg, SV()), inf),
+                (label(cg, SV(x=1, seg=1)), label(cg, SV(seg=1)), inf),
             ],
             timestamp=fake_ts,
         )
@@ -217,18 +217,18 @@ class TestGetChildrenChunkCrossEdgesAdditional:
         # SV at L1 [1,0,0] - on the right boundary of L3 [0,0,0]
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            vertices=[label(cg, SV(x=1))],
             edges=[
-                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
+                (label(cg, SV(x=1)), label(cg, SV(x=2)), inf),
             ],
             timestamp=fake_ts,
         )
         # SV at L1 [2,0,0] - on the left boundary of L3 [1,0,0]
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 2, 0, 0, 0)],
+            vertices=[label(cg, SV(x=2))],
             edges=[
-                (to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
+                (label(cg, SV(x=2)), label(cg, SV(x=1)), inf),
             ],
             timestamp=fake_ts,
         )
@@ -260,18 +260,18 @@ class TestGetChunkNodesCrossEdgeLayer:
         # SV at L1 [0,0,0] with cross edge to [2,0,0] (layer-3 cross edge)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            vertices=[label(cg, SV())],
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
+                (label(cg, SV()), label(cg, SV(x=2)), inf),
             ],
             timestamp=fake_ts,
         )
         # SV at L1 [2,0,0]
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 2, 0, 0, 0)],
+            vertices=[label(cg, SV(x=2))],
             edges=[
-                (to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf),
+                (label(cg, SV(x=2)), label(cg, SV()), inf),
             ],
             timestamp=fake_ts,
         )
@@ -294,7 +294,7 @@ class TestGetChunkNodesCrossEdgeLayer:
 
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            vertices=[label(cg, SV())],
             edges=[],
             timestamp=fake_ts,
         )
@@ -315,7 +315,7 @@ class TestGetChunkNodesCrossEdgeLayer:
 
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            vertices=[label(cg, SV())],
             edges=[],
             timestamp=fake_ts,
         )

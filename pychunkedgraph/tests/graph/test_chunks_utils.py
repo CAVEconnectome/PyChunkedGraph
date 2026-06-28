@@ -5,13 +5,13 @@ import pytest
 
 from pychunkedgraph.graph.chunks import utils as chunk_utils
 
+from ..helpers import SV, label
+
 
 class TestGetChunkLayer:
     def test_basic(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        from ..helpers import to_label
-
-        node_id = to_label(graph, 1, 0, 0, 0, 1)
+        node_id = label(graph, SV(seg=1))
         assert chunk_utils.get_chunk_layer(graph.meta, node_id) == 1
 
     def test_higher_layer(self, gen_graph):
@@ -23,11 +23,9 @@ class TestGetChunkLayer:
 class TestGetChunkLayers:
     def test_multiple(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        from ..helpers import to_label
-
         ids = [
-            to_label(graph, 1, 0, 0, 0, 1),
-            to_label(graph, 1, 1, 0, 0, 2),
+            label(graph, SV(seg=1)),
+            label(graph, SV(x=1, seg=2)),
         ]
         layers = chunk_utils.get_chunk_layers(graph.meta, ids)
         np.testing.assert_array_equal(layers, [1, 1])
@@ -61,9 +59,7 @@ class TestGetChunkCoordinatesMultiple:
 class TestGetChunkId:
     def test_from_node_id(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        from ..helpers import to_label
-
-        node_id = to_label(graph, 1, 2, 3, 1, 5)
+        node_id = label(graph, SV(x=2, y=3, z=1, seg=5))
         chunk_id = chunk_utils.get_chunk_id(graph.meta, node_id=node_id)
         coords = chunk_utils.get_chunk_coordinates(graph.meta, chunk_id)
         np.testing.assert_array_equal(coords, [2, 3, 1])
@@ -96,12 +92,10 @@ class TestGetChunkIdsFromCoords:
 class TestGetChunkIdsFromNodeIds:
     def test_basic(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        from ..helpers import to_label
-
         ids = np.array(
             [
-                to_label(graph, 1, 0, 0, 0, 1),
-                to_label(graph, 1, 1, 0, 0, 2),
+                label(graph, SV(seg=1)),
+                label(graph, SV(x=1, seg=2)),
             ],
             dtype=np.uint64,
         )

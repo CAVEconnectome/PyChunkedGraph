@@ -4,10 +4,7 @@ from warnings import warn
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...graph import ChunkedGraph
-from ...graph import serializers
-from ...ingest.create.parent_layer import add_parent_chunk
+from ..helpers import SV, build_graph, assert_graph_unchanged
 
 
 class TestGraphMerge:
@@ -23,22 +20,17 @@ class TestGraphMerge:
         └─────┘      └─────┘
         """
 
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        cg = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
 
         # Merge
         new_root_ids = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 0)],
+            [sv["a1"], sv["a0"]],
             affinities=[0.3],
         ).new_root_ids
 
@@ -46,12 +38,12 @@ class TestGraphMerge:
         new_root_id = new_root_ids[0]
 
         # Check
-        assert cg.get_parent(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
-        assert cg.get_parent(to_label(cg, 1, 0, 0, 0, 1)) == new_root_id
+        assert cg.get_parent(sv["a0"]) == new_root_id
+        assert cg.get_parent(sv["a1"]) == new_root_id
         leaves = np.unique(cg.get_subgraph([new_root_id], leaves_only=True))
         assert len(leaves) == 2
-        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-        assert to_label(cg, 1, 0, 0, 0, 1) in leaves
+        assert sv["a0"] in leaves
+        assert sv["a1"] in leaves
 
     @pytest.mark.timeout(30)
     def test_merge_pair_neighboring_chunks(self, gen_graph):
@@ -64,37 +56,16 @@ class TestGraphMerge:
         └─────┴─────┘      └─────┴─────┘
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
         )
 
         # Merge
         new_root_ids = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0)],
+            [sv["b"], sv["a0"]],
             affinities=0.3,
         ).new_root_ids
 
@@ -102,12 +73,12 @@ class TestGraphMerge:
         new_root_id = new_root_ids[0]
 
         # Check
-        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
-        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == new_root_id
+        assert cg.get_root(sv["a0"]) == new_root_id
+        assert cg.get_root(sv["b"]) == new_root_id
         leaves = np.unique(cg.get_subgraph([new_root_id], leaves_only=True))
         assert len(leaves) == 2
-        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-        assert to_label(cg, 1, 1, 0, 0, 0) in leaves
+        assert sv["a0"] in leaves
+        assert sv["b"] in leaves
 
     @pytest.mark.timeout(120)
     def test_merge_pair_disconnected_chunks(self, gen_graph):
@@ -120,58 +91,16 @@ class TestGraphMerge:
         └─────┘     └─────┘      └─────┘     └─────┘
         """
 
-        cg = gen_graph(n_layers=5)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk Z
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 7, 7, 7, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
-        )
-        add_parent_chunk(
-            cg,
-            3,
-            [3, 3, 3],
-            time_stamp=fake_ts,
-            n_threads=1,
-        )
-        add_parent_chunk(
-            cg,
-            4,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
-        )
-        add_parent_chunk(
-            cg,
-            5,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=5,
+            supervoxels={"a0": SV(), "z": SV(x=7, y=7, z=7)},
         )
 
         # Merge
         result = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 7, 7, 7, 0), to_label(cg, 1, 0, 0, 0, 0)],
+            [sv["z"], sv["a0"]],
             affinities=[0.3],
         )
         new_root_ids, lvl2_node_ids = result.new_root_ids, result.new_lvl2_ids
@@ -184,12 +113,12 @@ class TestGraphMerge:
         new_root_id = new_root_ids[0]
 
         # Check
-        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
-        assert cg.get_root(to_label(cg, 1, 7, 7, 7, 0)) == new_root_id
+        assert cg.get_root(sv["a0"]) == new_root_id
+        assert cg.get_root(sv["z"]) == new_root_id
         leaves = np.unique(cg.get_subgraph(new_root_id, leaves_only=True))
         assert len(leaves) == 2
-        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-        assert to_label(cg, 1, 7, 7, 7, 0) in leaves
+        assert sv["a0"] in leaves
+        assert sv["z"] in leaves
 
     @pytest.mark.timeout(30)
     def test_merge_pair_already_connected(self, gen_graph):
@@ -203,15 +132,11 @@ class TestGraphMerge:
         └─────┘      └─────┘
         """
 
-        cg = gen_graph(n_layers=2)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
+            edges=[("a0", "a1", 0.5)],
         )
 
         res_old = cg.client.read_all_rows()
@@ -221,7 +146,7 @@ class TestGraphMerge:
         with pytest.raises(Exception):
             cg.add_edges(
                 "Jane Doe",
-                [to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 0)],
+                [sv["a1"], sv["a0"]],
             )
         res_new = cg.client.read_all_rows()
         res_new.consume_all()
@@ -246,29 +171,21 @@ class TestGraphMerge:
         └─────┘      └─────┘
         """
 
-        cg = gen_graph(n_layers=2)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[
-                to_label(cg, 1, 0, 0, 0, 0),
-                to_label(cg, 1, 0, 0, 0, 1),
-                to_label(cg, 1, 0, 0, 0, 2),
-            ],
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            supervoxels={"a0": SV(), "a1": SV(seg=1), "a2": SV(seg=2)},
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 2), 0.5),
-                (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2), 0.5),
+                ("a0", "a2", 0.5),
+                ("a1", "a2", 0.5),
             ],
-            timestamp=fake_ts,
         )
 
         # Merge
         with pytest.raises(Exception):
             cg.add_edges(
                 "Jane Doe",
-                [to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 0)],
+                [sv["a1"], sv["a0"]],
                 affinities=0.3,
             ).new_root_ids
 
@@ -283,41 +200,21 @@ class TestGraphMerge:
         └─────┴─────┘      └─────┴─────┘
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "a1": SV(seg=1), "b": SV(x=1)},
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-                (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 0), inf),
+                ("a0", "a1", 0.5),
+                ("a1", "b", inf),
             ],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), inf)],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(
-            cg,
-            3,
-            [0, 0, 0],
-            time_stamp=fake_ts,
-            n_threads=1,
         )
 
         # Merge
         with pytest.raises(Exception):
             cg.add_edges(
                 "Jane Doe",
-                [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0)],
+                [sv["b"], sv["a0"]],
                 affinities=1.0,
             ).new_root_ids
 
@@ -332,38 +229,20 @@ class TestGraphMerge:
         └─────┘     └─────┘      └─────┘     └─────┘
         """
 
-        cg = gen_graph(n_layers=5)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=5,
+            supervoxels={"a0": SV(), "a1": SV(seg=1), "z": SV(x=7, y=7, z=7)},
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-                (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 7, 7, 7, 0), inf),
+                ("a0", "a1", 0.5),
+                ("a1", "z", inf),
             ],
-            timestamp=fake_ts,
         )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 7, 7, 7, 0)],
-            edges=[(to_label(cg, 1, 7, 7, 7, 0), to_label(cg, 1, 0, 0, 0, 1), inf)],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 3, [3, 3, 3], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [1, 1, 1], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 5, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Merge
         new_root_ids = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 7, 7, 7, 0), to_label(cg, 1, 0, 0, 0, 0)],
+            [sv["z"], sv["a0"]],
             affinities=1.0,
         ).new_root_ids
 
@@ -371,14 +250,14 @@ class TestGraphMerge:
         new_root_id = new_root_ids[0]
 
         # Check
-        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
-        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_id
-        assert cg.get_root(to_label(cg, 1, 7, 7, 7, 0)) == new_root_id
+        assert cg.get_root(sv["a0"]) == new_root_id
+        assert cg.get_root(sv["a1"]) == new_root_id
+        assert cg.get_root(sv["z"]) == new_root_id
         leaves = np.unique(cg.get_subgraph(new_root_id, leaves_only=True))
         assert len(leaves) == 3
-        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-        assert to_label(cg, 1, 0, 0, 0, 1) in leaves
-        assert to_label(cg, 1, 7, 7, 7, 0) in leaves
+        assert sv["a0"] in leaves
+        assert sv["a1"] in leaves
+        assert sv["z"] in leaves
 
     @pytest.mark.timeout(30)
     def test_merge_same_node(self, gen_graph):
@@ -391,31 +270,19 @@ class TestGraphMerge:
         └─────┘
         """
 
-        cg = gen_graph(n_layers=2)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            supervoxels={"a0": SV()},
         )
 
-        res_old = cg.client.read_all_rows()
-        res_old.consume_all()
-
         # Merge
-        with pytest.raises(Exception):
-            cg.add_edges(
-                "Jane Doe",
-                [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0)],
-            )
-
-        res_new = cg.client.read_all_rows()
-        res_new.consume_all()
-
-        assert res_new.rows == res_old.rows
+        with assert_graph_unchanged(cg):
+            with pytest.raises(Exception):
+                cg.add_edges(
+                    "Jane Doe",
+                    [sv["a0"], sv["a0"]],
+                )
 
     @pytest.mark.timeout(30)
     def test_merge_pair_abstract_nodes(self, gen_graph):
@@ -424,41 +291,19 @@ class TestGraphMerge:
         => Reject
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
         )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-
-        res_old = cg.client.read_all_rows()
-        res_old.consume_all()
 
         # Merge
-        with pytest.raises(Exception):
-            cg.add_edges(
-                "Jane Doe",
-                [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 2, 1, 0, 0, 1)],
-            )
-
-        res_new = cg.client.read_all_rows()
-        res_new.consume_all()
-
-        assert res_new.rows == res_old.rows
+        with assert_graph_unchanged(cg):
+            with pytest.raises(Exception):
+                cg.add_edges(
+                    "Jane Doe",
+                    [sv["a0"], cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0)],
+                )
 
     @pytest.mark.timeout(30)
     def test_diagonal_connections(self, gen_graph):
@@ -474,43 +319,22 @@ class TestGraphMerge:
         └─────┴─────┘
         """
 
-        cg = gen_graph(n_layers=3)
-
-        # Chunk A
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={
+                "a0": SV(),
+                "a1": SV(seg=1),
+                "b": SV(x=1),
+                "c": SV(y=1),
+                "d": SV(x=1, y=1),
+            },
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf),
+                ("a0", "b", inf),
+                ("a0", "c", inf),
+                ("c", "d", inf),
             ],
         )
-
-        # Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
-        )
-
-        # Chunk C
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 1, 0, 0)],
-            edges=[
-                (to_label(cg, 1, 0, 1, 0, 0), to_label(cg, 1, 1, 1, 0, 0), inf),
-                (to_label(cg, 1, 0, 1, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf),
-            ],
-        )
-
-        # Chunk D
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 1, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 1, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf)],
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
 
         rr = cg.range_read_chunk(chunk_id=cg.get_chunk_id(layer=3, x=0, y=0, z=0))
         root_ids_t0 = list(rr.keys())
@@ -523,7 +347,7 @@ class TestGraphMerge:
 
         new_roots = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            [sv["a0"], sv["a1"]],
             affinities=[0.5],
         ).new_root_ids
 
@@ -538,46 +362,26 @@ class TestGraphMerge:
 
     @pytest.mark.timeout(240)
     def test_cross_edges(self, gen_graph):
-        cg = gen_graph(n_layers=5)
-
-        # Preparation: Build Chunk A
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=5,
+            supervoxels={
+                "a0": SV(),
+                "a1": SV(seg=1),
+                "b0": SV(x=1),
+                "b1": SV(x=1, seg=1),
+                "c": SV(x=2),
+            },
             edges=[
-                (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 0), inf),
-                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), inf),
+                ("a1", "b0", inf),
+                ("a0", "a1", inf),
+                ("b0", "b1", inf),
             ],
-            timestamp=fake_ts,
         )
-
-        # Preparation: Build Chunk B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
-            edges=[
-                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), inf),
-                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1), inf),
-            ],
-            timestamp=fake_ts,
-        )
-
-        # Preparation: Build Chunk C
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 2, 0, 0, 0)],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 5, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         new_roots = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0)],
+            [sv["b0"], sv["c"]],
             affinities=0.9,
         ).new_root_ids
 
@@ -601,30 +405,15 @@ class TestGraphMergeSkipConnections:
         After merge: 1 and 2 are connected, hierarchy should skip
         intermediate empty layers.
         """
-        cg = gen_graph(n_layers=5)
-
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=5,
+            supervoxels={"a0": SV(), "z": SV(x=7, y=7, z=7)},
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 7, 7, 7, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 3, [3, 3, 3], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 5, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Before merge: verify both nodes have root at layer 5
-        root1_pre = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
-        root2_pre = cg.get_root(to_label(cg, 1, 7, 7, 7, 0))
+        root1_pre = cg.get_root(sv["a0"])
+        root2_pre = cg.get_root(sv["z"])
         assert root1_pre != root2_pre
         assert cg.get_chunk_layer(root1_pre) == 5
         assert cg.get_chunk_layer(root2_pre) == 5
@@ -632,7 +421,7 @@ class TestGraphMergeSkipConnections:
         # Merge
         result = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 7, 7, 7, 0)],
+            [sv["a0"], sv["z"]],
             affinities=[0.5],
         )
         new_root_ids = result.new_root_ids
@@ -640,8 +429,8 @@ class TestGraphMergeSkipConnections:
 
         # After merge: single root, both supervoxels reachable
         new_root = new_root_ids[0]
-        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root
-        assert cg.get_root(to_label(cg, 1, 7, 7, 7, 0)) == new_root
+        assert cg.get_root(sv["a0"]) == new_root
+        assert cg.get_root(sv["z"]) == new_root
         assert cg.get_chunk_layer(new_root) == 5
 
     @pytest.mark.timeout(120)
@@ -651,36 +440,21 @@ class TestGraphMergeSkipConnections:
         each supervoxel to root is valid — every node has a parent at
         a higher layer, and the root is reachable.
         """
-        cg = gen_graph(n_layers=5)
-
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=5,
+            supervoxels={"a0": SV(), "z": SV(x=7, y=7, z=7)},
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 7, 7, 7, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 3, [3, 3, 3], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 5, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         result = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 7, 7, 7, 0)],
+            [sv["a0"], sv["z"]],
             affinities=[0.5],
         )
 
         # Verify parent chain for both supervoxels
-        for sv in [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 7, 7, 7, 0)]:
-            parents = cg.get_root(sv, get_all_parents=True)
+        for node in [sv["a0"], sv["z"]]:
+            parents = cg.get_root(node, get_all_parents=True)
             # Each parent should be at a strictly higher layer
             prev_layer = 1
             for p in parents:
@@ -704,28 +478,16 @@ class TestGraphMergeSkipConnections:
         │  1  │  2  │
         └─────┴─────┘
         """
-        cg = gen_graph(n_layers=3)
-
-        fake_ts = fake_timestamp()
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Merge
         result = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)],
+            [sv["a0"], sv["b"]],
             affinities=[0.5],
         )
 

@@ -5,13 +5,13 @@ import numpy as np
 from pychunkedgraph.graph.utils import id_helpers
 from pychunkedgraph.graph.chunks import utils as chunk_utils
 
-from ..helpers import to_label
+from ..helpers import SV, label
 
 
 class TestGetSegmentIdLimit:
     def test_basic(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        node_id = to_label(graph, 1, 0, 0, 0, 1)
+        node_id = label(graph, SV(seg=1))
         limit = id_helpers.get_segment_id_limit(graph.meta, node_id)
         assert limit > 0
         assert isinstance(limit, np.uint64)
@@ -20,7 +20,7 @@ class TestGetSegmentIdLimit:
 class TestGetSegmentId:
     def test_basic(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        node_id = to_label(graph, 1, 0, 0, 0, 42)
+        node_id = label(graph, SV(seg=42))
         seg_id = id_helpers.get_segment_id(graph.meta, node_id)
         assert seg_id == 42
 

@@ -11,7 +11,7 @@ from pychunkedgraph.graph.edges.utils import (
 )
 from pychunkedgraph.graph import basetypes
 
-from ..helpers import to_label
+from ..helpers import SV, label
 
 
 class TestConcatenateChunkEdges:
@@ -81,16 +81,16 @@ class TestGetCrossChunkEdgesLayer:
 
     def test_same_chunk(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        sv1 = to_label(graph, 1, 0, 0, 0, 1)
-        sv2 = to_label(graph, 1, 0, 0, 0, 2)
+        sv1 = label(graph, SV(seg=1))
+        sv2 = label(graph, SV(seg=2))
         edges = np.array([[sv1, sv2]], dtype=basetypes.NODE_ID)
         result = get_cross_chunk_edges_layer(graph.meta, edges)
         assert result[0] == 1  # same chunk -> layer 1
 
     def test_adjacent_chunks(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        sv1 = to_label(graph, 1, 0, 0, 0, 1)
-        sv2 = to_label(graph, 1, 1, 0, 0, 1)
+        sv1 = label(graph, SV(seg=1))
+        sv2 = label(graph, SV(x=1, seg=1))
         edges = np.array([[sv1, sv2]], dtype=basetypes.NODE_ID)
         result = get_cross_chunk_edges_layer(graph.meta, edges)
         assert result[0] >= 2  # different chunks -> higher layer

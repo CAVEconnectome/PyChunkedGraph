@@ -8,8 +8,7 @@ import pytest
 from pychunkedgraph.graph.edits import flip_ids
 from pychunkedgraph.graph import basetypes
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...ingest.create.parent_layer import add_parent_chunk
+from ..helpers import SV, build_graph
 
 
 class TestFlipIds:
@@ -33,22 +32,14 @@ class TestInitOldHierarchy:
     def test_basic(self, gen_graph):
         from pychunkedgraph.graph.edits import _init_old_hierarchy
 
-        graph = gen_graph(n_layers=4)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[
-                (to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1), 0.5),
-            ],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=4,
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
+            edges=[("a0", "a1", 0.5)],
         )
-        add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
-        add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
 
-        sv = to_label(graph, 1, 0, 0, 0, 0)
-        l2_parent = graph.get_parent(sv)
-        result = _init_old_hierarchy(graph, np.array([l2_parent], dtype=np.uint64))
+        l2_parent = cg.get_parent(sv["a0"])
+        result = _init_old_hierarchy(cg, np.array([l2_parent], dtype=np.uint64))
         assert l2_parent in result
         assert 2 in result[l2_parent]

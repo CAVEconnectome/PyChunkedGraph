@@ -5,12 +5,13 @@ operations through the BigTable emulator.
 """
 
 
+from math import inf
+
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label, fake_timestamp
+from ..helpers import SV, build_graph
 from ...graph.edges.stale import get_stale_nodes, get_new_nodes
-from ...ingest.create.parent_layer import add_parent_chunk
 
 
 class TestStaleEdges:
@@ -26,31 +27,21 @@ class TestStaleEdges:
         │     │     │
         └─────┴─────┘
         """
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
+            edges=[("a0", "b", inf)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Get old parents before edit
-        old_root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
+        old_root = cg.get_root(sv["a0"])
 
         # Split
         cg.remove_edges(
             "test_user",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            source_ids=sv["a0"],
+            sink_ids=sv["b"],
             mincut=False,
         )
 
@@ -69,34 +60,24 @@ class TestStaleEdges:
         │     │     │
         └─────┴─────┘
         """
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
+            edges=[("a0", "b", inf)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Split
         cg.remove_edges(
             "test_user",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            source_ids=sv["a0"],
+            sink_ids=sv["b"],
             mincut=False,
         )
 
         # Current roots should not be stale
-        new_root_1 = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
-        new_root_2 = cg.get_root(to_label(cg, 1, 1, 0, 0, 0))
+        new_root_1 = cg.get_root(sv["a0"])
+        new_root_2 = cg.get_root(sv["b"])
         stale = get_stale_nodes(cg, [new_root_1, new_root_2])
         assert new_root_1 not in stale
         assert new_root_2 not in stale
@@ -113,32 +94,22 @@ class TestStaleEdges:
         │     │     │
         └─────┴─────┘
         """
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
+            edges=[("a0", "b", inf)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Get L2 parent of SV 1 before edit
-        sv1 = to_label(cg, 1, 0, 0, 0, 0)
+        sv1 = sv["a0"]
         old_l2_parent = cg.get_parent(sv1)
 
         # Split
         cg.remove_edges(
             "test_user",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            source_ids=sv["a0"],
+            sink_ids=sv["b"],
             mincut=False,
         )
 
@@ -158,41 +129,21 @@ class TestStaleEdges:
         │     │     │     │
         └─────┴─────┴─────┘
         """
-        cg = gen_graph(n_layers=4)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=4,
+            supervoxels={"a0": SV(), "b": SV(x=1), "c": SV(x=2)},
+            edges=[("a0", "b", inf)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        # Chunk C - isolated node, not connected to A or B
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 2, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
-        )
-
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Get the isolated node's root before edit
-        isolated_root = cg.get_root(to_label(cg, 1, 2, 0, 0, 0))
+        isolated_root = cg.get_root(sv["c"])
 
         # Split nodes 1 and 2
         cg.remove_edges(
             "test_user",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            source_ids=sv["a0"],
+            sink_ids=sv["b"],
             mincut=False,
         )
 
@@ -212,23 +163,17 @@ class TestStaleEdges:
         │     │
         └─────┘
         """
-        cg = gen_graph(n_layers=4)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=4,
+            supervoxels={"a0": SV()},
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
-        sv = to_label(cg, 1, 0, 0, 0, 0)
-        l2_parent = cg.get_parent(sv)
+        sv0 = sv["a0"]
+        l2_parent = cg.get_parent(sv0)
 
         # get_new_nodes at layer 2 should return the same L2 parent
-        result = get_new_nodes(cg, np.array([sv], dtype=np.uint64), layer=2)
+        result = get_new_nodes(cg, np.array([sv0], dtype=np.uint64), layer=2)
         assert result[0] == l2_parent
 
     @pytest.mark.timeout(30)
@@ -242,26 +187,16 @@ class TestStaleEdges:
         │     │     │
         └─────┴─────┘
         """
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
+            edges=[("a0", "b", inf)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
-        root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
-        l2_0 = cg.get_parent(to_label(cg, 1, 0, 0, 0, 0))
-        l2_1 = cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
+        root = cg.get_root(sv["a0"])
+        l2_0 = cg.get_parent(sv["a0"])
+        l2_1 = cg.get_parent(sv["b"])
 
         # No edits have been performed, so all nodes should be non-stale
         stale = get_stale_nodes(cg, [root, l2_0, l2_1])
@@ -279,25 +214,15 @@ class TestStaleEdges:
         │     │     │
         └─────┴─────┘
         """
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV(), "b": SV(x=1)},
+            edges=[("a0", "b", inf)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
-        sv1 = to_label(cg, 1, 0, 0, 0, 0)
-        sv2 = to_label(cg, 1, 1, 0, 0, 0)
+        sv1 = sv["a0"]
+        sv2 = sv["b"]
         svs = np.array([sv1, sv2], dtype=np.uint64)
 
         result = get_new_nodes(cg, svs, layer=2)
@@ -318,24 +243,19 @@ class TestStaleEdges:
         │     │
         └─────┘
         """
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a0": SV()},
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
-        sv = to_label(cg, 1, 0, 0, 0, 0)
-        svs = np.array([sv, sv, sv], dtype=np.uint64)
+        sv0 = sv["a0"]
+        svs = np.array([sv0, sv0, sv0], dtype=np.uint64)
 
         result = get_new_nodes(cg, svs, layer=2)
         assert result.shape == (3,)
         # All should map to the same L2 parent
-        expected = cg.get_parent(sv)
+        expected = cg.get_parent(sv0)
         assert np.all(result == expected)
 
     @pytest.mark.timeout(30)
@@ -350,18 +270,15 @@ class TestStaleEdges:
         └─────┘
         """
         atomic_chunk_bounds = np.array([1, 1, 1])
-        cg = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
-
-        create_chunk(
-            cg,
-            vertices=[sv0, sv1],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=atomic_chunk_bounds,
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
+
+        sv0 = sv["a0"]
+        sv1 = sv["a1"]
 
         # Get L2 parents before merge (each SV has its own L2 parent)
         old_l2_0 = cg.get_parent(sv0)
@@ -391,16 +308,14 @@ class TestStaleEdges:
         └─────┘
         """
         atomic_chunk_bounds = np.array([1, 1, 1])
-        cg = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        create_chunk(
-            cg,
-            vertices=[sv0],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=atomic_chunk_bounds,
+            supervoxels={"a0": SV()},
         )
+
+        sv0 = sv["a0"]
 
         root = cg.get_root(sv0)
         stale = get_stale_nodes(cg, [root])
@@ -417,22 +332,17 @@ class TestStaleEdges:
         │     │
         └─────┘
         """
-        cg = gen_graph(n_layers=4)
-        fake_ts = fake_timestamp()
-
-        sv = to_label(cg, 1, 0, 0, 0, 0)
-        create_chunk(
-            cg,
-            vertices=[sv],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=4,
+            supervoxels={"a0": SV()},
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
-        root = cg.get_root(sv)
+        sv0 = sv["a0"]
+
+        root = cg.get_root(sv0)
         root_layer = cg.get_chunk_layer(root)
 
-        result = get_new_nodes(cg, np.array([sv], dtype=np.uint64), layer=root_layer)
+        result = get_new_nodes(cg, np.array([sv0], dtype=np.uint64), layer=root_layer)
         assert result.shape == (1,)
         assert result[0] == root

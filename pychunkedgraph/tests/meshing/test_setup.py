@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from ...ingest.create.parent_layer import add_parent_chunk
 from ...meshing.setup import derive_initial_ts
-from ..helpers import create_chunk, to_label, fake_timestamp
+from ..helpers import SV, label, create_chunk, fake_timestamp
 
 
 def test_derive_initial_ts_uses_stamped_boundary(gen_graph):
@@ -19,7 +19,7 @@ def test_derive_initial_ts_after_root_build(gen_graph):
     fake_ts = fake_timestamp()
     create_chunk(
         graph,
-        vertices=[to_label(graph, 1, 0, 0, 0, 0)],
+        vertices=[label(graph, SV())],
         edges=[],
         timestamp=fake_ts,
     )
