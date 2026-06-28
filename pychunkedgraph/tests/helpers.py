@@ -9,6 +9,7 @@ from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph import basetypes
 from ..ingest.create.atomic_layer import add_atomic_chunk
+from ..ingest.create.parent_layer import add_parent_chunk
 
 
 def fake_timestamp():
@@ -160,6 +161,29 @@ def get_layer_chunk_bounds(
         layer_bounds = atomic_chunk_bounds / (2 ** (layer - 2))
         layer_bounds_d[layer] = np.ceil(layer_bounds).astype(int)
     return layer_bounds_d
+
+
+def build_graph(gen_graph, n_layers=4, chunks=(), *, timestamp=None, atomic_chunk_bounds=None):
+    """Build a test graph: atomic chunks plus the full parent hierarchy they imply, at one ts.
+
+    A vertex is an (x, y, z, seg) atomic coordinate; an edge is ((x,y,z,seg), (x,y,z,seg),
+    affinity); chunks is a list of (vertices, edges). Parents are derived. Returns (cg, ts).
+    """
+    bounds = np.array([]) if atomic_chunk_bounds is None else atomic_chunk_bounds
+    cg = gen_graph(n_layers=n_layers, atomic_chunk_bounds=bounds)
+    ts = fake_timestamp() if timestamp is None else timestamp
+    atomic_coords = set()
+    for vertices, edges in chunks:
+        verts = [to_label(cg, 1, *v) for v in vertices]
+        labeled = [(to_label(cg, 1, *a), to_label(cg, 1, *b), aff) for a, b, aff in edges]
+        create_chunk(cg, vertices=verts, edges=labeled, timestamp=ts)
+        atomic_coords.update(v[:3] for v in vertices)
+    fanout = cg.meta.graph_config.FANOUT
+    for layer in range(3, n_layers + 1):
+        coords = {tuple(np.array(c) // fanout ** (layer - 2)) for c in atomic_coords}
+        for coord in sorted(coords):
+            add_parent_chunk(cg, layer, list(coord), time_stamp=ts, n_threads=1)
+    return cg, ts
 
 
 class RowKeyLockRegistry:
