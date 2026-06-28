@@ -14,30 +14,20 @@ from pychunkedgraph.graph.segmenthistory import (
 
 from pychunkedgraph.graph import attributes
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...ingest.create.parent_layer import add_parent_chunk
+from ..helpers import SV, build_graph
 
 
 class TestSegmentHistory:
     def _build_and_merge(self, gen_graph):
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-
-        result = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        result = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         new_root = result.new_root_ids[0]
-        return graph, new_root
+        return cg, new_root
 
     def test_init(self, gen_graph):
         graph, new_root = self._build_and_merge(gen_graph)
@@ -324,39 +314,27 @@ class TestLogEntryUnit:
 class TestGetAllLogEntries:
     def test_empty_graph(self, gen_graph):
         """Create graph with no operations. get_all_log_entries should return empty list."""
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        # Create a chunk with vertices but perform no edits
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV()},
         )
-        entries = get_all_log_entries(graph)
+        entries = get_all_log_entries(cg)
         assert isinstance(entries, list)
         assert len(entries) == 0
 
     def test_basic(self, gen_graph):
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-        graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         # get_all_log_entries iterates range(get_max_operation_id()) which
         # may not include the actual operation ID; verify it doesn't crash
-        entries = get_all_log_entries(graph)
+        entries = get_all_log_entries(cg)
         assert isinstance(entries, list)
         # If entries exist, verify LogEntry API works
         for entry in entries:
@@ -370,24 +348,21 @@ class TestMergeLog:
     """Tests for SegmentHistory.merge_log() method (lines 245-268)."""
 
     def _build_and_merge(self, gen_graph):
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-        result = graph.add_edges(
+        result = cg.add_edges(
             "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
+            [sv["a0"], sv["a1"]],
             affinities=[0.3],
             source_coords=[0, 0, 0],
             sink_coords=[1, 1, 1],
         )
         new_root = result.new_root_ids[0]
-        return graph, new_root
+        return cg, new_root
 
     def test_merge_log_with_root(self, gen_graph):
         """merge_log(root_id=...) should return merge_edges and merge_edge_coords."""
@@ -424,22 +399,15 @@ class TestPastOperationIdsExtended:
     """Tests for SegmentHistory.past_operation_ids() (lines 270-292)."""
 
     def _build_and_merge(self, gen_graph):
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-        result = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        result = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         new_root = result.new_root_ids[0]
-        return graph, new_root
+        return cg, new_root
 
     def test_past_operation_ids_without_root(self, gen_graph):
         """past_operation_ids() without root_id iterates all root_ids."""
@@ -465,22 +433,15 @@ class TestPastFutureIdMappingExtended:
     """More thorough tests for past_future_id_mapping (lines 315-368)."""
 
     def _build_and_merge(self, gen_graph):
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-        result = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        result = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         new_root = result.new_root_ids[0]
-        return graph, new_root
+        return cg, new_root
 
     def test_past_future_id_mapping_without_root(self, gen_graph):
         """past_future_id_mapping() without root_id iterates all root_ids."""
@@ -509,19 +470,16 @@ class TestMergeSplitHistory:
     """Tests involving merge followed by split to cover more branches."""
 
     def _build_merge_and_split(self, gen_graph):
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
         # Merge
-        merge_result = graph.add_edges(
+        merge_result = cg.add_edges(
             "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
+            [sv["a0"], sv["a1"]],
             affinities=[0.3],
             source_coords=[0, 0, 0],
             sink_coords=[1, 1, 1],
@@ -529,14 +487,14 @@ class TestMergeSplitHistory:
         merge_root = merge_result.new_root_ids[0]
 
         # Split
-        split_result = graph.remove_edges(
+        split_result = cg.remove_edges(
             "TestUser",
-            source_ids=to_label(graph, 1, 0, 0, 0, 0),
-            sink_ids=to_label(graph, 1, 0, 0, 0, 1),
+            source_ids=sv["a0"],
+            sink_ids=sv["a1"],
             mincut=False,
         )
         split_roots = split_result.new_root_ids
-        return graph, merge_root, split_roots
+        return cg, merge_root, split_roots
 
     def test_change_log_summary_with_split(self, gen_graph):
         """change_log_summary after merge+split should show both operations."""
@@ -593,17 +551,14 @@ class TestMergeSplitHistory:
 
     def test_collect_edited_sv_ids_no_edits(self, gen_graph):
         """collect_edited_sv_ids returns empty array when no edits exist for a root."""
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV()},
         )
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        sh = SegmentHistory(graph, root)
+        root = cg.get_root(sv["a0"])
+        sh = SegmentHistory(cg, root)
         sv_ids = sh.collect_edited_sv_ids(root_id=root)
         assert isinstance(sv_ids, np.ndarray)
         assert sv_ids.dtype == np.uint64
@@ -611,17 +566,14 @@ class TestMergeSplitHistory:
 
     def test_change_log_summary_no_operations(self, gen_graph):
         """change_log_summary with no operations should show zero splits/merges."""
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV()},
         )
-        root = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        sh = SegmentHistory(graph, root)
+        root = cg.get_root(sv["a0"])
+        sh = SegmentHistory(cg, root)
         summary = sh.change_log_summary(root_id=root)
         assert isinstance(summary, dict)
         assert summary["n_splits"] == 0

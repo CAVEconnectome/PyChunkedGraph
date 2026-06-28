@@ -17,8 +17,7 @@ from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.graph.sv_lookup import resolve_supervoxels_at_coords
 from pychunkedgraph.graph.sv_lookup import main as sv_lookup_main
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...ingest.create.parent_layer import add_parent_chunk
+from ..helpers import SV, build_graph
 
 UTC = timezone.utc
 
@@ -61,39 +60,25 @@ def _build_two_sv_graph(gen_graph):
     and sv2 is in chunk (1,0,0). graph.meta._ws_cv is a _SliceableCV seeded
     with these SVs at coordinates (0,0,0), (1,0,0), (2,0,0) respectively.
     """
-    graph = gen_graph(n_layers=4)
-    fake_ts = fake_timestamp()
-
-    sv0 = to_label(graph, 1, 0, 0, 0, 0)
-    sv1 = to_label(graph, 1, 0, 0, 0, 1)
-    sv2 = to_label(graph, 1, 1, 0, 0, 0)
-
-    create_chunk(
-        graph,
-        vertices=[sv0, sv1],
-        edges=[(sv0, sv1, 0.5), (sv0, sv2, inf)],
-        timestamp=fake_ts,
+    cg, sv = build_graph(
+        gen_graph,
+        n_layers=4,
+        supervoxels={"a0": SV(), "a1": SV(seg=1), "b": SV(x=1)},
+        edges=[("a0", "a1", 0.5), ("a0", "b", inf)],
     )
-    create_chunk(
-        graph,
-        vertices=[sv2],
-        edges=[(sv2, sv0, inf)],
-        timestamp=fake_ts,
-    )
-    add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
-    add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
+    sv0, sv1, sv2 = sv["a0"], sv["a1"], sv["b"]
 
-    root = graph.get_root(sv0)
-    assert graph.get_root(sv1) == root
-    assert graph.get_root(sv2) == root
+    root = cg.get_root(sv0)
+    assert cg.get_root(sv1) == root
+    assert cg.get_root(sv2) == root
 
     cv = _SliceableWS(shape=(8, 8, 8))
     cv.set_voxel(0, 0, 0, sv0)
     cv.set_voxel(1, 0, 0, sv1)
     cv.set_voxel(2, 0, 0, sv2)
-    graph.meta.ws_ts_scale = lambda mip=0: cv
+    cg.meta.ws_ts_scale = lambda mip=0: cv
 
-    return graph, sv0, sv1, sv2, root
+    return cg, sv0, sv1, sv2, root
 
 
 def _build_two_root_graph(gen_graph):
@@ -106,40 +91,26 @@ def _build_two_root_graph(gen_graph):
     Returns (graph, sv0, sv1, sv2, root_a, root_b) with sv0, sv2 under root_a
     and sv1 under root_b. graph.meta._ws_cv is seeded with the three SVs.
     """
-    graph = gen_graph(n_layers=4)
-    fake_ts = fake_timestamp()
-
-    sv0 = to_label(graph, 1, 0, 0, 0, 0)
-    sv1 = to_label(graph, 1, 0, 0, 0, 1)
-    sv2 = to_label(graph, 1, 1, 0, 0, 0)
-
-    create_chunk(
-        graph,
-        vertices=[sv0, sv1],
-        edges=[(sv0, sv2, inf)],
-        timestamp=fake_ts,
+    cg, sv = build_graph(
+        gen_graph,
+        n_layers=4,
+        supervoxels={"a0": SV(), "a1": SV(seg=1), "b": SV(x=1)},
+        edges=[("a0", "b", inf)],
     )
-    create_chunk(
-        graph,
-        vertices=[sv2],
-        edges=[(sv2, sv0, inf)],
-        timestamp=fake_ts,
-    )
-    add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
-    add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
+    sv0, sv1, sv2 = sv["a0"], sv["a1"], sv["b"]
 
-    root_a = graph.get_root(sv0)
-    root_b = graph.get_root(sv1)
+    root_a = cg.get_root(sv0)
+    root_b = cg.get_root(sv1)
     assert root_a != root_b
-    assert graph.get_root(sv2) == root_a
+    assert cg.get_root(sv2) == root_a
 
     cv = _SliceableWS(shape=(8, 8, 8))
     cv.set_voxel(0, 0, 0, sv0)
     cv.set_voxel(1, 0, 0, sv1)
     cv.set_voxel(2, 0, 0, sv2)
-    graph.meta.ws_ts_scale = lambda mip=0: cv
+    cg.meta.ws_ts_scale = lambda mip=0: cv
 
-    return graph, sv0, sv1, sv2, root_a, root_b
+    return cg, sv0, sv1, sv2, root_a, root_b
 
 
 class TestResolveSupervoxelsAtCoords:

@@ -1,7 +1,6 @@
 """Tests for pychunkedgraph.graph.lineage"""
 
 from datetime import datetime, timedelta, UTC
-from math import inf
 
 import numpy as np
 import pytest
@@ -18,35 +17,23 @@ from pychunkedgraph.graph.lineage import (
 )
 from pychunkedgraph.graph import attributes
 
-from ..helpers import create_chunk, to_label, fake_timestamp
-from ...ingest.create.parent_layer import add_parent_chunk
+from ..helpers import SV, build_graph
 
 
 class TestLineage:
     def _build_and_merge(self, gen_graph):
         """Build a graph with 2 isolated SVs, then merge them."""
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        fake_ts = fake_timestamp()
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-
-        old_root_0 = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        old_root_1 = graph.get_root(to_label(graph, 1, 0, 0, 0, 1))
-
-        # Merge
-        result = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        old_root_0 = cg.get_root(sv["a0"])
+        old_root_1 = cg.get_root(sv["a1"])
+        result = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         new_root = result.new_root_ids[0]
-        return graph, old_root_0, old_root_1, new_root
+        return cg, old_root_0, old_root_1, new_root
 
     def test_get_latest_root_id_current(self, gen_graph):
         graph, _, _, new_root = self._build_and_merge(gen_graph)
@@ -151,44 +138,20 @@ class TestGetFutureRootIdsLatest:
         First merge SV0+SV1 -> root_A
         Then merge root_A+SV2 -> root_B
         """
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        fake_ts = fake_timestamp()
-        from ..helpers import create_chunk, to_label
-
-        create_chunk(
-            graph,
-            vertices=[
-                to_label(graph, 1, 0, 0, 0, 0),
-                to_label(graph, 1, 0, 0, 0, 1),
-                to_label(graph, 1, 0, 0, 0, 2),
-            ],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1), "a2": SV(seg=2)},
         )
-
-        old_root_0 = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        old_root_1 = graph.get_root(to_label(graph, 1, 0, 0, 0, 1))
-        old_root_2 = graph.get_root(to_label(graph, 1, 0, 0, 0, 2))
-
-        # First merge: SV0 + SV1
-        result1 = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        old_root_0 = cg.get_root(sv["a0"])
+        old_root_1 = cg.get_root(sv["a1"])
+        old_root_2 = cg.get_root(sv["a2"])
+        result1 = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         mid_root = result1.new_root_ids[0]
-
-        # Second merge: merged root + SV2
-        result2 = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 2)],
-            affinities=[0.3],
-        )
+        result2 = cg.add_edges("TestUser", [sv["a0"], sv["a2"]], affinities=[0.3])
         final_root = result2.new_root_ids[0]
-
-        return graph, old_root_0, old_root_1, old_root_2, mid_root, final_root
+        return cg, old_root_0, old_root_1, old_root_2, mid_root, final_root
 
     def test_future_root_ids_finds_chain(self, gen_graph):
         """get_future_root_ids from original root should find mid and final roots."""
@@ -222,29 +185,17 @@ class TestGetPastRootIdsTimestamps:
 
     def _build_and_merge(self, gen_graph):
         """Build a graph with 2 isolated SVs, then merge them."""
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        fake_ts = fake_timestamp()
-        from ..helpers import create_chunk, to_label
-
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-
-        old_root_0 = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        old_root_1 = graph.get_root(to_label(graph, 1, 0, 0, 0, 1))
-
-        result = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        old_root_0 = cg.get_root(sv["a0"])
+        old_root_1 = cg.get_root(sv["a1"])
+        result = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         new_root = result.new_root_ids[0]
-        return graph, old_root_0, old_root_1, new_root
+        return cg, old_root_0, old_root_1, new_root
 
     def test_past_root_ids_of_merged_root(self, gen_graph):
         """get_past_root_ids of the merged root should find old roots."""
@@ -274,29 +225,17 @@ class TestGetRootIdHistory:
 
     def _build_and_merge(self, gen_graph):
         """Build a graph with 2 isolated SVs, then merge them."""
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        fake_ts = fake_timestamp()
-        from ..helpers import create_chunk, to_label
-
-        create_chunk(
-            graph,
-            vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1)},
         )
-
-        old_root_0 = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        old_root_1 = graph.get_root(to_label(graph, 1, 0, 0, 0, 1))
-
-        result = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        old_root_0 = cg.get_root(sv["a0"])
+        old_root_1 = cg.get_root(sv["a1"])
+        result = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         new_root = result.new_root_ids[0]
-        return graph, old_root_0, old_root_1, new_root
+        return cg, old_root_0, old_root_1, new_root
 
     def test_history_after_merge(self, gen_graph):
         """After merge, get_root_id_history should contain past and current root."""
@@ -343,43 +282,20 @@ class TestGetRootIdHistoryDetailed:
         First merge SV0+SV1 -> root_A
         Then merge root_A+SV2 -> root_B
         """
-        atomic_chunk_bounds = np.array([1, 1, 1])
-        graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            graph,
-            vertices=[
-                to_label(graph, 1, 0, 0, 0, 0),
-                to_label(graph, 1, 0, 0, 0, 1),
-                to_label(graph, 1, 0, 0, 0, 2),
-            ],
-            edges=[],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=2,
+            atomic_chunk_bounds=np.array([1, 1, 1]),
+            supervoxels={"a0": SV(), "a1": SV(seg=1), "a2": SV(seg=2)},
         )
-
-        old_root_0 = graph.get_root(to_label(graph, 1, 0, 0, 0, 0))
-        old_root_1 = graph.get_root(to_label(graph, 1, 0, 0, 0, 1))
-        old_root_2 = graph.get_root(to_label(graph, 1, 0, 0, 0, 2))
-
-        # First merge: SV0 + SV1
-        result1 = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
-            affinities=[0.3],
-        )
+        old_root_0 = cg.get_root(sv["a0"])
+        old_root_1 = cg.get_root(sv["a1"])
+        old_root_2 = cg.get_root(sv["a2"])
+        result1 = cg.add_edges("TestUser", [sv["a0"], sv["a1"]], affinities=[0.3])
         mid_root = result1.new_root_ids[0]
-
-        # Second merge: merged root + SV2
-        result2 = graph.add_edges(
-            "TestUser",
-            [to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 2)],
-            affinities=[0.3],
-        )
+        result2 = cg.add_edges("TestUser", [sv["a0"], sv["a2"]], affinities=[0.3])
         final_root = result2.new_root_ids[0]
-
-        return graph, old_root_0, old_root_1, old_root_2, mid_root, final_root
+        return cg, old_root_0, old_root_1, old_root_2, mid_root, final_root
 
     def test_history_contains_all_roots_from_old(self, gen_graph):
         """get_root_id_history from original root should contain all related roots."""
