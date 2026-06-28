@@ -165,7 +165,7 @@ def get_layer_chunk_bounds(
 
 
 SV = namedtuple("SV", ["x", "y", "z", "seg"], defaults=(0, 0, 0, 0))
-BuiltGraph = namedtuple("BuiltGraph", ["cg", "sv", "ts"])
+BuiltGraph = namedtuple("BuiltGraph", ["cg", "sv"])
 
 
 def build_graph(gen_graph, n_layers, supervoxels, edges=(), *, timestamp=None, atomic_chunk_bounds=None):
@@ -192,7 +192,7 @@ def build_graph(gen_graph, n_layers, supervoxels, edges=(), *, timestamp=None, a
         pcoords = {tuple(np.array(c) // fanout ** (layer - 2)) for c in members}
         for pcoord in sorted(pcoords):
             add_parent_chunk(cg, layer, list(pcoord), time_stamp=ts, n_threads=1)
-    return BuiltGraph(cg, sv, ts)
+    return BuiltGraph(cg, sv)
 
 
 class RowKeyLockRegistry:
