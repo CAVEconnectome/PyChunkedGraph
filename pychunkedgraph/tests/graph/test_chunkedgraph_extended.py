@@ -6,7 +6,7 @@ from math import inf
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 from ...graph.operation import GraphEditOperation, MergeOperation, SplitOperation
 from ...graph.exceptions import PreconditionError
@@ -16,7 +16,7 @@ class TestChunkedGraphExtended:
     def _build_graph(self, gen_graph):
         """Build a simple multi-chunk graph."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         # Chunk A: sv 0, 1 connected
         create_chunk(
@@ -117,7 +117,7 @@ class TestChunkedGraphExtended:
         """Build a single-chunk graph with two disconnected SVs and merge them."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -214,7 +214,7 @@ class TestFromLogRecord:
         """Build a 2-layer graph with two disconnected SVs."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -268,7 +268,7 @@ class TestCheckIds:
         """Build a 2-layer graph with two disconnected SVs."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -312,7 +312,7 @@ class TestGetRootsExtended:
 
     def _build_cross_chunk(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -408,7 +408,7 @@ class TestGetChildrenExtended:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -488,7 +488,7 @@ class TestIsLatestRootsExtended:
     def _build_and_merge(self, gen_graph):
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -538,7 +538,7 @@ class TestGetNodeTimestampsExtended:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -606,7 +606,7 @@ class TestGetOperationIdsExtended:
     def test_get_operation_ids_no_ops(self, gen_graph):
         """get_operation_ids on a node with no operations returns empty dict."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -627,7 +627,7 @@ class TestGetSingleLeafMultipleExtended:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -699,7 +699,7 @@ class TestGetL2ChildrenExtended:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -768,7 +768,7 @@ class TestGetChunkLayersExtended:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -841,7 +841,7 @@ class TestGetAtomicCrossEdgesExtended:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -890,7 +890,7 @@ class TestGetAtomicCrossEdgesExtended:
     def test_get_atomic_cross_edges_no_cross(self, gen_graph):
         """get_atomic_cross_edges for an L2 node with no cross edges."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -913,7 +913,7 @@ class TestGetAllParentsDictExtended:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -961,7 +961,7 @@ class TestMiscMethods:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1043,7 +1043,7 @@ class TestIsLatestRootsAfterMerge:
     def _build_and_merge(self, gen_graph):
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1081,7 +1081,7 @@ class TestGetSubgraphNodesOnly:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1137,7 +1137,7 @@ class TestGetSubgraphEdgesOnly:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1186,7 +1186,7 @@ class TestIsLatestRootsDetailed:
         """Build graph with two disconnected SVs, merge them, return old and new roots."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1243,7 +1243,7 @@ class TestGetChunkCoordinatesMultiple:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1329,7 +1329,7 @@ class TestParentChunkIdMethods:
 
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1402,7 +1402,7 @@ class TestReadChunkEdges:
     def test_read_chunk_edges_returns_dict(self, gen_graph):
         """read_chunk_edges should return a dict (possibly empty for gs:// edges source)."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -1435,7 +1435,7 @@ class TestGetProofreadRootIds:
     def test_get_proofread_root_ids_no_ops(self, gen_graph):
         """get_proofread_root_ids with no operations should return empty arrays."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -1454,7 +1454,7 @@ class TestGetProofreadRootIds:
         """get_proofread_root_ids after a merge should return the old and new roots."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1486,7 +1486,7 @@ class TestRemoveEdgesShim:
         """Build a 2-layer graph with two connected SVs."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1552,7 +1552,7 @@ class TestEarliestTimestamp:
         """After creating a graph and performing a merge, get_earliest_timestamp should return a valid datetime."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[
@@ -1576,7 +1576,7 @@ class TestEarliestTimestamp:
     def test_get_earliest_timestamp_stamped_by_root_build(self, gen_graph):
         """Building the root layer stamps earliest_ts strictly above every root's ts."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],

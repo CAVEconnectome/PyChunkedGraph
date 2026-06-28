@@ -1,4 +1,5 @@
 import threading
+from datetime import datetime, timedelta, UTC
 from functools import reduce
 from unittest.mock import MagicMock
 
@@ -8,6 +9,11 @@ from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph import basetypes
 from ..ingest.create.atomic_layer import add_atomic_chunk
+
+
+def fake_timestamp():
+    """A timestamp safely in the past, for edits/lineage tests needing an old parent_ts."""
+    return datetime.now(UTC) - timedelta(days=10)
 
 
 class CloudVolumeBounds(object):

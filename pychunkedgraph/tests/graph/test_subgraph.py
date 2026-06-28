@@ -1,6 +1,5 @@
 """Tests for pychunkedgraph.graph.subgraph"""
 
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
@@ -8,14 +7,14 @@ import pytest
 
 from pychunkedgraph.graph.subgraph import SubgraphProgress, get_subgraph_nodes
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
 class TestSubgraphProgress:
     def test_init(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -36,7 +35,7 @@ class TestSubgraphProgress:
 
     def test_serializable_keys(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -61,7 +60,7 @@ class TestSubgraphProgress:
 class TestGetSubgraphNodes:
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,

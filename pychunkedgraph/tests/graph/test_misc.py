@@ -16,14 +16,14 @@ from pychunkedgraph.graph.misc import (
 from pychunkedgraph.graph.edges import Edges
 from pychunkedgraph.graph.types import Agglomeration
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
 class TestGetLatestRoots:
     def test_basic(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -41,7 +41,7 @@ class TestGetLatestRoots:
 
     def test_with_timestamp(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -64,7 +64,7 @@ class TestGetDeltaRoots:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -90,7 +90,7 @@ class TestGetProofreadRootIds:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         sv0 = to_label(graph, 1, 0, 0, 0, 0)
         sv1 = to_label(graph, 1, 0, 0, 0, 1)
 
@@ -132,7 +132,7 @@ class TestGetProofreadRootIds:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -271,7 +271,7 @@ class TestGetActivatedEdges:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         sv0 = to_label(graph, 1, 0, 0, 0, 0)
         sv1 = to_label(graph, 1, 0, 0, 0, 1)
 

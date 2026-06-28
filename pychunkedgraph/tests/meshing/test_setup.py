@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from ...ingest.create.parent_layer import add_parent_chunk
 from ...meshing.setup import derive_initial_ts
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 
 
 def test_derive_initial_ts_uses_stamped_boundary(gen_graph):
@@ -16,7 +16,7 @@ def test_derive_initial_ts_uses_stamped_boundary(gen_graph):
 def test_derive_initial_ts_after_root_build(gen_graph):
     """Root-layer build stamps earliest_ts; derive consumes it (fails if it stays unset)."""
     graph = gen_graph(n_layers=4)
-    fake_ts = datetime.now(timezone.utc) - timedelta(days=10)
+    fake_ts = fake_timestamp()
     create_chunk(
         graph,
         vertices=[to_label(graph, 1, 0, 0, 0, 0)],

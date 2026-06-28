@@ -1,6 +1,5 @@
 """Tests for pychunkedgraph.graph.edits - extended coverage"""
 
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
@@ -9,7 +8,7 @@ import pytest
 from pychunkedgraph.graph.edits import flip_ids
 from pychunkedgraph.graph import basetypes
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
@@ -35,7 +34,7 @@ class TestInitOldHierarchy:
         from pychunkedgraph.graph.edits import _init_old_hierarchy
 
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,

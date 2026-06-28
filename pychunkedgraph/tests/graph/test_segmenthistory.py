@@ -14,7 +14,7 @@ from pychunkedgraph.graph.segmenthistory import (
 
 from pychunkedgraph.graph import attributes
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
@@ -23,7 +23,7 @@ class TestSegmentHistory:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -327,7 +327,7 @@ class TestGetAllLogEntries:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
         # Create a chunk with vertices but perform no edits
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -342,7 +342,7 @@ class TestGetAllLogEntries:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -372,7 +372,7 @@ class TestMergeLog:
     def _build_and_merge(self, gen_graph):
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -426,7 +426,7 @@ class TestPastOperationIdsExtended:
     def _build_and_merge(self, gen_graph):
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -467,7 +467,7 @@ class TestPastFutureIdMappingExtended:
     def _build_and_merge(self, gen_graph):
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -511,7 +511,7 @@ class TestMergeSplitHistory:
     def _build_merge_and_split(self, gen_graph):
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -595,7 +595,7 @@ class TestMergeSplitHistory:
         """collect_edited_sv_ids returns empty array when no edits exist for a root."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],
@@ -613,7 +613,7 @@ class TestMergeSplitHistory:
         """change_log_summary with no operations should show zero splits/merges."""
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0)],

@@ -3,12 +3,11 @@
 Tests lock acquisition, release, and behavior on operation failure.
 """
 
-from datetime import datetime, timedelta, UTC
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...graph import exceptions
 from ...graph.locks import RootLock
 from ...ingest.create.parent_layer import add_parent_chunk
@@ -19,21 +18,21 @@ class TestRootLock:
     def simple_graph(self, gen_graph):
         """Build a 2-chunk graph with a single edge, return (cg, root_id)."""
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
         root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
         return cg, root_id
 

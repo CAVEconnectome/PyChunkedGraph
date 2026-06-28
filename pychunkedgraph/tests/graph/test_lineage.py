@@ -18,7 +18,7 @@ from pychunkedgraph.graph.lineage import (
 )
 from pychunkedgraph.graph import attributes
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
@@ -28,7 +28,7 @@ class TestLineage:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             graph,
             vertices=[to_label(graph, 1, 0, 0, 0, 0), to_label(graph, 1, 0, 0, 0, 1)],
@@ -154,7 +154,7 @@ class TestGetFutureRootIdsLatest:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         from ..helpers import create_chunk, to_label
 
         create_chunk(
@@ -225,7 +225,7 @@ class TestGetPastRootIdsTimestamps:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         from ..helpers import create_chunk, to_label
 
         create_chunk(
@@ -277,7 +277,7 @@ class TestGetRootIdHistory:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         from ..helpers import create_chunk, to_label
 
         create_chunk(
@@ -346,7 +346,7 @@ class TestGetRootIdHistoryDetailed:
         atomic_chunk_bounds = np.array([1, 1, 1])
         graph = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,

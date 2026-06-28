@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, UTC
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...graph import ChunkedGraph
 from ...graph.lineage import lineage_graph, get_root_id_history
 from ...graph.misc import get_delta_roots
@@ -16,25 +16,25 @@ class TestGraphHistory:
     @pytest.mark.timeout(120)
     def test_cut_merge_history(self, gen_graph):
         cg: ChunkedGraph = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
 

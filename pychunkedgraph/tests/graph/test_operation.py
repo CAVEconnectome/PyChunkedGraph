@@ -5,13 +5,12 @@ undo/redo chain resolution, ID validation, and execute error handling
 -- all using real graph operations through the BigTable emulator.
 """
 
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...graph import attributes
 from ...graph.operation import (
     GraphEditOperation,
@@ -32,7 +31,7 @@ from ...ingest.create.parent_layer import add_parent_chunk
 def _build_two_sv_disconnected(gen_graph):
     """2-layer graph, two disconnected SVs in the same chunk."""
     cg = gen_graph(n_layers=2, atomic_chunk_bounds=np.array([1, 1, 1]))
-    ts = datetime.now(UTC) - timedelta(days=10)
+    ts = fake_timestamp()
     create_chunk(
         cg,
         vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -45,7 +44,7 @@ def _build_two_sv_disconnected(gen_graph):
 def _build_two_sv_connected(gen_graph):
     """2-layer graph, two connected SVs in the same chunk."""
     cg = gen_graph(n_layers=2, atomic_chunk_bounds=np.array([1, 1, 1]))
-    ts = datetime.now(UTC) - timedelta(days=10)
+    ts = fake_timestamp()
     create_chunk(
         cg,
         vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -60,7 +59,7 @@ def _build_two_sv_connected(gen_graph):
 def _build_cross_chunk(gen_graph):
     """4-layer graph with cross-chunk edges suitable for MulticutOperation."""
     cg = gen_graph(n_layers=4)
-    ts = datetime.now(UTC) - timedelta(days=10)
+    ts = fake_timestamp()
     sv0 = to_label(cg, 1, 0, 0, 0, 0)
     sv1 = to_label(cg, 1, 0, 0, 0, 1)
     create_chunk(
@@ -94,21 +93,21 @@ class TestOperationFromLogRecord:
     def merged_graph(self, gen_graph):
         """Build a simple 2-chunk graph and perform a merge, returning (cg, operation_id)."""
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Split first to get two separate roots
         split_result = cg.remove_edges(
@@ -175,21 +174,21 @@ class TestOperationInversion:
     def split_and_merge_ops(self, gen_graph):
         """Build graph, split, merge -- return (cg, merge_op_id, split_op_id)."""
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         split_result = cg.remove_edges(
             "test_user",
@@ -233,21 +232,21 @@ class TestUndoRedoChainResolution:
     def graph_with_undo(self, gen_graph):
         """Build graph, perform split, then undo -- return (cg, split_op_id, undo_result)."""
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Split
         split_result = cg.remove_edges(
@@ -572,7 +571,7 @@ class TestUndoRedoExecute:
     def _build_connected_cross_chunk(self, gen_graph):
         """Build a 3-layer graph with between-chunk edge -- suitable for split+undo."""
         cg = gen_graph(n_layers=3)
-        ts = datetime.now(UTC) - timedelta(days=10)
+        ts = fake_timestamp()
         sv0 = to_label(cg, 1, 0, 0, 0, 0)
         sv1 = to_label(cg, 1, 1, 0, 0, 0)
         create_chunk(
@@ -754,7 +753,7 @@ class TestUndoRedoLogRecordTypes:
     def _build_and_split(self, gen_graph):
         """Build a cross-chunk graph and split it -- suitable for undo/redo."""
         cg = gen_graph(n_layers=3)
-        ts = datetime.now(UTC) - timedelta(days=10)
+        ts = fake_timestamp()
         sv0 = to_label(cg, 1, 0, 0, 0, 0)
         sv1 = to_label(cg, 1, 1, 0, 0, 0)
         create_chunk(
@@ -867,7 +866,7 @@ class TestUndoEdgeValidation:
     def _build_connected_cross_chunk(self, gen_graph):
         """Build a 3-layer graph with between-chunk edge suitable for split+undo."""
         cg = gen_graph(n_layers=3)
-        ts = datetime.now(UTC) - timedelta(days=10)
+        ts = fake_timestamp()
         sv0 = to_label(cg, 1, 0, 0, 0, 0)
         sv1 = to_label(cg, 1, 1, 0, 0, 0)
         create_chunk(
