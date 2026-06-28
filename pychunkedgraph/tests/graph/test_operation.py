@@ -10,7 +10,7 @@ from math import inf
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label, fake_timestamp
+from ..helpers import SV, build_graph
 from ...graph import attributes
 from ...graph.operation import (
     GraphEditOperation,
@@ -25,62 +25,38 @@ from ...graph.exceptions import (
     PostconditionError,
     SupervoxelSplitRequiredError,
 )
-from ...ingest.create.parent_layer import add_parent_chunk
 
 
 def _build_two_sv_disconnected(gen_graph):
     """2-layer graph, two disconnected SVs in the same chunk."""
-    cg = gen_graph(n_layers=2, atomic_chunk_bounds=np.array([1, 1, 1]))
-    ts = fake_timestamp()
-    create_chunk(
-        cg,
-        vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-        edges=[],
-        timestamp=ts,
+    return build_graph(
+        gen_graph,
+        n_layers=2,
+        atomic_chunk_bounds=np.array([1, 1, 1]),
+        supervoxels={"a0": SV(), "a1": SV(seg=1)},
     )
-    return cg, ts
 
 
 def _build_two_sv_connected(gen_graph):
     """2-layer graph, two connected SVs in the same chunk."""
-    cg = gen_graph(n_layers=2, atomic_chunk_bounds=np.array([1, 1, 1]))
-    ts = fake_timestamp()
-    create_chunk(
-        cg,
-        vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-        edges=[
-            (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-        ],
-        timestamp=ts,
+    return build_graph(
+        gen_graph,
+        n_layers=2,
+        atomic_chunk_bounds=np.array([1, 1, 1]),
+        supervoxels={"a0": SV(), "a1": SV(seg=1)},
+        edges=[("a0", "a1", 0.5)],
     )
-    return cg, ts
 
 
 def _build_cross_chunk(gen_graph):
     """4-layer graph with cross-chunk edges suitable for MulticutOperation."""
-    cg = gen_graph(n_layers=4)
-    ts = fake_timestamp()
-    sv0 = to_label(cg, 1, 0, 0, 0, 0)
-    sv1 = to_label(cg, 1, 0, 0, 0, 1)
-    create_chunk(
-        cg,
-        vertices=[sv0, sv1],
-        edges=[
-            (sv0, sv1, 0.5),
-            (sv0, to_label(cg, 1, 1, 0, 0, 0), inf),
-        ],
-        timestamp=ts,
+    cg, sv = build_graph(
+        gen_graph,
+        n_layers=4,
+        supervoxels={"a0": SV(), "a1": SV(seg=1), "b": SV(x=1)},
+        edges=[("a0", "a1", 0.5), ("a0", "b", inf)],
     )
-    create_chunk(
-        cg,
-        vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-        edges=[(to_label(cg, 1, 1, 0, 0, 0), sv0, inf)],
-        timestamp=ts,
-    )
-    add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
-    add_parent_chunk(cg, 3, [1, 0, 0], n_threads=1)
-    add_parent_chunk(cg, 4, [0, 0, 0], n_threads=1)
-    return cg, ts, sv0, sv1
+    return cg, sv["a0"], sv["a1"]
 
 
 # ===========================================================================
@@ -92,35 +68,22 @@ class TestOperationFromLogRecord:
     @pytest.fixture()
     def merged_graph(self, gen_graph):
         """Build a simple 2-chunk graph and perform a merge, returning (cg, operation_id)."""
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a": SV(), "b": SV(x=1)},
+            edges=[("a", "b", 0.5)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Split first to get two separate roots
         split_result = cg.remove_edges(
-            "test_user",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
-            mincut=False,
+            "test_user", source_ids=sv["a"], sink_ids=sv["b"], mincut=False
         )
 
         # Now merge them back
         merge_result = cg.add_edges(
             "test_user",
-            atomic_edges=[[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)]],
+            atomic_edges=[[sv["a"], sv["b"]]],
             source_coords=[0, 0, 0],
             sink_coords=[0, 0, 0],
         )
@@ -173,32 +136,19 @@ class TestOperationInversion:
     @pytest.fixture()
     def split_and_merge_ops(self, gen_graph):
         """Build graph, split, merge -- return (cg, merge_op_id, split_op_id)."""
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a": SV(), "b": SV(x=1)},
+            edges=[("a", "b", 0.5)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         split_result = cg.remove_edges(
-            "test_user",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
-            mincut=False,
+            "test_user", source_ids=sv["a"], sink_ids=sv["b"], mincut=False
         )
         merge_result = cg.add_edges(
             "test_user",
-            atomic_edges=[[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)]],
+            atomic_edges=[[sv["a"], sv["b"]]],
             source_coords=[0, 0, 0],
             sink_coords=[0, 0, 0],
         )
@@ -231,29 +181,16 @@ class TestUndoRedoChainResolution:
     @pytest.fixture()
     def graph_with_undo(self, gen_graph):
         """Build graph, perform split, then undo -- return (cg, split_op_id, undo_result)."""
-        cg = gen_graph(n_layers=3)
-        fake_ts = fake_timestamp()
-
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a": SV(), "b": SV(x=1)},
+            edges=[("a", "b", 0.5)],
         )
-        create_chunk(
-            cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Split
         split_result = cg.remove_edges(
-            "test_user",
-            source_ids=to_label(cg, 1, 0, 0, 0, 0),
-            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
-            mincut=False,
+            "test_user", source_ids=sv["a"], sink_ids=sv["b"], mincut=False
         )
         # Undo the split (= merge)
         undo_result = cg.undo_operation("test_user", split_result.operation_id)
@@ -371,7 +308,7 @@ class TestFromLogRecordMulticutPath:
     def test_multicut_from_log_record(self, gen_graph):
         """A multicut operation's log, read back with multicut_as_split=False,
         should be reconstructed as MulticutOperation (lines 235-249)."""
-        cg, _, sv0, sv1 = _build_cross_chunk(gen_graph)
+        cg, sv0, sv1 = _build_cross_chunk(gen_graph)
         source_coords = [[0, 0, 0]]
         sink_coords = [[512, 0, 0]]
         try:
@@ -404,9 +341,8 @@ class TestFromOperationId:
     @pytest.mark.timeout(30)
     def test_from_operation_id_merge(self, gen_graph):
         """from_operation_id should reconstruct a MergeOperation."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         result = cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
         op = GraphEditOperation.from_operation_id(cg, result.operation_id)
         assert isinstance(op, MergeOperation)
@@ -416,9 +352,8 @@ class TestFromOperationId:
     @pytest.mark.timeout(30)
     def test_from_operation_id_privileged(self, gen_graph):
         """from_operation_id with privileged_mode=True should propagate the flag (line 280)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         result = cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
         op = GraphEditOperation.from_operation_id(
             cg, result.operation_id, privileged_mode=True
@@ -428,9 +363,8 @@ class TestFromOperationId:
     @pytest.mark.timeout(30)
     def test_from_operation_id_split(self, gen_graph):
         """from_operation_id should reconstruct a SplitOperation."""
-        cg, _ = _build_two_sv_connected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_connected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         result = cg.remove_edges(
             "test_user", source_ids=sv0, sink_ids=sv1, mincut=False
         )
@@ -447,7 +381,7 @@ class TestMulticutInversion:
     @pytest.mark.timeout(30)
     def test_multicut_invert(self, gen_graph):
         """MulticutOperation.invert() -> MergeOperation with removed_edges as added_edges."""
-        cg, _, sv0, sv1 = _build_cross_chunk(gen_graph)
+        cg, sv0, sv1 = _build_cross_chunk(gen_graph)
         mc_op = MulticutOperation(
             cg,
             user_id="test_user",
@@ -472,8 +406,8 @@ class TestIDValidation:
     @pytest.mark.timeout(30)
     def test_merge_self_loop_raises(self, gen_graph):
         """added_edges where source == sink should raise PreconditionError (line 596)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0 = sv["a0"]
         with pytest.raises(PreconditionError, match="self-loop"):
             MergeOperation(
                 cg,
@@ -486,8 +420,8 @@ class TestIDValidation:
     @pytest.mark.timeout(30)
     def test_split_self_loop_raises(self, gen_graph):
         """removed_edges where source == sink should raise PreconditionError (line 733)."""
-        cg, _ = _build_two_sv_connected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
+        cg, sv = _build_two_sv_connected(gen_graph)
+        sv0 = sv["a0"]
         with pytest.raises(PreconditionError, match="self-loop"):
             SplitOperation(
                 cg,
@@ -507,9 +441,8 @@ class TestEmptyCoordsAffinities:
     @pytest.mark.timeout(30)
     def test_empty_source_coords_becomes_none(self, gen_graph):
         """source_coords with size 0 should be stored as None (line 82)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         op = MergeOperation(
             cg,
             user_id="test_user",
@@ -523,9 +456,8 @@ class TestEmptyCoordsAffinities:
     @pytest.mark.timeout(30)
     def test_empty_affinities_becomes_none(self, gen_graph):
         """affinities with size 0 should be stored as None (line 593)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         op = MergeOperation(
             cg,
             user_id="test_user",
@@ -546,18 +478,16 @@ class TestEditPreconditions:
     @pytest.mark.timeout(30)
     def test_merge_same_segment_raises(self, gen_graph):
         """Merging SVs already in the same root raises PreconditionError (line 618)."""
-        cg, _ = _build_two_sv_connected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_connected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         with pytest.raises(PreconditionError, match="different objects"):
             cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
 
     @pytest.mark.timeout(30)
     def test_split_different_roots_raises(self, gen_graph):
         """Splitting SVs from different roots raises PreconditionError (line 765)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         with pytest.raises(PreconditionError, match="same object"):
             cg.remove_edges("test_user", source_ids=sv0, sink_ids=sv1, mincut=False)
 
@@ -570,24 +500,13 @@ class TestUndoRedoExecute:
 
     def _build_connected_cross_chunk(self, gen_graph):
         """Build a 3-layer graph with between-chunk edge -- suitable for split+undo."""
-        cg = gen_graph(n_layers=3)
-        ts = fake_timestamp()
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 1, 0, 0, 0)
-        create_chunk(
-            cg,
-            vertices=[sv0],
-            edges=[(sv0, sv1, 0.5)],
-            timestamp=ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a": SV(), "b": SV(x=1)},
+            edges=[("a", "b", 0.5)],
         )
-        create_chunk(
-            cg,
-            vertices=[sv1],
-            edges=[(sv1, sv0, 0.5)],
-            timestamp=ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=ts, n_threads=1)
-        return cg, sv0, sv1
+        return cg, sv["a"], sv["b"]
 
     @pytest.mark.timeout(60)
     def test_undo_split_restores_root(self, gen_graph):
@@ -645,9 +564,8 @@ class TestUndoRedoInvert:
     @pytest.mark.timeout(60)
     def test_undo_invert_is_redo(self, gen_graph):
         """UndoOperation.invert() -> RedoOperation (line 1228)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         merge_result = cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
 
         undo_op = GraphEditOperation.undo_operation(
@@ -661,9 +579,8 @@ class TestUndoRedoInvert:
     @pytest.mark.timeout(60)
     def test_redo_invert_is_undo(self, gen_graph):
         """RedoOperation.invert() -> UndoOperation (line 1087)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         merge_result = cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
 
         redo_op = GraphEditOperation.redo_operation(
@@ -684,9 +601,8 @@ class TestUndoRedoEdgeAttributes:
     @pytest.mark.timeout(60)
     def test_undo_merge_has_removed_edges(self, gen_graph):
         """Undoing a merge -> inverse is SplitOp -> undo should have removed_edges (line 1175)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         merge_result = cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
 
         undo_op = GraphEditOperation.undo_operation(
@@ -698,9 +614,8 @@ class TestUndoRedoEdgeAttributes:
     @pytest.mark.timeout(60)
     def test_undo_split_has_added_edges(self, gen_graph):
         """Undoing a split -> inverse is MergeOp -> undo should have added_edges (line 1173)."""
-        cg, _ = _build_two_sv_connected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_connected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         split_result = cg.remove_edges(
             "test_user", source_ids=sv0, sink_ids=sv1, mincut=False
         )
@@ -714,9 +629,8 @@ class TestUndoRedoEdgeAttributes:
     @pytest.mark.timeout(60)
     def test_redo_merge_has_added_edges(self, gen_graph):
         """RedoOperation for a merge should have added_edges (line 1040-1041)."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         merge_result = cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
 
         redo_op = GraphEditOperation.redo_operation(
@@ -729,9 +643,8 @@ class TestUndoRedoEdgeAttributes:
     @pytest.mark.timeout(60)
     def test_redo_split_has_removed_edges(self, gen_graph):
         """RedoOperation for a split should have removed_edges (line 1042-1043)."""
-        cg, _ = _build_two_sv_connected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_connected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
         split_result = cg.remove_edges(
             "test_user", source_ids=sv0, sink_ids=sv1, mincut=False
         )
@@ -752,23 +665,13 @@ class TestUndoRedoLogRecordTypes:
 
     def _build_and_split(self, gen_graph):
         """Build a cross-chunk graph and split it -- suitable for undo/redo."""
-        cg = gen_graph(n_layers=3)
-        ts = fake_timestamp()
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 1, 0, 0, 0)
-        create_chunk(
-            cg,
-            vertices=[sv0],
-            edges=[(sv0, sv1, 0.5)],
-            timestamp=ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a": SV(), "b": SV(x=1)},
+            edges=[("a", "b", 0.5)],
         )
-        create_chunk(
-            cg,
-            vertices=[sv1],
-            edges=[(sv1, sv0, 0.5)],
-            timestamp=ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=ts, n_threads=1)
+        sv0, sv1 = sv["a"], sv["b"]
         split_result = cg.remove_edges(
             "test_user", source_ids=sv0, sink_ids=sv1, mincut=False
         )
@@ -806,9 +709,8 @@ class TestExecuteErrorHandling:
     @pytest.mark.timeout(30)
     def test_execute_precondition_error_clears_cache(self, gen_graph):
         """Trigger PreconditionError during merge (same-segment merge) and verify cache is cleared."""
-        cg, _ = _build_two_sv_connected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_connected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
 
         # Merging already-connected SVs raises PreconditionError
         with pytest.raises(PreconditionError, match="different objects"):
@@ -822,9 +724,8 @@ class TestExecuteErrorHandling:
         """PostconditionError during execute should also clear cache (lines 463-465)."""
         from unittest.mock import patch
 
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
 
         # Mock _apply to raise PostconditionError
         with patch.object(
@@ -843,9 +744,8 @@ class TestExecuteErrorHandling:
         """AssertionError/RuntimeError during execute should also clear cache (lines 466-468)."""
         from unittest.mock import patch
 
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
 
         # Mock _apply to raise RuntimeError
         with patch.object(
@@ -865,24 +765,13 @@ class TestUndoEdgeValidation:
 
     def _build_connected_cross_chunk(self, gen_graph):
         """Build a 3-layer graph with between-chunk edge suitable for split+undo."""
-        cg = gen_graph(n_layers=3)
-        ts = fake_timestamp()
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 1, 0, 0, 0)
-        create_chunk(
-            cg,
-            vertices=[sv0],
-            edges=[(sv0, sv1, 0.5)],
-            timestamp=ts,
+        cg, sv = build_graph(
+            gen_graph,
+            n_layers=3,
+            supervoxels={"a": SV(), "b": SV(x=1)},
+            edges=[("a", "b", 0.5)],
         )
-        create_chunk(
-            cg,
-            vertices=[sv1],
-            edges=[(sv1, sv0, 0.5)],
-            timestamp=ts,
-        )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=ts, n_threads=1)
-        return cg, sv0, sv1
+        return cg, sv["a"], sv["b"]
 
     @pytest.mark.timeout(60)
     def test_undo_split_restores_edges(self, gen_graph):
@@ -908,9 +797,8 @@ class TestUndoEdgeValidation:
     @pytest.mark.timeout(60)
     def test_undo_merge_via_undo_operation_class(self, gen_graph):
         """UndoOperation on a merge constructs with inverse being SplitOperation."""
-        cg, _ = _build_two_sv_disconnected(gen_graph)
-        sv0 = to_label(cg, 1, 0, 0, 0, 0)
-        sv1 = to_label(cg, 1, 0, 0, 0, 1)
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
 
         # Merge
         merge_result = cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
