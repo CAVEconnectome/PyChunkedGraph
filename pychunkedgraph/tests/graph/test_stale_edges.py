@@ -4,12 +4,11 @@ Tests get_stale_nodes() and get_new_nodes() from stale.py using real graph
 operations through the BigTable emulator.
 """
 
-from datetime import datetime, timedelta, UTC
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...graph.edges.stale import get_stale_nodes, get_new_nodes
 from ...ingest.create.parent_layer import add_parent_chunk
 
@@ -28,21 +27,21 @@ class TestStaleEdges:
         └─────┴─────┘
         """
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Get old parents before edit
         old_root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
@@ -71,21 +70,21 @@ class TestStaleEdges:
         └─────┴─────┘
         """
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Split
         cg.remove_edges(
@@ -115,21 +114,21 @@ class TestStaleEdges:
         └─────┴─────┘
         """
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Get L2 parent of SV 1 before edit
         sv1 = to_label(cg, 1, 0, 0, 0, 0)
@@ -160,31 +159,31 @@ class TestStaleEdges:
         └─────┴─────┴─────┘
         """
         cg = gen_graph(n_layers=4)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         # Chunk C - isolated node, not connected to A or B
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 2, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # Get the isolated node's root before edit
         isolated_root = cg.get_root(to_label(cg, 1, 2, 0, 0, 0))
@@ -214,16 +213,16 @@ class TestStaleEdges:
         └─────┘
         """
         cg = gen_graph(n_layers=4)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         sv = to_label(cg, 1, 0, 0, 0, 0)
         l2_parent = cg.get_parent(sv)
@@ -244,21 +243,21 @@ class TestStaleEdges:
         └─────┴─────┘
         """
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
         l2_0 = cg.get_parent(to_label(cg, 1, 0, 0, 0, 0))
@@ -281,21 +280,21 @@ class TestStaleEdges:
         └─────┴─────┘
         """
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         sv1 = to_label(cg, 1, 0, 0, 0, 0)
         sv2 = to_label(cg, 1, 1, 0, 0, 0)
@@ -320,15 +319,15 @@ class TestStaleEdges:
         └─────┘
         """
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         sv = to_label(cg, 1, 0, 0, 0, 0)
         svs = np.array([sv, sv, sv], dtype=np.uint64)
@@ -352,7 +351,7 @@ class TestStaleEdges:
         """
         atomic_chunk_bounds = np.array([1, 1, 1])
         cg = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         sv0 = to_label(cg, 1, 0, 0, 0, 0)
         sv1 = to_label(cg, 1, 0, 0, 0, 1)
@@ -361,7 +360,7 @@ class TestStaleEdges:
             cg,
             vertices=[sv0, sv1],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Get L2 parents before merge (each SV has its own L2 parent)
@@ -393,14 +392,14 @@ class TestStaleEdges:
         """
         atomic_chunk_bounds = np.array([1, 1, 1])
         cg = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         sv0 = to_label(cg, 1, 0, 0, 0, 0)
         create_chunk(
             cg,
             vertices=[sv0],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         root = cg.get_root(sv0)
@@ -419,17 +418,17 @@ class TestStaleEdges:
         └─────┘
         """
         cg = gen_graph(n_layers=4)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         sv = to_label(cg, 1, 0, 0, 0, 0)
         create_chunk(
             cg,
             vertices=[sv],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         root = cg.get_root(sv)
         root_layer = cg.get_chunk_layer(root)

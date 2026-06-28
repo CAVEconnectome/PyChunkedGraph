@@ -1,19 +1,18 @@
 """Tests for pychunkedgraph.ingest.create.parent_layer"""
 
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
 class TestAddParentChunk:
     def test_single_thread(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -35,7 +34,7 @@ class TestAddParentChunk:
 
     def test_multi_chunk(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,

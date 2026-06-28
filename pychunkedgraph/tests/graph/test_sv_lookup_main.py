@@ -17,7 +17,7 @@ from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.graph.sv_lookup import resolve_supervoxels_at_coords
 from pychunkedgraph.graph.sv_lookup import main as sv_lookup_main
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 UTC = timezone.utc
@@ -62,7 +62,7 @@ def _build_two_sv_graph(gen_graph):
     with these SVs at coordinates (0,0,0), (1,0,0), (2,0,0) respectively.
     """
     graph = gen_graph(n_layers=4)
-    fake_ts = datetime.now(UTC) - timedelta(days=10)
+    fake_ts = fake_timestamp()
 
     sv0 = to_label(graph, 1, 0, 0, 0, 0)
     sv1 = to_label(graph, 1, 0, 0, 0, 1)
@@ -107,7 +107,7 @@ def _build_two_root_graph(gen_graph):
     and sv1 under root_b. graph.meta._ws_cv is seeded with the three SVs.
     """
     graph = gen_graph(n_layers=4)
-    fake_ts = datetime.now(UTC) - timedelta(days=10)
+    fake_ts = fake_timestamp()
 
     sv0 = to_label(graph, 1, 0, 0, 0, 0)
     sv1 = to_label(graph, 1, 0, 0, 0, 1)

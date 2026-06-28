@@ -1,11 +1,10 @@
-from datetime import datetime, timedelta, UTC
 from math import inf
 from warnings import warn
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...graph import ChunkedGraph
 from ...graph import exceptions
 from ...graph.misc import get_latest_roots
@@ -27,12 +26,12 @@ class TestGraphSplit:
         cg: ChunkedGraph = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Split
@@ -64,11 +63,11 @@ class TestGraphSplit:
         # verify old state
         cg.cache = None
         assert cg.get_root(
-            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-        ) == cg.get_root(to_label(cg, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_ts
+        ) == cg.get_root(to_label(cg, 1, 0, 0, 0, 1), time_stamp=fake_ts)
         leaves = np.unique(
             cg.get_subgraph(
-                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_ts)],
                 leaves_only=True,
             )
         )
@@ -77,7 +76,7 @@ class TestGraphSplit:
         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
 
         assert len(get_latest_roots(cg)) == 2
-        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+        assert len(get_latest_roots(cg, fake_ts)) == 1
 
     def test_split_nonexisting_edge(self, gen_graph):
         """
@@ -89,7 +88,7 @@ class TestGraphSplit:
         └─────┘      └─────┘
         """
         cg = gen_graph(n_layers=2)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -97,7 +96,7 @@ class TestGraphSplit:
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
                 (to_label(cg, 1, 0, 0, 0, 2), to_label(cg, 1, 0, 0, 0, 1), 0.5),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         new_root_ids = cg.remove_edges(
             "Jane Doe",
@@ -118,20 +117,20 @@ class TestGraphSplit:
         └─────┴─────┘      └─────┴─────┘
         """
         cg: ChunkedGraph = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 1.0)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 1.0)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
         new_root_ids = cg.remove_edges(
             "Jane Doe",
             source_ids=to_label(cg, 1, 1, 0, 0, 0),
@@ -159,11 +158,11 @@ class TestGraphSplit:
 
         # verify old state
         assert cg.get_root(
-            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-        ) == cg.get_root(to_label(cg, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_ts
+        ) == cg.get_root(to_label(cg, 1, 1, 0, 0, 0), time_stamp=fake_ts)
         leaves = np.unique(
             cg.get_subgraph(
-                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_ts)],
                 leaves_only=True,
             )
         )
@@ -171,7 +170,7 @@ class TestGraphSplit:
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 1, 0, 0, 0) in leaves
         assert len(get_latest_roots(cg)) == 2
-        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+        assert len(get_latest_roots(cg, fake_ts)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_verify_cross_chunk_edges(self, gen_graph):
@@ -184,7 +183,7 @@ class TestGraphSplit:
         └─────┴─────┴─────┘      └─────┴─────┴─────┘
         """
         cg: ChunkedGraph = gen_graph(n_layers=4)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
@@ -192,18 +191,18 @@ class TestGraphSplit:
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1), 0.5),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 2, 0, 0, 0)],
             edges=[(to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
             to_label(cg, 1, 1, 0, 0, 1)
@@ -238,7 +237,7 @@ class TestGraphSplit:
         )
 
         assert len(get_latest_roots(cg)) == 2
-        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+        assert len(get_latest_roots(cg, fake_ts)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_verify_loop(self, gen_graph):
@@ -251,7 +250,7 @@ class TestGraphSplit:
         └─────┴────────┴─────┘      └─────┴────────┴─────┘
         """
         cg: ChunkedGraph = gen_graph(n_layers=4)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[
@@ -266,7 +265,7 @@ class TestGraphSplit:
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 2), 0.5),
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 3), 0.5),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
@@ -276,12 +275,12 @@ class TestGraphSplit:
                 (to_label(cg, 1, 2, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 1), inf),
                 (to_label(cg, 1, 2, 0, 0, 1), to_label(cg, 1, 2, 0, 0, 0), 0.5),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
             to_label(cg, 1, 1, 0, 0, 1)
@@ -307,7 +306,7 @@ class TestGraphSplit:
         assert len(new_root_ids) == 2
 
         assert len(get_latest_roots(cg)) == 3
-        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+        assert len(get_latest_roots(cg, fake_ts)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_pair_already_disconnected(self, gen_graph):
@@ -320,12 +319,12 @@ class TestGraphSplit:
         └─────┘      └─────┘
         """
         cg: ChunkedGraph = gen_graph(n_layers=2)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         res_old = cg.client.read_all_rows()
         res_old.consume_all()
@@ -358,7 +357,7 @@ class TestGraphSplit:
         └─────┘      └─────┘
         """
         cg: ChunkedGraph = gen_graph(n_layers=2)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[
@@ -371,7 +370,7 @@ class TestGraphSplit:
                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2), 0.5),
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.3),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         new_root_ids = cg.remove_edges(
             "Jane Doe",
@@ -390,11 +389,11 @@ class TestGraphSplit:
 
         # verify old state
         old_root_id = cg.get_root(
-            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_ts
         )
         assert new_root_ids[0] != old_root_id
         assert len(get_latest_roots(cg)) == 1
-        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+        assert len(get_latest_roots(cg, fake_ts)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_full_circle_to_triple_chain_neighboring_chunks(self, gen_graph):
@@ -407,7 +406,7 @@ class TestGraphSplit:
         └─────┴─────┘      └─────┴─────┘
         """
         cg: ChunkedGraph = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -416,7 +415,7 @@ class TestGraphSplit:
                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 0), 0.5),
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.3),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
@@ -425,9 +424,9 @@ class TestGraphSplit:
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.3),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         new_root_ids = cg.remove_edges(
             "Jane Doe",
@@ -446,11 +445,11 @@ class TestGraphSplit:
 
         # verify old state
         old_root_id = cg.get_root(
-            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_ts
         )
         assert new_root_ids[0] != old_root_id
         assert len(get_latest_roots(cg)) == 1
-        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+        assert len(get_latest_roots(cg, fake_ts)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_same_node(self, gen_graph):
@@ -463,12 +462,12 @@ class TestGraphSplit:
         └─────┘
         """
         cg: ChunkedGraph = gen_graph(n_layers=2)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         res_old = cg.client.read_all_rows()
@@ -493,21 +492,21 @@ class TestGraphSplit:
         """
 
         cg: ChunkedGraph = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
         res_old = cg.client.read_all_rows()
         res_old.consume_all()
         with pytest.raises((exceptions.PreconditionError, AssertionError)):
@@ -601,21 +600,21 @@ class TestGraphSplitSkipConnections:
         └─────┴─────┘
         """
         cg = gen_graph(n_layers=4)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         result = cg.remove_edges(
             "Jane Doe",
@@ -650,12 +649,12 @@ class TestGraphSplitSkipConnections:
         └─────┴─────┴─────┘
         """
         cg = gen_graph(n_layers=4)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
@@ -664,17 +663,17 @@ class TestGraphSplitSkipConnections:
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5),
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 2, 0, 0, 0)],
             edges=[(to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_timestamp, n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 3, [1, 0, 0], time_stamp=fake_ts, n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
 
         # All three should share a root before split
         root_pre = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))

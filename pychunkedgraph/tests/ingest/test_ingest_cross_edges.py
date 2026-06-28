@@ -1,6 +1,5 @@
 """Tests for pychunkedgraph.ingest.create.cross_edges"""
 
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
@@ -14,7 +13,7 @@ from pychunkedgraph.ingest.create.cross_edges import (
 )
 from pychunkedgraph.graph import basetypes
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
@@ -69,7 +68,7 @@ class TestGetChildrenChunkCrossEdges:
 
     def test_no_cross_edges(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -84,7 +83,7 @@ class TestGetChildrenChunkCrossEdges:
 
     def test_with_cross_edges(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -111,7 +110,7 @@ class TestGetChildrenChunkCrossEdges:
         """When the chunk coordinate is out of bounds, get_touching_atomic_chunks
         returns empty and the function returns early with an empty list."""
         cg = gen_graph(n_layers=3, atomic_chunk_bounds=np.array([1, 1, 1]))
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
@@ -133,7 +132,7 @@ class TestGetChildrenChunkCrossEdges:
         """A 4-layer graph with cross-chunk connected SVs returns cross edges
         when called with use_threads=False."""
         cg = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         # Chunk A (0,0,0): sv 0 connected cross-chunk to chunk B
         create_chunk(
@@ -175,7 +174,7 @@ class TestGetChildrenChunkCrossEdgesAdditional:
     def test_multiple_cross_edges(self, gen_graph):
         """Multiple SVs with cross-chunk edges should all be found."""
         cg = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         # Chunk A: two SVs, each cross-chunk connected
         create_chunk(
@@ -213,7 +212,7 @@ class TestGetChildrenChunkCrossEdgesAdditional:
         L4 [0,0,0] has L3 children [0,0,0] (x=0,1) and [1,0,0] (x=2,3).
         Touching face is at L2 x=1 and x=2."""
         cg = gen_graph(n_layers=5)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         # SV at L1 [1,0,0] - on the right boundary of L3 [0,0,0]
         create_chunk(
@@ -256,7 +255,7 @@ class TestGetChunkNodesCrossEdgeLayer:
         chunks of L3 [0,0,0], which includes L2 at x=0 with AtomicCrossChunkEdge[3].
         """
         cg = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         # SV at L1 [0,0,0] with cross edge to [2,0,0] (layer-3 cross edge)
         create_chunk(
@@ -291,7 +290,7 @@ class TestGetChunkNodesCrossEdgeLayer:
     def test_no_threads_empty_chunk(self, gen_graph):
         """use_threads=False with out-of-bounds chunk should return empty dict."""
         cg = gen_graph(n_layers=3, atomic_chunk_bounds=np.array([1, 1, 1]))
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
@@ -312,7 +311,7 @@ class TestGetChunkNodesCrossEdgeLayer:
     def test_no_cross_edges_returns_empty(self, gen_graph):
         """When chunks have no cross edges at the relevant layers, result is empty."""
         cg = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,

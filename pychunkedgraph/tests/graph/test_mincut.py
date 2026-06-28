@@ -1,10 +1,9 @@
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...graph import exceptions
 from ...ingest.create.parent_layer import add_parent_chunk
 
@@ -26,12 +25,12 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Preparation: Build Chunk B
@@ -39,14 +38,14 @@ class TestGraphMinCut:
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
 
@@ -97,12 +96,12 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Preparation: Build Chunk B
@@ -110,14 +109,14 @@ class TestGraphMinCut:
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
 
@@ -158,12 +157,12 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Preparation: Build Chunk B
@@ -171,14 +170,14 @@ class TestGraphMinCut:
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
         cg.remove_edges(
@@ -226,12 +225,12 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Preparation: Build Chunk B
@@ -239,14 +238,14 @@ class TestGraphMinCut:
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
 
@@ -288,7 +287,7 @@ class TestGraphMinCut:
         """
         cg = gen_graph(n_layers=2)
 
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[
@@ -302,7 +301,7 @@ class TestGraphMinCut:
                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2), 3),
                 (to_label(cg, 1, 0, 0, 0, 2), to_label(cg, 1, 0, 0, 0, 3), 10),
             ],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Mincut

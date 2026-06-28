@@ -1,6 +1,5 @@
 """Tests for pychunkedgraph.graph.analysis.pathing"""
 
-from datetime import datetime, timedelta, UTC
 from math import inf
 from unittest.mock import MagicMock
 
@@ -15,14 +14,14 @@ from pychunkedgraph.graph.analysis.pathing import (
     compute_rough_coordinate_path,
 )
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
 class TestGetFirstSharedParent:
     def _build_graph(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -58,7 +57,7 @@ class TestGetFirstSharedParent:
 
     def test_different_roots_returns_none(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         # Create two disconnected chunks
         create_chunk(
@@ -85,7 +84,7 @@ class TestGetFirstSharedParent:
 class TestGetChildrenAtLayer:
     def test_basic(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -106,7 +105,7 @@ class TestGetChildrenAtLayer:
 
     def test_allow_lower_layers(self, gen_graph):
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -307,7 +306,7 @@ class TestGetChildrenAtLayerEdgeCases:
     def test_children_at_layer_2_with_multiple_svs(self, gen_graph):
         """Query children at layer 2 when root has multiple SVs in same chunk."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -334,7 +333,7 @@ class TestGetChildrenAtLayerEdgeCases:
     def test_children_at_intermediate_layer(self, gen_graph):
         """Query children at layer 3 from root at layer 4."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -364,7 +363,7 @@ class TestGetChildrenAtLayerEdgeCases:
     def test_children_allow_lower_layers_with_cross_chunk(self, gen_graph):
         """Query with allow_lower_layers=True should include layer<=target."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,
@@ -386,7 +385,7 @@ class TestGetChildrenAtLayerEdgeCases:
         """Querying children at layer 2 from a layer 2 node should return the node itself
         or its layer-2 children (which is itself)."""
         graph = gen_graph(n_layers=4)
-        fake_ts = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             graph,

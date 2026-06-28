@@ -1,10 +1,9 @@
-from datetime import datetime, timedelta, UTC
 from math import inf
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...graph import attributes, basetypes, serializers
 from ...ingest.create.parent_layer import add_parent_chunk
 
@@ -376,12 +375,12 @@ class TestGraphBuild:
         cg = gen_graph(n_layers=4, atomic_chunk_bounds=atomic_chunk_bounds)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         # Preparation: Build Chunk B
@@ -389,28 +388,28 @@ class TestGraphBuild:
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 1)],
             edges=[],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
 
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
         add_parent_chunk(
             cg,
             4,
             [0, 0, 0],
-            time_stamp=fake_timestamp,
+            time_stamp=fake_ts,
             n_threads=1,
         )
 

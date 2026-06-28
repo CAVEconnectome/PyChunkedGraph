@@ -4,12 +4,11 @@ Tests that undo and redo correctly restore graph state using real graph
 operations through the BigTable emulator.
 """
 
-from datetime import datetime, timedelta, UTC
 
 import numpy as np
 import pytest
 
-from ..helpers import create_chunk, to_label
+from ..helpers import create_chunk, to_label, fake_timestamp
 from ...ingest.create.parent_layer import add_parent_chunk
 
 
@@ -25,21 +24,21 @@ class TestUndoRedo:
         └─────┴─────┘
         """
         cg = gen_graph(n_layers=3)
-        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        fake_ts = fake_timestamp()
 
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
-            timestamp=fake_timestamp,
+            timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_ts, n_threads=1)
         return cg
 
     @pytest.mark.timeout(30)
