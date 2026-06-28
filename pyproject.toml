@@ -7,3 +7,6 @@ build-backend = "setuptools.build_meta"
 # and pip versions skew and ship a broken mixed install. Listing any unsafe-package resets
 # pip-tools' defaults, so setuptools and pip are repeated to keep them excluded too.
 unsafe-package = ["numpy", "setuptools", "pip"]
+
+[tool.pytest.ini_options]
+testpaths = ["pychunkedgraph/tests"]
