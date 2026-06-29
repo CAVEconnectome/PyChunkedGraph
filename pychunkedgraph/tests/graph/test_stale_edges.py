@@ -5,7 +5,6 @@ operations through the BigTable emulator.
 """
 
 
-from math import inf
 
 import numpy as np
 import pytest
@@ -31,7 +30,7 @@ class TestStaleEdges:
             gen_graph,
             n_layers=3,
             supervoxels={"a0": SV(), "b": SV(x=1)},
-            edges=[("a0", "b", inf)],
+            edges=[("a0", "b", 0.5)],
         )
 
         # Get old parents before edit
@@ -64,7 +63,7 @@ class TestStaleEdges:
             gen_graph,
             n_layers=3,
             supervoxels={"a0": SV(), "b": SV(x=1)},
-            edges=[("a0", "b", inf)],
+            edges=[("a0", "b", 0.5)],
         )
 
         # Split
@@ -98,7 +97,7 @@ class TestStaleEdges:
             gen_graph,
             n_layers=3,
             supervoxels={"a0": SV(), "b": SV(x=1)},
-            edges=[("a0", "b", inf)],
+            edges=[("a0", "b", 0.5)],
         )
 
         # Get L2 parent of SV 1 before edit
@@ -133,7 +132,7 @@ class TestStaleEdges:
             gen_graph,
             n_layers=4,
             supervoxels={"a0": SV(), "b": SV(x=1), "c": SV(x=2)},
-            edges=[("a0", "b", inf)],
+            edges=[("a0", "b", 0.5)],
         )
 
         # Get the isolated node's root before edit
@@ -191,7 +190,7 @@ class TestStaleEdges:
             gen_graph,
             n_layers=3,
             supervoxels={"a0": SV(), "b": SV(x=1)},
-            edges=[("a0", "b", inf)],
+            edges=[("a0", "b", 0.5)],
         )
 
         root = cg.get_root(sv["a0"])
@@ -218,7 +217,7 @@ class TestStaleEdges:
             gen_graph,
             n_layers=3,
             supervoxels={"a0": SV(), "b": SV(x=1)},
-            edges=[("a0", "b", inf)],
+            edges=[("a0", "b", 0.5)],
         )
 
         sv1 = sv["a0"]
