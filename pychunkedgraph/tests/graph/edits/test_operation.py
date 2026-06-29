@@ -684,10 +684,11 @@ class TestExecuteErrorHandling:
         cg, sv = _build_two_sv_disconnected(gen_graph)
         sv0, sv1 = sv["a0"], sv["a1"]
 
-        # Mock _apply to raise RuntimeError
+        # Mock _apply to raise RuntimeError; skip the best-effort error-artifact
+        # dump (a doomed GCS write to the read-only watershed bucket in tests).
         with patch.object(
             MergeOperation, "_apply", side_effect=RuntimeError("test runtime error")
-        ):
+        ), patch("pychunkedgraph.graph.err_dump.dump_err_artifact", return_value=None):
             with pytest.raises(RuntimeError, match="test runtime error"):
                 cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
 
