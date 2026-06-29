@@ -4,7 +4,7 @@ from warnings import warn
 import numpy as np
 import pytest
 
-from ..helpers import SV, build_graph, assert_graph_unchanged
+from ...helpers import SV, build_graph, assert_graph_unchanged
 
 
 class TestGraphMerge:

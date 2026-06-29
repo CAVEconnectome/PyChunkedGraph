@@ -3,8 +3,8 @@ from math import inf
 import numpy as np
 import pytest
 
-from ..helpers import SV, build_graph, assert_graph_unchanged
-from ...graph import exceptions
+from ...helpers import SV, build_graph, assert_graph_unchanged
+from ....graph import exceptions
 
 
 class TestGraphMinCut:
