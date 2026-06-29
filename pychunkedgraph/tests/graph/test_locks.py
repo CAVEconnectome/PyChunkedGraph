@@ -748,13 +748,18 @@ class TestL2ChunkLock:
         assert len(registry._held) == 1
         assert next(iter(registry._held)) == _l2_chunk_lock_row_key(np.uint64(2))
 
-    def test_privileged_mode_skips_acquire(self):
+    def test_privileged_mode_skips_acquire(self, monkeypatch):
         """Replay path: indefinite cells from the crashed op are still
         set, so a normal temporal acquire would refuse. Privileged mode
         bypasses the acquire entirely — the indefinite cells are the
         de-facto lock and the inner `IndefiniteL2ChunkLock(privileged=True)`
         releases them on exit.
         """
+        # The contrast `normal` acquire below is expected to fail; shrink its
+        # backoff so the exhausted retry loop doesn't sleep the full schedule.
+        monkeypatch.setattr(L2ChunkLock, "_MAX_ACQUIRE_ATTEMPTS", 3)
+        monkeypatch.setattr(L2ChunkLock, "_ACQUIRE_BACKOFF_BASE_SEC", 0.01)
+
         registry = RowKeyLockRegistry()
         # Crashed op's indefinite cells block a normal temporal acquire.
         crashed_op = np.uint64(42)

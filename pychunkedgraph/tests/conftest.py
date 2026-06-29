@@ -173,7 +173,7 @@ def gen_graph(request, bigtable_emulator, hbase_emulator):
                 "FANOUT": 2,
                 "SPATIAL_BITS": 10,
                 "ID_PREFIX": "",
-                "ROOT_LOCK_EXPIRY": timedelta(seconds=5),
+                "ROOT_LOCK_EXPIRY": timedelta(seconds=1),
             },
             "backend_client": backend_client,
             "ingest_config": {},
