@@ -8,7 +8,7 @@ from time import sleep
 from typing import Dict, Generator, Tuple
 
 import numpy as np
-from kvdbclient import BigTableConfig, HBaseConfig
+from kvdbclient import get_config_class
 from rich import box
 from rich.console import Group
 from rich.live import Live
@@ -62,10 +62,7 @@ def bootstrap(
         TEST_RUN=test_run,
     )
     backend_type = config["backend_client"].get("TYPE", "bigtable")
-    if backend_type == "hbase":
-        client_config = HBaseConfig(**config["backend_client"]["CONFIG"])
-    else:
-        client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
+    client_config = get_config_class(backend_type)(**config["backend_client"]["CONFIG"])
     client_info = BackendClientInfo(backend_type, client_config)
 
     graph_config = GraphConfig(
