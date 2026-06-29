@@ -1,167 +1,49 @@
-import atexit
-import os
-import signal
-import subprocess
-from functools import partial
+from contextlib import ExitStack
 from datetime import timedelta
+from functools import partial
 
+import numpy as np
 import pytest
 
-# Skip the old monolithic test file if it still exists (e.g., during branch transitions)
-collect_ignore = ["test_uncategorized.py"]
-import numpy as np
-from google.auth import credentials
-from google.cloud import bigtable
+from kvdbclient_testing import backends as _backend_harnesses
 
-from ..ingest.utils import bootstrap
-from ..graph.edges import Edges
 from ..graph.chunkedgraph import ChunkedGraph
-
+from ..graph.edges import Edges
+from ..ingest.utils import bootstrap
 from .helpers import (
     CloudVolumeMock,
     TensorStoreMock,
-    mock_ws_info,
     get_layer_chunk_bounds,
+    mock_ws_info,
 )
-from .hbase_mock_server import start_hbase_mock_server
 
-_emulator_proc = None
-_emulator_cleaned = False
+# Skip the old monolithic test file if it still exists (e.g., during branch transitions)
+collect_ignore = ["test_uncategorized.py"]
 
-
-def _delete_test_table(graph, backend="bigtable"):
-    """Test-only: delete the backing table for cleanup."""
-    if backend == "bigtable":
-        graph.client._admin_table.delete()
-    else:
-        resp = graph.client._session.delete(graph.client._table_url("/schema"))
-        if resp.status_code not in (200, 404):
-            resp.raise_for_status()
-
-
-def _cleanup_emulator():
-    global _emulator_cleaned
-    if _emulator_cleaned or _emulator_proc is None:
-        return
-    _emulator_cleaned = True
-    try:
-        pgid = os.getpgid(_emulator_proc.pid)
-        os.killpg(pgid, signal.SIGTERM)
-        try:
-            _emulator_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.killpg(pgid, signal.SIGKILL)
-            _emulator_proc.wait(timeout=5)
-    except (ProcessLookupError, OSError, ChildProcessError):
-        pass
-    # Hard kill cbtemulator in case it survived the process group signal
-    subprocess.run(["pkill", "-9", "cbtemulator"], stderr=subprocess.DEVNULL)
-
-
-def setup_emulator_env():
-    bt_env_init = subprocess.run(
-        ["gcloud", "beta", "emulators", "bigtable", "env-init"], stdout=subprocess.PIPE
-    )
-    os.environ["BIGTABLE_EMULATOR_HOST"] = (
-        bt_env_init.stdout.decode("utf-8").strip().split("=")[-1]
-    )
-
-    c = bigtable.Client(
-        project="IGNORE_ENVIRONMENT_PROJECT",
-        credentials=credentials.AnonymousCredentials(),
-        admin=True,
-    )
-    t = c.instance("emulated_instance").table("emulated_table")
-
-    try:
-        t.create()
-        return True
-    except Exception as err:
-        print("Bigtable Emulator not yet ready: %s" % err)
-        return False
+# Backends are discovered from KVDbClient; a new backend there is tested with no change here.
+_HARNESSES = {h.name: h for h in _backend_harnesses()}
 
 
 @pytest.fixture(scope="session", autouse=True)
-def bigtable_emulator(request):
-    global _emulator_proc, _emulator_cleaned
-    from time import sleep
-
-    _emulator_cleaned = False
-
-    # Kill any leftover emulator processes from previous runs
-    subprocess.run(["pkill", "-9", "cbtemulator"], stderr=subprocess.DEVNULL)
-
-    # Start Emulator
-    _emulator_proc = subprocess.Popen(
-        [
-            "gcloud",
-            "beta",
-            "emulators",
-            "bigtable",
-            "start",
-            "--host-port=localhost:8539",
-        ],
-        preexec_fn=os.setsid,
-        stdout=subprocess.PIPE,
-    )
-
-    # Register atexit handler as safety net for abnormal exits
-    atexit.register(_cleanup_emulator)
-
-    # Wait for Emulator to start up
-    print("Waiting for BigTables Emulator to start up...", end="")
-    retries = 5
-    while retries > 0:
-        if setup_emulator_env() is True:
-            break
-        else:
-            retries -= 1
-            sleep(5)
-
-    if retries == 0:
-        print(
-            "\nCouldn't start Bigtable Emulator. Make sure it is installed correctly."
-        )
-        _cleanup_emulator()
-        exit(1)
-
-    request.addfinalizer(_cleanup_emulator)
+def _backend_servers():
+    """Start every available backend's local instance once for the session."""
+    with ExitStack() as stack:
+        handles = {}
+        for name, harness in _HARNESSES.items():
+            if harness.available():
+                handles[name] = stack.enter_context(harness.server())
+        yield handles
 
 
-@pytest.fixture(scope="session")
-def hbase_emulator():
-    """Start an in-process mock HBase REST server for the session."""
-    _data, server, port = start_hbase_mock_server()
-    yield port
-    server.shutdown()
-
-
-@pytest.fixture(scope="function", params=["bigtable", "hbase"])
-def gen_graph(request, bigtable_emulator, hbase_emulator):
-    backend = request.param
+@pytest.fixture(scope="function", params=list(_HARNESSES))
+def gen_graph(request, _backend_servers):
+    name = request.param
+    if name not in _backend_servers:
+        pytest.skip(f"backend {name!r} unavailable in this environment")
+    harness = _HARNESSES[name]
+    handle = _backend_servers[name]
 
     def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
-        if backend == "bigtable":
-            backend_client = {
-                "TYPE": "bigtable",
-                "CONFIG": {
-                    "ADMIN": True,
-                    "READ_ONLY": False,
-                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
-                    "INSTANCE": "emulated_instance",
-                    "CREDENTIALS": credentials.AnonymousCredentials(),
-                    "MAX_ROW_KEY_COUNT": 1000,
-                },
-            }
-        else:
-            backend_client = {
-                "TYPE": "hbase",
-                "CONFIG": {
-                    "BASE_URL": f"http://127.0.0.1:{hbase_emulator}",
-                    "MAX_ROW_KEY_COUNT": 1000,
-                },
-            }
-
         config = {
             "data_source": {
                 "EDGES": "gs://chunked-graph/minnie65_0/edges",
@@ -175,7 +57,7 @@ def gen_graph(request, bigtable_emulator, hbase_emulator):
                 "ID_PREFIX": "",
                 "ROOT_LOCK_EXPIRY": timedelta(seconds=1),
             },
-            "backend_client": backend_client,
+            "backend_client": harness.backend_client(handle),
             "ingest_config": {},
         }
 
@@ -193,7 +75,7 @@ def gen_graph(request, bigtable_emulator, hbase_emulator):
         graph.create()
 
         def fin():
-            _delete_test_table(graph, backend)
+            harness.delete_table(graph)
 
         request.addfinalizer(fin)
         return graph
