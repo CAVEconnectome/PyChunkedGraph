@@ -178,7 +178,7 @@ def build_graph(gen_graph, n_layers, supervoxels, edges=(), *, timestamp=None, a
     """Build a test graph from named supervoxels and edges; parents derived, at one ts.
 
     supervoxels maps a name to its (x, y, z, seg) atomic coordinate; edges are
-    (name, name, affinity). Returns BuiltGraph(cg, sv, ts); sv maps each name to its node id.
+    (name, name, affinity). Returns BuiltGraph(cg, sv); sv maps each name to its node id.
     """
     bounds = np.array([]) if atomic_chunk_bounds is None else atomic_chunk_bounds
     cg = gen_graph(n_layers=n_layers, atomic_chunk_bounds=bounds)
