@@ -8,7 +8,7 @@ import pytest
 from pychunkedgraph.graph.edits import flip_ids
 from pychunkedgraph.graph import basetypes
 
-from ..helpers import SV, build_graph
+from ...helpers import SV, build_graph
 
 
 class TestFlipIds:

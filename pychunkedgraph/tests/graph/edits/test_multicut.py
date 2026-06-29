@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from ...graph.edges import Edges
-from ...graph.cutting import Cut, SvSplitRequired, run_multicut
+from ....graph.edges import Edges
+from ....graph.cutting import Cut, SvSplitRequired, run_multicut
 
 
 class TestGraphMultiCut:

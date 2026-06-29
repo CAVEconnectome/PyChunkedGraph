@@ -4,9 +4,9 @@ from warnings import warn
 import numpy as np
 import pytest
 
-from ..helpers import SV, build_graph, fake_timestamp, assert_graph_unchanged
-from ...graph import exceptions
-from ...graph.misc import get_latest_roots
+from ...helpers import SV, build_graph, fake_timestamp, assert_graph_unchanged
+from ....graph import exceptions
+from ....graph.misc import get_latest_roots
 
 
 class TestGraphSplit:

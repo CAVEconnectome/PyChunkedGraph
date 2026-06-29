@@ -3,8 +3,8 @@ from math import inf
 import numpy as np
 import pytest
 
-from ..helpers import SV, build_graph
-from ...graph import types
+from ...helpers import SV, build_graph
+from ....graph import types
 
 
 class TestGraphMergeSplit:

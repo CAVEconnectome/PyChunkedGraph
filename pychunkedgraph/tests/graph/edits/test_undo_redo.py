@@ -8,32 +8,13 @@ operations through the BigTable emulator.
 import numpy as np
 import pytest
 
-from ..helpers import SV, build_graph
-
 
 class TestUndoRedo:
-    @pytest.fixture()
-    def two_chunk_graph(self, gen_graph):
-        """
-        Build a 2-chunk graph with edge between SVs 1 and 2.
-        ┌─────┬─────┐
-        │  A¹ │  B¹ │
-        │  1━━┿━━2  │
-        │     │     │
-        └─────┴─────┘
-        """
-        return build_graph(
-            gen_graph,
-            n_layers=3,
-            supervoxels={"a0": SV(), "b": SV(x=1)},
-            edges=[("a0", "b", 0.5)],
-        )
-
     @pytest.mark.timeout(30)
-    def test_undo_split_restores_merged_root(self, two_chunk_graph):
+    def test_undo_split_restores_merged_root(self, connected_pair):
         """Split two nodes, undo — nodes should share a common root again."""
-        cg, sv = two_chunk_graph
-        sv1 = sv["a0"]
+        cg, sv = connected_pair
+        sv1 = sv["a"]
         sv2 = sv["b"]
 
         # Initially, both SVs share a root
@@ -53,10 +34,10 @@ class TestUndoRedo:
         assert cg.get_root(sv1) == cg.get_root(sv2)
 
     @pytest.mark.timeout(30)
-    def test_redo_restores_operation_result(self, two_chunk_graph):
+    def test_redo_restores_operation_result(self, connected_pair):
         """Split, undo, redo the original split — state should match the post-split state."""
-        cg, sv = two_chunk_graph
-        sv1 = sv["a0"]
+        cg, sv = connected_pair
+        sv1 = sv["a"]
         sv2 = sv["b"]
 
         # Split
@@ -76,10 +57,10 @@ class TestUndoRedo:
         assert cg.get_root(sv1) != cg.get_root(sv2)
 
     @pytest.mark.timeout(30)
-    def test_undo_preserves_subgraph_leaves(self, two_chunk_graph):
+    def test_undo_preserves_subgraph_leaves(self, connected_pair):
         """After undo, subgraph leaves should match the pre-operation state."""
-        cg, sv = two_chunk_graph
-        sv1 = sv["a0"]
+        cg, sv = connected_pair
+        sv1 = sv["a"]
         sv2 = sv["b"]
 
         # Get initial leaf set

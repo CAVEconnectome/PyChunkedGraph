@@ -10,9 +10,9 @@ from math import inf
 import numpy as np
 import pytest
 
-from ..helpers import SV, build_graph
-from ...graph import attributes
-from ...graph.operation import (
+from ...helpers import SV, build_graph
+from ....graph import attributes
+from ....graph.operation import (
     GraphEditOperation,
     MergeOperation,
     MulticutOperation,
@@ -20,7 +20,7 @@ from ...graph.operation import (
     RedoOperation,
     UndoOperation,
 )
-from ...graph.exceptions import (
+from ....graph.exceptions import (
     PreconditionError,
     PostconditionError,
     SupervoxelSplitRequiredError,
@@ -65,58 +65,34 @@ def _build_cross_chunk(gen_graph):
 class TestOperationFromLogRecord:
     """Test that GraphEditOperation.from_log_record correctly identifies operation types."""
 
-    @pytest.fixture()
-    def merged_graph(self, gen_graph):
-        """Build a simple 2-chunk graph and perform a merge, returning (cg, operation_id)."""
-        cg, sv = build_graph(
-            gen_graph,
-            n_layers=3,
-            supervoxels={"a": SV(), "b": SV(x=1)},
-            edges=[("a", "b", 0.5)],
-        )
-
-        # Split first to get two separate roots
-        split_result = cg.remove_edges(
-            "test_user", source_ids=sv["a"], sink_ids=sv["b"], mincut=False
-        )
-
-        # Now merge them back
-        merge_result = cg.add_edges(
-            "test_user",
-            atomic_edges=[[sv["a"], sv["b"]]],
-            source_coords=[0, 0, 0],
-            sink_coords=[0, 0, 0],
-        )
-        return cg, merge_result.operation_id, split_result.operation_id
-
     @pytest.mark.timeout(30)
-    def test_merge_log_record_type(self, merged_graph):
+    def test_merge_log_record_type(self, split_then_merge_ops):
         """MergeOperation should be correctly identified from a real merge log record."""
-        cg, merge_op_id, _ = merged_graph
+        cg, merge_op_id, _ = split_then_merge_ops
         log_record, _ = cg.client.read_log_entry(merge_op_id)
         op_type = GraphEditOperation.get_log_record_type(log_record)
         assert op_type is MergeOperation
 
     @pytest.mark.timeout(30)
-    def test_split_log_record_type(self, merged_graph):
+    def test_split_log_record_type(self, split_then_merge_ops):
         """SplitOperation should be correctly identified from a real split log record."""
-        cg, _, split_op_id = merged_graph
+        cg, _, split_op_id = split_then_merge_ops
         log_record, _ = cg.client.read_log_entry(split_op_id)
         op_type = GraphEditOperation.get_log_record_type(log_record)
         assert op_type is SplitOperation
 
     @pytest.mark.timeout(30)
-    def test_merge_from_log_record(self, merged_graph):
+    def test_merge_from_log_record(self, split_then_merge_ops):
         """from_log_record should return a MergeOperation for a real merge log."""
-        cg, merge_op_id, _ = merged_graph
+        cg, merge_op_id, _ = split_then_merge_ops
         log_record, _ = cg.client.read_log_entry(merge_op_id)
         graph_op = GraphEditOperation.from_log_record(cg, log_record)
         assert isinstance(graph_op, MergeOperation)
 
     @pytest.mark.timeout(30)
-    def test_split_from_log_record(self, merged_graph):
+    def test_split_from_log_record(self, split_then_merge_ops):
         """from_log_record should return a SplitOperation for a real split log."""
-        cg, _, split_op_id = merged_graph
+        cg, _, split_op_id = split_then_merge_ops
         log_record, _ = cg.client.read_log_entry(split_op_id)
         graph_op = GraphEditOperation.from_log_record(cg, log_record)
         assert isinstance(graph_op, SplitOperation)
@@ -133,31 +109,10 @@ class TestOperationFromLogRecord:
 class TestOperationInversion:
     """Test that operation inversion produces the correct inverse type and edges."""
 
-    @pytest.fixture()
-    def split_and_merge_ops(self, gen_graph):
-        """Build graph, split, merge -- return (cg, merge_op_id, split_op_id)."""
-        cg, sv = build_graph(
-            gen_graph,
-            n_layers=3,
-            supervoxels={"a": SV(), "b": SV(x=1)},
-            edges=[("a", "b", 0.5)],
-        )
-
-        split_result = cg.remove_edges(
-            "test_user", source_ids=sv["a"], sink_ids=sv["b"], mincut=False
-        )
-        merge_result = cg.add_edges(
-            "test_user",
-            atomic_edges=[[sv["a"], sv["b"]]],
-            source_coords=[0, 0, 0],
-            sink_coords=[0, 0, 0],
-        )
-        return cg, merge_result.operation_id, split_result.operation_id
-
     @pytest.mark.timeout(30)
-    def test_invert_merge_produces_split(self, split_and_merge_ops):
+    def test_invert_merge_produces_split(self, split_then_merge_ops):
         """Inverse of a MergeOperation should be a SplitOperation with matching edges."""
-        cg, merge_op_id, _ = split_and_merge_ops
+        cg, merge_op_id, _ = split_then_merge_ops
         log_record, _ = cg.client.read_log_entry(merge_op_id)
         merge_op = GraphEditOperation.from_log_record(cg, log_record)
         inverted = merge_op.invert()
@@ -165,9 +120,9 @@ class TestOperationInversion:
         assert np.all(np.equal(merge_op.added_edges, inverted.removed_edges))
 
     @pytest.mark.timeout(30)
-    def test_invert_split_produces_merge(self, split_and_merge_ops):
+    def test_invert_split_produces_merge(self, split_then_merge_ops):
         """Inverse of a SplitOperation should be a MergeOperation with matching edges."""
-        cg, _, split_op_id = split_and_merge_ops
+        cg, _, split_op_id = split_then_merge_ops
         log_record, _ = cg.client.read_log_entry(split_op_id)
         split_op = GraphEditOperation.from_log_record(cg, log_record)
         inverted = split_op.invert()
@@ -178,45 +133,27 @@ class TestOperationInversion:
 class TestUndoRedoChainResolution:
     """Test undo/redo chain resolution through real graph operations."""
 
-    @pytest.fixture()
-    def graph_with_undo(self, gen_graph):
-        """Build graph, perform split, then undo -- return (cg, split_op_id, undo_result)."""
-        cg, sv = build_graph(
-            gen_graph,
-            n_layers=3,
-            supervoxels={"a": SV(), "b": SV(x=1)},
-            edges=[("a", "b", 0.5)],
-        )
-
-        # Split
-        split_result = cg.remove_edges(
-            "test_user", source_ids=sv["a"], sink_ids=sv["b"], mincut=False
-        )
-        # Undo the split (= merge)
-        undo_result = cg.undo_operation("test_user", split_result.operation_id)
-        return cg, split_result.operation_id, undo_result
-
     @pytest.mark.timeout(30)
-    def test_undo_log_record_type(self, graph_with_undo):
+    def test_undo_log_record_type(self, split_then_undo):
         """Undo operation log record should be identified as UndoOperation."""
-        cg, _, undo_result = graph_with_undo
+        cg, _, undo_result = split_then_undo
         log_record, _ = cg.client.read_log_entry(undo_result.operation_id)
         op_type = GraphEditOperation.get_log_record_type(log_record)
         assert op_type is UndoOperation
 
     @pytest.mark.timeout(30)
-    def test_undo_from_log_resolves_correctly(self, graph_with_undo):
+    def test_undo_from_log_resolves_correctly(self, split_then_undo):
         """from_log_record on an undo record should resolve the chain to an UndoOperation."""
-        cg, split_op_id, undo_result = graph_with_undo
+        cg, split_op_id, undo_result = split_then_undo
         log_record, _ = cg.client.read_log_entry(undo_result.operation_id)
         resolved_op = GraphEditOperation.from_log_record(cg, log_record)
         # Undo of a split -> UndoOperation whose inverse is a MergeOperation
         assert isinstance(resolved_op, UndoOperation)
 
     @pytest.mark.timeout(30)
-    def test_redo_after_undo(self, graph_with_undo):
+    def test_redo_after_undo(self, split_then_undo):
         """Redo of the original split (after undo) should produce a RedoOperation log."""
-        cg, split_op_id, undo_result = graph_with_undo
+        cg, split_op_id, undo_result = split_then_undo
 
         # Redo the original split (which was undone)
         redo_result = cg.redo_operation("test_user", split_op_id)
@@ -226,9 +163,9 @@ class TestUndoRedoChainResolution:
         assert isinstance(resolved_op, RedoOperation)
 
     @pytest.mark.timeout(30)
-    def test_undo_redo_chain_prevention(self, graph_with_undo):
+    def test_undo_redo_chain_prevention(self, split_then_undo):
         """Direct UndoOperation/RedoOperation on undo/redo targets should raise ValueError."""
-        cg, _, undo_result = graph_with_undo
+        cg, _, undo_result = split_then_undo
 
         # Direct UndoOperation on an undo record should fail
         with pytest.raises(ValueError):
