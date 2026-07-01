@@ -2,6 +2,7 @@ import collections
 import os
 import subprocess
 import sys
+import uuid
 from time import sleep
 from datetime import datetime, timedelta
 from functools import partial
@@ -37,6 +38,7 @@ from ..graph.lineage import get_future_root_ids
 from ..graph.utils.serializers import serialize_uint64
 from ..graph.utils.serializers import deserialize_uint64
 from ..ingest.create.abstract_layers import add_layer
+from ..pipeline.ingest import setup as setup_mod
 
 
 class TestGraphNodeConversion:
@@ -3542,3 +3544,45 @@ class TestGraphLocks:
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == cg.get_root(
 #             to_label(cg, 1, 0, 0, 0, 0)
 #         )
+
+
+def test_setup_exist_ok_is_idempotent(bigtable_emulator, monkeypatch, tmp_path):
+    """`--exist-ok` makes ingest setup a no-op when the graph already exists."""
+    # setup only pickles the meta (the watershed is fetched lazily, never here),
+    # so the data source paths are placeholders; the real config holds non-YAML
+    # objects (credentials, timedelta), so feed the dict directly.
+    config = {
+        "data_source": {
+            "EDGES": "gs://test/edges",
+            "COMPONENTS": "gs://test/components",
+            "WATERSHED": "gs://test/watershed",
+        },
+        "graph_config": {
+            "CHUNK_SIZE": [512, 512, 64],
+            "FANOUT": 2,
+            "SPATIAL_BITS": 10,
+            "ID_PREFIX": "",
+            "ROOT_LOCK_EXPIRY": timedelta(seconds=5),
+        },
+        "backend_client": {
+            "TYPE": "bigtable",
+            "CONFIG": {
+                "ADMIN": True,
+                "READ_ONLY": False,
+                "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                "INSTANCE": "emulated_instance",
+                "CREDENTIALS": credentials.AnonymousCredentials(),
+                "MAX_ROW_KEY_COUNT": 1000,
+            },
+        },
+        "ingest_config": {},
+    }
+    monkeypatch.setattr(setup_mod.yaml, "safe_load", lambda stream: config)
+    dataset = tmp_path / "dataset.yml"
+    dataset.write_text("{}")
+    gid = f"test_{uuid.uuid4().hex[:8]}"
+
+    setup_mod.setup(gid, dataset_path=str(dataset))  # first run creates the table + meta
+    setup_mod.setup(gid, exist_ok=True, dataset_path=str(dataset))  # re-run: no-op, no raise
+    with pytest.raises(ValueError):
+        setup_mod.setup(gid, dataset_path=str(dataset))  # without exist_ok, still errors
