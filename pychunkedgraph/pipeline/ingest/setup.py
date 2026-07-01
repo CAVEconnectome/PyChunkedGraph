@@ -1,13 +1,13 @@
 """One-shot ingest setup — create the Bigtable table and write graph meta.
 
 Run once per graph, inside the image, before any layer Jobs:
-    python -m pychunkedgraph.pipeline.ingest.setup <graph_id> [--raw]
+    python -m pychunkedgraph.pipeline.ingest.setup <graph_id> [--raw] [--exist-ok]
 
 Reads the dataset yaml from its mounted location (no path passed); this is the
 only step that touches the yaml. Folds the agglomeration source into
 ``meta.custom_data["agg"] = {"path": str, "raw": bool}`` so workers read
 everything from Bigtable at run time — no yaml, no Redis. Errors out if the
-table already exists (the operator runs setup explicitly once).
+table already exists, unless ``--exist-ok`` (idempotent re-run for converge/resume).
 """
 
 import argparse
@@ -25,7 +25,12 @@ from ...graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
 DATASET_PATH = environ.get("PCG_DATASET", "/app/datasets/dataset.yml")
 
 
-def setup(graph_id: str, raw: bool = False, dataset_path: str = DATASET_PATH) -> None:
+def setup(
+    graph_id: str,
+    raw: bool = False,
+    exist_ok: bool = False,
+    dataset_path: str = DATASET_PATH,
+) -> None:
     with open(dataset_path) as stream:
         config = yaml.safe_load(stream)
     client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
@@ -35,6 +40,8 @@ def setup(graph_id: str, raw: bool = False, dataset_path: str = DATASET_PATH) ->
     agg = {"path": config.get("ingest_config", {}).get("AGGLOMERATION"), "raw": raw}
     meta = ChunkedGraphMeta(graph_config, data_source, custom_data={"agg": agg})
     cg = ChunkedGraph(meta=meta, client_info=client_info)
+    if exist_ok and cg.client._table.exists():
+        return  # idempotent re-run: the graph is already set up
     cg.create()
 
 
@@ -46,8 +53,13 @@ def main() -> None:
         action="store_true",
         help="raw agglomeration input; the L2 workers convert it to processed data",
     )
+    parser.add_argument(
+        "--exist-ok",
+        action="store_true",
+        help="idempotent re-run: skip creation if the graph table already exists",
+    )
     args = parser.parse_args()
-    setup(args.graph_id, raw=args.raw)
+    setup(args.graph_id, raw=args.raw, exist_ok=args.exist_ok)
 
 
 if __name__ == "__main__":
