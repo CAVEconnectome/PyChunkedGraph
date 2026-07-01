@@ -13,10 +13,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - name: Build image and run tests
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: seunglab/pychunkedgraph:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run tests
         run: |
-          docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA .
-          docker run --rm seunglab/pychunkedgraph:$GITHUB_SHA /bin/sh -c "pytest --cov-config .coveragerc --cov=pychunkedgraph ./pychunkedgraph/tests && codecov"
-
+          docker run --rm seunglab/pychunkedgraph:${{ github.sha }} /bin/sh -c "pytest --cov-config .coveragerc --cov=pychunkedgraph ./pychunkedgraph/tests && codecov"
