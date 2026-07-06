@@ -146,12 +146,14 @@ def setup_mesh_meta(
     logger.info("wrote mesh_metadata uniform_draco_grid_size=%s", grid_size)
 
     # 4. CG-side bigtable meta block.
+    ws = cg.meta.data_source.WATERSHED.rstrip("/")
     mesh_meta = {
         "max_layer": int(cfg.max_layer),
         "dynamic_mesh_dir": cfg.dynamic_mesh_dir,
         "mip": int(cfg.mip),
         "max_error": int(cfg.max_error),
         "dir": cfg.dir,
+        "path": (cfg.path or f"{ws}/{cfg.dir}").rstrip("/"),
         "initial_ts": int(initial_ts),
     }
     cg.meta.custom_data["mesh"] = mesh_meta

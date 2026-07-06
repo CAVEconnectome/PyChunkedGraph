@@ -105,8 +105,9 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     if len(node_ids) == 0:
         return result, not_existing
 
-    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
-    mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
+    mesh_meta = cg.meta.custom_data.get("mesh", {})
+    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    mesh_path = f"{cg.meta.mesh_path}/{dynamic_dir}"
     cf = CloudFiles(mesh_path)
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
 

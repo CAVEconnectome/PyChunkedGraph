@@ -51,9 +51,7 @@ def callback(payload):
         logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
         return
 
-    mesh_path = path.join(
-        cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
-    )
+    mesh_path = path.join(cg.meta.mesh_path, cv_unsharded_mesh_dir)
 
 
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")

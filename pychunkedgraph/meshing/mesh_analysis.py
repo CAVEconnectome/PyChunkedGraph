@@ -62,11 +62,7 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"][
         "unsharded_mesh_dir"
     ]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED,
-        cv_sharded_mesh_dir,
-        cv_unsharded_mesh_dir,
-    )
+    cv_unsharded_mesh_path = os.path.join(cg.meta.mesh_path, cv_unsharded_mesh_dir)
     cv = CloudVolume(
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cv_sharded_mesh_dir,

@@ -145,7 +145,25 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    mesh_meta = cg.meta.custom_data.get("mesh", {})
+    # cloudvolume composes every mesh path as join(data_dir, mesh); anchor both
+    # at meta.mesh_path to support meshes outside the watershed bucket. These
+    # internal CVs are mesh-only — voxel reads go through cg.meta.cv.
+    info["data_dir"], info["mesh"] = cg.meta.mesh_path.rsplit("/", 1)
+    # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
+    # subdir explicitly. Default `"dynamic"` matches the mesh worker's
+    # fallback and NG's current hardcoded subdir name — see the
+    # spelunker-ocdbt graphene backend (looks up
+    # `<fragmentUrl>dynamic/<fragmentId>`). NG must be patched to read
+    # this info field before non-default values route correctly.
+    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+    info["dynamic_mesh_dir"] = dynamic_dir
+    # cloud-volume reads the dynamic dir from mesh_metadata.unsharded_mesh_dir, not
+    # dynamic_mesh_dir; mirror it so an unpatched client fetches dynamic meshes from
+    # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
+    mesh_metadata = dict(info.get("mesh_metadata", {}))
+    mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
+    info["mesh_metadata"] = mesh_metadata
     info_str = dumps(info)
     return loads(info_str)
 

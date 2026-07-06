@@ -13,6 +13,7 @@ from multiwrapper import multiprocessing_utils as mu
 from . import ChunkedGraph
 from . import attributes
 from .edges import Edges
+from .meta import ChunkedGraphMeta
 from .utils import flatgraph
 from .types import Agglomeration
 
@@ -288,3 +289,20 @@ def get_activated_edges(
         supervoxels=operation.added_edges.ravel(),
         parent_ts=time_stamp,
     )
+
+
+def set_mesh_path(cg: ChunkedGraph, path: str = None) -> None:
+    """Pin the absolute mesh dir in `custom_data["mesh"]["path"]` and persist;
+    defaults to the current location."""
+    path = (path or cg.meta.mesh_path).rstrip("/")
+    cg.meta.custom_data.setdefault("mesh", {})["path"] = path
+    cg.update_meta(cg.meta, overwrite=True)
+
+
+def set_watershed_path(cg: ChunkedGraph, path: str) -> None:
+    """Repoint the watershed layer and persist; meshes stay at their current
+    location (`mesh_path` is pinned first)."""
+    cg.meta.custom_data.setdefault("mesh", {}).setdefault("path", cg.meta.mesh_path)
+    data_source = cg.meta.data_source._replace(WATERSHED=path.rstrip("/"))
+    cg._meta = ChunkedGraphMeta(cg.meta.graph_config, data_source, cg.meta.custom_data)
+    cg.update_meta(cg.meta, overwrite=True)

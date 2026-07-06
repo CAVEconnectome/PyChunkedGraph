@@ -233,6 +233,20 @@ class ChunkedGraphMeta:
         )
 
     @property
+    def mesh_dir(self) -> str:
+        """Mesh dir name, relative to the parent of `mesh_path`."""
+        return self.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+
+    @property
+    def mesh_path(self) -> str:
+        """Absolute path of the mesh dir; `custom_data["mesh"]["path"]` when meshes
+        live outside the watershed layer, else `<WATERSHED>/<mesh_dir>`."""
+        path = self.custom_data.get("mesh", {}).get("path")
+        if path:
+            return path.rstrip("/")
+        return f"{self.data_source.WATERSHED.rstrip('/')}/{self.mesh_dir}"
+
+    @property
     def dataset_info(self) -> Dict:
         info = self.ws_cv.info  # pylint: disable=no-member
 
@@ -250,9 +264,11 @@ class ChunkedGraphMeta:
                 },
             }
         )
-        mesh_dir = self.custom_data.get("mesh", {}).get("dir", None)
-        if mesh_dir is not None:
-            info.update({"mesh": mesh_dir})
+        mesh_meta = self.custom_data.get("mesh", {})
+        if mesh_meta.get("dir") is not None:
+            info.update({"mesh": mesh_meta["dir"]})
+        if mesh_meta.get("path"):
+            info["mesh_dir_abs"] = self.mesh_path
         return info
 
     def __getnewargs__(self):
