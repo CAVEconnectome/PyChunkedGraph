@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from ..graph.chunkedgraph import ChunkedGraph
 from .meshgen import get_draco_encoding_settings_for_chunk
 from .meshgen_utils import get_mesh_block_shape_for_mip
+from .mesh_dir import resolve
 from .meta import MeshConfig
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,7 @@ def setup_mesh_meta(
         "mip": int(cfg.mip),
         "max_error": int(cfg.max_error),
         "dir": cfg.dir,
+        "path": cfg.path or resolve({"mesh": {"dir": cfg.dir}}, cg.meta.data_source.WATERSHED),
         "initial_ts": int(initial_ts),
     }
     cg.meta.custom_data["mesh"] = mesh_meta

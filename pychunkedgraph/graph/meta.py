@@ -141,6 +141,10 @@ class ChunkedGraphMeta:
                 else private_mesh_dirs
             )
             mesh["dir"], mesh["dynamic_mesh_dir"] = rewrite(mesh["dir"], graph_id)
+            if mesh.get("path"):
+                # Keep the absolute path pointed at the rewritten dir name.
+                parent = mesh["path"].rstrip("/").rsplit("/", 1)[0]
+                mesh["path"] = f"{parent}/{mesh['dir']}"
         return self
 
     @property

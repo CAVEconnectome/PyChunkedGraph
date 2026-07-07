@@ -17,6 +17,7 @@ Example yaml block::
       max_error: 40
       minishard_bits: {2: 1, 3: 3, 4: 6, 5: 9, 6: 12}
       # dynamic_mesh_dir: my_custom_dir  # optional; default "dynamic_<graph_id>"
+      # path: gs://bucket/meshes/graphene_meshes  # optional; absolute mesh dir
 """
 
 from dataclasses import asdict, dataclass, replace
@@ -33,6 +34,7 @@ class MeshConfig:
     max_error: int
     minishard_bits: Dict[int, int]
     dynamic_mesh_dir: Optional[str] = None
+    path: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict) -> "MeshConfig":

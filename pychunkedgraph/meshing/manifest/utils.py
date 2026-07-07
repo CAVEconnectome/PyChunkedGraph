@@ -12,6 +12,7 @@ from cloudfiles import CloudFiles
 from cloudvolume import CloudVolume
 
 from .cache import ManifestCache
+from ..mesh_dir import dynamic
 from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
 from ...graph import ChunkedGraph
@@ -106,9 +107,8 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
         return result, not_existing
 
     mesh_meta = cg.meta.custom_data.get("mesh", {})
-    mesh_dir = mesh_meta.get("dir", "graphene_meshes")
     dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
-    mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/{dynamic_dir}"
+    mesh_path = dynamic(cg.meta.custom_data, cg.meta.data_source.WATERSHED, dynamic_dir)
     cf = CloudFiles(mesh_path)
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
 

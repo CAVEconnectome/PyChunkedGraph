@@ -3,7 +3,6 @@
 import gc
 import pickle
 import logging
-from os import path
 from os import getenv
 
 import numpy as np
@@ -12,6 +11,7 @@ from messagingclient import MessagingClient
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph import basetypes
 from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing.mesh_dir import dynamic
 
 PCG_CACHE = {}
 
@@ -55,8 +55,8 @@ def callback(payload):
         logger.warning("no mesh metadata for %s; ignoring", table_id)
         return
 
-    mesh_path = path.join(
-        cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
+    mesh_path = dynamic(
+        cg.meta.custom_data, cg.meta.data_source.WATERSHED, cv_unsharded_mesh_dir
     )
 
     logger.info(

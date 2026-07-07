@@ -8,6 +8,7 @@ from cloudvolume.lib import Vec
 from pychunkedgraph.graph.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
 from pychunkedgraph.graph.utils import get_local_segmentation
+from . import mesh_dir
 
 
 def str_to_slice(slice_str: str):
@@ -146,7 +147,9 @@ def get_json_info(cg):
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
     mesh_meta = cg.meta.custom_data.get("mesh", {})
-    info["mesh"] = mesh_meta.get("dir", "graphene_meshes")
+    info["data_dir"], info["mesh"] = mesh_dir.anchor_split(
+        cg.meta.custom_data, cg.meta.data_source.WATERSHED
+    )
     # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
     # subdir explicitly. Default `"dynamic"` matches the mesh worker's
     # fallback and NG's current hardcoded subdir name — see the
