@@ -159,8 +159,10 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
     cv_mesh_dir = cg.meta.dataset_info["mesh"]
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
+    from pychunkedgraph.meshing import mesh_dir
+
+    cv_unsharded_mesh_path = mesh_dir.dynamic(
+        cg.meta.custom_data, cg.meta.data_source.WATERSHED, cv_unsharded_mesh_dir
     )
     mesh_data = cg.meta.custom_data["mesh"]
 

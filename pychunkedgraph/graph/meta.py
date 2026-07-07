@@ -445,6 +445,11 @@ class ChunkedGraphMeta:
         mesh_dir = self.custom_data.get("mesh", {}).get("dir", None)
         if mesh_dir is not None:
             info.update({"mesh": mesh_dir})
+        from pychunkedgraph.meshing.mesh_dir import served_abs
+
+        mesh_abs = served_abs(self.custom_data, self.data_source.WATERSHED)
+        if mesh_abs is not None:
+            info["mesh_dir_abs"] = mesh_abs
         return info
 
     def __getnewargs__(self):
