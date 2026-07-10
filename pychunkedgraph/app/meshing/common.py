@@ -13,6 +13,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import chunkedgraph
 from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
 from pychunkedgraph.meshing.manifest import get_children_before_start_layer
 from pychunkedgraph.meshing.manifest import ManifestCache
@@ -74,7 +75,7 @@ def handle_get_manifest(table_id, node_id):
     prepend_seg_ids = request.args.get("prepend_seg_ids", False)
     return_seg_ids = return_seg_ids in ["True", "true", "1", True]
     prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
-    start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    start_layer = MeshMeta(cg).max_layer
     start_layer = int(request.args.get("start_layer", start_layer))
     if "start_layer" in data:
         start_layer = int(data["start_layer"])
@@ -180,22 +181,15 @@ def handle_remesh(table_id):
 
 def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
-    cv_mesh_dir = cg.meta.dataset_info["mesh"]
-    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
-    )
-    mesh_data = cg.meta.custom_data["mesh"]
-
-    # TODO: stop_layer and mip should be configurable by dataset
+    mm = MeshMeta(cg)
     meshgen.remeshing(
         cg,
         lvl2_nodes,
-        stop_layer=mesh_data["max_layer"],
-        mip=mesh_data["mip"],
-        max_err=mesh_data["max_error"],
-        cv_sharded_mesh_dir=cv_mesh_dir,
-        cv_unsharded_mesh_path=cv_unsharded_mesh_path,
+        stop_layer=mm.max_layer,
+        mip=mm.mip,
+        max_err=mm.max_error,
+        cv_sharded_mesh_dir=mm.dir,
+        cv_unsharded_mesh_path=mm.dynamic_path,
     )
 
     return Response(status=200)

@@ -14,6 +14,7 @@ from cloudvolume import CloudVolume
 from .cache import ManifestCache
 from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
+from ..mesh_meta import MeshMeta
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
 from ...graph.utils.basetypes import NODE_ID
@@ -105,8 +106,7 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     if len(node_ids) == 0:
         return result, not_existing
 
-    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
-    mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
+    mesh_path = MeshMeta(cg).dynamic_path
     cf = CloudFiles(mesh_path)
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
 
@@ -180,7 +180,7 @@ def segregate_node_ids(cg, node_ids):
     new = created by proofreading edit operations
     """
 
-    initial_ts = cg.meta.custom_data["mesh"]["initial_ts"]
+    initial_ts = MeshMeta(cg).initial_ts
     initial_mesh_dt = np.datetime64(datetime.fromtimestamp(initial_ts))
     node_ids_ts = cg.get_node_timestamps(node_ids)
     initial_mesh_mask = node_ids_ts < initial_mesh_dt
@@ -196,7 +196,7 @@ def get_mesh_paths(
 ) -> Dict:
     shard_readers = CloudVolume(  # pylint: disable=no-member
         "graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
+        mesh_dir=MeshMeta(cg).dir,
         info=get_json_info(cg),
     ).mesh
 
