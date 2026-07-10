@@ -12,6 +12,8 @@ import numpy as np
 DOES_NOT_EXIST = "X"
 INITIAL_PATH_PREFIX = "initial_path_prefix"
 
+MANIFEST_TTL_SECONDS = 3 * 24 * 3600
+
 REDIS_HOST = os.environ.get("MANIFEST_CACHE_REDIS_HOST", "localhost")
 REDIS_PORT = os.environ.get("MANIFEST_CACHE_REDIS_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("MANIFEST_CACHE_REDIS_PASSWORD", "")
@@ -73,6 +75,27 @@ class ManifestCache:
 
         keys = [f"{self.namespace}:{n}" for n in node_ids]
         REDIS.delete(*keys)
+
+    def clear_namespace(self, batch_size: int = 1000) -> int:
+        """Delete every key under this graph_id's namespace.
+
+        SCAN-based pattern delete (non-blocking on the redis side).
+        Returns the number of keys deleted.
+        """
+        if REDIS is None:
+            return 0
+
+        pattern = f"{self.namespace}:*"
+        deleted = 0
+        batch = []
+        for key in REDIS.scan_iter(match=pattern, count=batch_size):
+            batch.append(key)
+            if len(batch) >= batch_size:
+                deleted += REDIS.delete(*batch)
+                batch.clear()
+        if batch:
+            deleted += REDIS.delete(*batch)
+        return deleted
 
     def _get_cached_initial_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
@@ -140,10 +163,16 @@ class ManifestCache:
         for node_id, fragment_info in fragments_d.items():
             path, offset, size = fragment_info
             key = f"{self.namespace}:{node_id}"
-            pipeline.set(key, f"{path[prefix_idx:]}:{offset}:{size}")
+            pipeline.set(
+                key, f"{path[prefix_idx:]}:{offset}:{size}", ex=MANIFEST_TTL_SECONDS
+            )
 
         for node_id in not_existing:
-            pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)
+            pipeline.set(
+                f"{self.namespace}:{node_id}",
+                DOES_NOT_EXIST,
+                ex=MANIFEST_TTL_SECONDS,
+            )
 
         pipeline.execute()
 
@@ -155,9 +184,15 @@ class ManifestCache:
 
         pipeline = REDIS.pipeline()
         for node_id, fragment in fragments_d.items():
-            pipeline.set(f"{self.namespace}:{node_id}", fragment)
+            pipeline.set(
+                f"{self.namespace}:{node_id}", fragment, ex=MANIFEST_TTL_SECONDS
+            )
 
         for node_id in not_existing:
-            pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)
+            pipeline.set(
+                f"{self.namespace}:{node_id}",
+                DOES_NOT_EXIST,
+                ex=MANIFEST_TTL_SECONDS,
+            )
 
         pipeline.execute()
