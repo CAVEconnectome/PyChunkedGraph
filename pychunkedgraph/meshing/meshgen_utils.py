@@ -14,6 +14,7 @@ from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
+from .mesh_meta import MeshMeta
 
 
 def str_to_slice(slice_str: str):
@@ -145,7 +146,7 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    info["mesh"] = MeshMeta(cg).dir
     info_str = dumps(info)
     return loads(info_str)
 
