@@ -31,23 +31,16 @@ def requested_manifest_version(accept_header, default: int = 1) -> int:
     return default
 
 
-def to_v2_groups(node_ids, fragments, seg_id_in_fragment: bool):
-    """Split the v1 ``(node_ids, fragments)`` output into
-    ``(initial_frags, dynamic_frags)`` for the v2 format.
+def to_v2_groups(fragments):
+    """Split v1 fragments into ``(initial, dynamic)`` by the leading ``~`` marker.
 
-    Initial (sharded) fragments are marked by a leading ``~``; the marker is
-    dropped and the seg id ensured as the leading field. Dynamic fragments carry
-    no marker and already lead with the seg id. ``seg_id_in_fragment`` is True
-    when the initial fragments already embed the seg id (speculative), False when
-    it must be prepended (verified).
+    Fragments are kept verbatim: the ``~`` marks a sharded (byte-range) read vs a
+    whole-file read, so it is the client's per-fragment dispatch flag and must
+    survive into the v2 groups unchanged.
     """
     initial, dynamic = [], []
-    for node_id, frag in zip(node_ids, fragments):
-        if frag.startswith("~"):
-            body = frag[1:]
-            initial.append(body if seg_id_in_fragment else f"{node_id}:{body}")
-        else:
-            dynamic.append(frag)
+    for frag in fragments:
+        (initial if frag.startswith("~") else dynamic).append(frag)
     return initial, dynamic
 
 
