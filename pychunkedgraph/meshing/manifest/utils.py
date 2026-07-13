@@ -194,10 +194,17 @@ def get_mesh_paths(
     node_ids: Sequence[np.uint64],
     stop_layer: int = 2,
 ) -> Dict:
+    # Point the shard reader at initial_path: cloud-volume resolves shards at
+    # join(info["data_dir"], info["mesh"], "initial"), so reader_anchor splits
+    # initial_path into that (data_dir, mesh) pair — repoints a migrated bucket.
+    info = get_json_info(cg)
+    data_dir, mesh_dir = MeshMeta(cg).reader_anchor
+    info["data_dir"] = data_dir
+    info["mesh"] = mesh_dir
     shard_readers = CloudVolume(  # pylint: disable=no-member
         "graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=MeshMeta(cg).dir,
-        info=get_json_info(cg),
+        mesh_dir=mesh_dir,
+        info=info,
     ).mesh
 
     result = {}
