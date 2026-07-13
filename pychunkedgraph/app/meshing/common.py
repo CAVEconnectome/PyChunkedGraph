@@ -138,10 +138,10 @@ def manifest_response(cg, args):
 
     if manifest_version >= 2:
         mm = MeshMeta(cg)
-        initial, dynamic = v2.to_v2_groups(
-            seg_ids, fragments, seg_id_in_fragment=not verify
-        )
+        initial, dynamic = v2.to_v2_groups(seg_ids, fragments, prepend_seg_ids)
         resp = v2.assemble(mm.initial_path, mm.dynamic_path, initial, dynamic)
+        if return_seg_ids:
+            resp["seg_ids"] = seg_ids
     else:
         resp = {"fragments": fragments}
         if prepend_seg_ids:
