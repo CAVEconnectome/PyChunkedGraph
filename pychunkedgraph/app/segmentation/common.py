@@ -14,6 +14,7 @@ from pytz import UTC
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 from pychunkedgraph.graph import (
     attributes,
     cutting,
@@ -111,6 +112,13 @@ def handle_info(table_id):
         combined_info["mesh_dir"] = mesh_dir
     elif combined_info.get("mesh_dir", None) is not None:
         combined_info["mesh_dir"] = "graphene_meshes"
+    # Absolute mesh bucket locations (== the v2 manifest keys) so clients that
+    # bypass the manifest resolve initial/dynamic meshes from the real buckets.
+    mm = MeshMeta(cg)
+    mesh_metadata = dict(combined_info.get("mesh_metadata", {}))
+    mesh_metadata["initial_mesh_path"] = mm.initial_path
+    mesh_metadata["dynamic_mesh_path"] = mm.dynamic_path
+    combined_info["mesh_metadata"] = mesh_metadata
     return jsonify(combined_info)
 
 
