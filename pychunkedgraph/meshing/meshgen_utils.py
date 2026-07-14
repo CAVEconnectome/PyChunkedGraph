@@ -8,6 +8,7 @@ from cloudvolume.lib import Vec
 from pychunkedgraph.graph.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
 from pychunkedgraph.graph.utils import get_local_segmentation
+from .mesh_meta import MeshMeta
 
 
 def str_to_slice(slice_str: str):
@@ -160,6 +161,11 @@ def get_json_info(cg):
     # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
     mesh_metadata = dict(info.get("mesh_metadata", {}))
     mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
+    # Absolute initial/dynamic bucket locations (the v2 manifest's bucket keys)
+    # so cloud-volume's manifest-bypass reads resolve to the real buckets.
+    mm = MeshMeta(cg)
+    mesh_metadata["initial_mesh_path"] = mm.initial_path
+    mesh_metadata["dynamic_mesh_path"] = mm.dynamic_path
     info["mesh_metadata"] = mesh_metadata
     info_str = dumps(info)
     return loads(info_str)
