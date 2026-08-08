@@ -830,48 +830,43 @@ def tabular_change_log_recent(table_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    # Only the timestamp, user, and merge/split flag are used below, so restrict the
-    # Bigtable read to those columns. The default (all columns) also pulls the large
-    # variable-length arrays (added/removed edges, coordinates, affinities) for every
-    # operation, which dominate row size and drive the memory footprint of this endpoint.
-    # AddedEdge is only existence-checked (merge vs split), so its presence is all we need.
-    log_rows = cg.client.read_log_entries(
+    # Stream the operation-log rows instead of materializing them all at once. Only the
+    # timestamp, user, and merge/split flag are needed, so the read is restricted to those
+    # columns (the default pulls the large variable-length added/removed-edge, coordinate,
+    # and affinity arrays for every operation, which dominate row size). AddedEdge is only
+    # existence-checked (merge vs split). RootID is not used directly but is kept so the
+    # streaming reader's timestamp fallback still works on older rows that predate the
+    # OperationTimeStamp column.
+    #
+    # read_log_entries_streaming yields one (operation_id, record) at a time and frees each
+    # decoded row before reading the next, so peak memory is bounded by the compact output
+    # columns below rather than by the full set of Bigtable cell objects for the window.
+    # Rows arrive already ordered by operation id (fixed-width keys), so no sort is needed.
+    operation_ids = []
+    timestamp_list = []
+    user_list = []
+    is_merge_list = []
+    for operation_id, operation in cg.client.read_log_entries_streaming(
         start_time=start_time,
         end_time=end_time,
         properties=[
             attributes.OperationLogs.OperationTimeStamp,
             attributes.OperationLogs.UserID,
             attributes.OperationLogs.AddedEdge,
-            # RootID is not used directly, but read_log_entries falls back to its cell
-            # timestamp when OperationTimeStamp is absent on older rows; keep it so that
-            # fallback still works. It is a small array, unlike the edge/coord columns.
             attributes.OperationLogs.RootID,
         ],
-    )
-
-    timestamp_list = []
-    user_list = []
-    is_merge_list = []
-
-    operation_ids = np.sort(list(log_rows.keys()))
-    for operation_id in operation_ids:
-        operation = log_rows[operation_id]
-
-        timestamp = operation["timestamp"]
-        timestamp_list.append(timestamp)
-
-        user_id = operation[attributes.OperationLogs.UserID]
-        user_list.append(user_id)
-
-        is_merge = attributes.OperationLogs.AddedEdge in operation
-        is_merge_list.append(is_merge)
+    ):
+        operation_ids.append(operation_id)
+        timestamp_list.append(operation["timestamp"])
+        user_list.append(operation[attributes.OperationLogs.UserID])
+        is_merge_list.append(attributes.OperationLogs.AddedEdge in operation)
 
     return pd.DataFrame.from_dict(
         {
-            "operation_id": operation_ids,
+            "operation_id": np.array(operation_ids, dtype=np.uint64),
             "timestamp": timestamp_list,
             "user_id": user_list,
-            "is_merge": is_merge_list,
+            "is_merge": np.array(is_merge_list, dtype=bool),
         }
     )
 

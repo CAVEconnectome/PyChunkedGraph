@@ -150,3 +150,22 @@ class OperationLogger(ABC):
     @abstractmethod
     def read_log_entries(self, operation_ids) -> None:
         """Read log entries for given operation IDs."""
+
+    @abstractmethod
+    def read_log_entries_streaming(
+        self,
+        properties=None,
+        start_time=None,
+        end_time=None,
+        end_time_inclusive=False,
+        user_id=None,
+    ):
+        """Yield ``(operation_id, log_record)`` for every operation in a time range.
+
+        Streaming counterpart to :meth:`read_log_entries` for the "all operations in a time
+        range" case (``operation_ids=None``). Implementations should iterate the backend's
+        result lazily and yield one operation at a time so peak memory is bounded by what the
+        caller accumulates rather than by the full result set. Each ``log_record`` must match
+        the per-operation shape returned by :meth:`read_log_entries` (columns unwrapped to their
+        value, plus a derived ``"timestamp"`` key).
+        """
