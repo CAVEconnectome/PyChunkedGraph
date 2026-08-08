@@ -21,6 +21,12 @@ class BaseConfig(object):
     # diagnosis, e.g. by setting LOG_REQUEST_START = True in the instance config.cfg.
     LOG_REQUEST_START = False
 
+    # Reject /lvl2_graph requests whose node resolves to more than this many level 2 nodes
+    # (see pychunkedgraph.graph.analysis.pathing.get_lvl2_edge_list). Such objects — typically
+    # erroneous mega-merges — produce a multi-GB induced edge list that can OOM the worker.
+    # None disables the guard; set a concrete integer in the instance config.cfg to enable.
+    LVL2_GRAPH_MAX_NODES = None
+
     CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
     PROJECT_ID = os.environ.get("PROJECT_ID", None)
     CG_READ_ONLY = os.environ.get("CG_READ_ONLY", None) is not None

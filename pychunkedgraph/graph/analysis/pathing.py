@@ -6,6 +6,7 @@ import numpy as np
 
 from pychunkedgraph.graph.utils import flatgraph
 
+from .. import exceptions as cg_exceptions
 from ..subgraph import get_subgraph_nodes
 
 
@@ -77,12 +78,17 @@ def get_lvl2_edge_list(
     cg,
     node_id: np.uint64,
     bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
+    max_num_lvl2_ids: typing.Optional[int] = None,
 ):
     """get an edge list of lvl2 ids for a particular node
 
     :param cg: ChunkedGraph object
     :param node_id: np.uint64 that you want the edge list for
     :param bbox: Optional[Sequence[Sequence[int]]] a bounding box to limit the search
+    :param max_num_lvl2_ids: Optional[int] reject the request (raising BadRequest) when the
+        node resolves to more than this many level 2 ids. Guards against pathologically large
+        objects (e.g. erroneous mega-merges) whose induced level 2 edge list would be many GB
+        and can OOM the worker. ``None`` disables the guard.
     """
 
     if bbox is None:
@@ -96,6 +102,20 @@ def get_lvl2_edge_list(
             bbox_is_coordinate=True,
             return_layers=[2],
             return_flattened=True,
+        )
+
+    # Enforce the size guard *before* the (potentially multi-GB) induced-edge computation
+    # below. The level 2 id count is the cheap proxy we already have in hand; the edge read
+    # in _get_edges_for_lvl2_ids scales with it and is what actually exhausts memory.
+    if max_num_lvl2_ids is not None and len(lvl2_ids) > max_num_lvl2_ids:
+        hint = (
+            "Provide a smaller bounding box ('bounds')."
+            if bbox is not None
+            else "Provide a bounding box ('bounds') to restrict the query to a sub-region."
+        )
+        raise cg_exceptions.BadRequest(
+            f"The level 2 graph for {node_id} has {len(lvl2_ids)} level 2 nodes, which exceeds "
+            f"the maximum of {max_num_lvl2_ids}. {hint}"
         )
 
     edges = _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True)
