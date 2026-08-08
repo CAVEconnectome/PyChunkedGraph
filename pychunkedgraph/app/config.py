@@ -14,6 +14,13 @@ class BaseConfig(object):
     LOGGING_DATEFORMAT = "%Y-%m-%dT%H:%M:%S.0Z"
     LOGGING_LEVEL = logging.DEBUG
 
+    # Opt-in start-of-request logging (see pychunkedgraph.app.common._log_request_start).
+    # When True, every non-probe request emits a REQUEST_START line to stdout before any work
+    # runs, so requests that OOM-kill their worker mid-flight (and thus never reach
+    # after_request) are still visible in Cloud Logging. Verbose; enable only for temporary
+    # diagnosis, e.g. by setting LOG_REQUEST_START = True in the instance config.cfg.
+    LOG_REQUEST_START = False
+
     CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
     PROJECT_ID = os.environ.get("PROJECT_ID", None)
     CG_READ_ONLY = os.environ.get("CG_READ_ONLY", None) is not None
