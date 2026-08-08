@@ -830,7 +830,24 @@ def tabular_change_log_recent(table_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    log_rows = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
+    # Only the timestamp, user, and merge/split flag are used below, so restrict the
+    # Bigtable read to those columns. The default (all columns) also pulls the large
+    # variable-length arrays (added/removed edges, coordinates, affinities) for every
+    # operation, which dominate row size and drive the memory footprint of this endpoint.
+    # AddedEdge is only existence-checked (merge vs split), so its presence is all we need.
+    log_rows = cg.client.read_log_entries(
+        start_time=start_time,
+        end_time=end_time,
+        properties=[
+            attributes.OperationLogs.OperationTimeStamp,
+            attributes.OperationLogs.UserID,
+            attributes.OperationLogs.AddedEdge,
+            # RootID is not used directly, but read_log_entries falls back to its cell
+            # timestamp when OperationTimeStamp is absent on older rows; keep it so that
+            # fallback still works. It is a small array, unlike the edge/coord columns.
+            attributes.OperationLogs.RootID,
+        ],
+    )
 
     timestamp_list = []
     user_list = []
