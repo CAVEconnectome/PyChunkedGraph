@@ -194,9 +194,10 @@ def chunk_initial_sharded_stitching_task_mp(
     """
     start_time = time.time()
     if n_processes is None:
-        n_processes = (
-            int(os.environ.get("PCG_MESH_STITCH_WORKERS", 0)) or os.cpu_count()
-        )
+        # The pod's own cpu allocation, same env every worker reads. Never
+        # os.cpu_count(): in a container that is the *node*, so the pool would
+        # oversubscribe the pod and CFS-throttle it.
+        n_processes = int(os.environ.get("PCG_N_PROCESSES", 1))
     if max_parents is not None:
         # The pool must fork before any network I/O (s2n atfork), so cap workers
         # to the batch count up front — workers beyond n_batches never get a

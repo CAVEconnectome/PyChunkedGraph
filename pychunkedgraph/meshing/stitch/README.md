@@ -3,8 +3,9 @@
 Parallel rewrite of `meshgen.chunk_initial_sharded_stitching_task` (layer-3+ mesh
 stitching). Output is **mesh-equivalent** to the single-threaded `meshgen` shard
 (crc32c / per-label decoded-mesh gate); correctness is the hard constraint, speed
-is secondary. `meshing.meshing_sqs.MeshTask` dispatches this for layer-3+ chunks;
-the old `meshgen` function is kept (deprecated) but no longer called.
+is secondary. Both drivers dispatch this for layer-3+ chunks — `meshing_sqs.MeshTask`
+(taskqueue) and `pipeline.meshing.worker` (k8s Indexed Job); the old `meshgen`
+function is kept (deprecated) but no longer called.
 
 This file is the maintained design + performance reference for the package. Keep
 it in sync when the scheduler, profiler integration, or the byte path changes.
@@ -145,5 +146,8 @@ medium-sized preview (`out_subdir="test_debug"`, `subset=True` compare →
 
 ## Config knobs
 
-- `n_processes` arg, or `PCG_MESH_STITCH_WORKERS` env (arg wins; else env; else cpu_count).
+- `n_processes` arg, else `PCG_N_PROCESSES` — the one pool-size contract every worker
+  reads, set by the pipeline from the pod's cpu request. Deliberately never
+  `cpu_count()`: a container reads the *node's* cores, so that fallback oversubscribes
+  the pod and CFS-throttles it.
 - `PCG_PROFILER_ENABLED=1` or the harness flipping `get_profiler().enabled` enables the report.
