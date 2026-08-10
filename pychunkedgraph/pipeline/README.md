@@ -77,7 +77,7 @@ The Job template sets these on each pod:
 | `PCG_LAYER` | layer being built |
 | `PCG_PERM_SEED` | permutation seed — **same across all pods and retries of a run** |
 | `PCG_BATCH_SIZE` | `B`, chunks per index |
-| `PCG_N_THREADS` | parallel sub-workers inside a parent-chunk build (default 1) |
+| `PCG_N_PROCESSES` | the pod's cpu allocation; bounds every worker pool a chunk build forks (default 1) |
 | `PCG_LOCK_EXPIRY_SCALE` | (ingest) scales the per-layer claim TTL; default 1 |
 | `PCG_LOCK_POLL_SEC` / `PCG_HELD_MAX_WAIT_SEC` | (ingest) poll interval / max wait before deferring a held chunk |
 | `PCG_MESH_CACHE` | (meshing) `0` disables the mesh task's cloud cache; default on |

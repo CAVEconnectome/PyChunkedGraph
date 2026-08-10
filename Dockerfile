@@ -24,8 +24,11 @@ RUN apt-get update && apt-get install build-essential wget -y \
 
 COPY requirements.yml requirements.txt requirements-dev.txt ./
 
+# Solve against baseline x86-64. conda picks microarch-optimized builds from the
+# *builder's* cpu (graph-tool ships v1/v3/v4 variants), so an image built on an
+# AVX-512 host raises SIGILL on import wherever it later lands on an older node.
 RUN --mount=type=cache,target=/opt/conda/pkgs \
-    conda env create -n pcg -f requirements.yml
+    CONDA_OVERRIDE_ARCHSPEC=x86_64 conda env create -n pcg -f requirements.yml
 
 RUN conda-pack -n pcg --ignore-missing-files -o /tmp/env.tar \
   && mkdir -p /app/venv && cd /app/venv \
