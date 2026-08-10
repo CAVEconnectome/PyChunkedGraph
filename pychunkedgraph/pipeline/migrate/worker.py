@@ -26,7 +26,7 @@ def main() -> int:
         def process_one(coord):
             try:
                 dispatch.process_chunk(
-                    cg, layer, coord, clean=clean, n_threads=env["n_threads"]
+                    cg, layer, coord, clean=clean, n_processes=env["n_processes"]
                 )
                 return "ok"
             except Exception:

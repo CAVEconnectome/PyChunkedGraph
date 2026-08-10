@@ -24,7 +24,7 @@ class TestAddParentChunk:
         )
 
         # Should not raise
-        add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(graph, 3, [0, 0, 0], n_processes=1)
 
         # Verify parent was created
         sv = label(graph, SV())
@@ -53,8 +53,8 @@ class TestAddParentChunk:
             timestamp=fake_ts,
         )
 
-        add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
-        add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
+        add_parent_chunk(graph, 3, [0, 0, 0], n_processes=1)
+        add_parent_chunk(graph, 4, [0, 0, 0], n_processes=1)
 
         # Both SVs should share a root
         root0 = graph.get_root(label(graph, SV()))

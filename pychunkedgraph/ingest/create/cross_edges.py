@@ -17,7 +17,7 @@ from ...utils.general import chunked
 
 
 def get_children_chunk_cross_edges(
-    cg: ChunkedGraph, layer, chunk_coord, *, use_threads=True
+    cg: ChunkedGraph, layer, chunk_coord, *, n_processes: int = 1
 ) -> np.ndarray:
     """
     Cross edges that connect children chunks.
@@ -27,14 +27,14 @@ def get_children_chunk_cross_edges(
     if len(atomic_chunks) == 0:
         return []
 
-    if not use_threads:
+    if n_processes <= 1:
         return _get_children_chunk_cross_edges(cg, atomic_chunks, layer - 1)
 
     with mp.Manager() as manager:
         edge_ids_shared = manager.list()
         edge_ids_shared.append(empty_2d)
 
-        task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count() / 10))
+        task_size = int(math.ceil(len(atomic_chunks) / n_processes / 10))
         chunked_l2chunk_list = chunked(atomic_chunks, task_size)
         multi_args = []
         for atomic_chunks in chunked_l2chunk_list:
@@ -42,7 +42,7 @@ def get_children_chunk_cross_edges(
                 (edge_ids_shared, cg.get_serialized_info(), atomic_chunks, layer - 1)
             )
 
-        with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+        with mp.Pool(processes=min(len(multi_args), n_processes)) as pool:
             pool.map(_get_children_chunk_cross_edges_helper, multi_args)
 
         cross_edges = np.concatenate(edge_ids_shared)
@@ -53,8 +53,17 @@ def get_children_chunk_cross_edges(
 
 def _get_children_chunk_cross_edges_helper(args) -> None:
     edge_ids_shared, cg_info, atomic_chunks, layer = args
-    cg = ChunkedGraph(**cg_info)
-    edge_ids_shared.append(_get_children_chunk_cross_edges(cg, atomic_chunks, layer))
+    # Re-raise as a bare RuntimeError: the original may hold an unpicklable client
+    # handle, which the pool would surface as MaybeEncodingError, losing the cause.
+    try:
+        cg = ChunkedGraph(**cg_info)
+        edge_ids_shared.append(
+            _get_children_chunk_cross_edges(cg, atomic_chunks, layer)
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"_get_children_chunk_cross_edges failed at layer {layer}: {exc!r}"
+        ) from None
 
 
 def _get_children_chunk_cross_edges(
@@ -106,7 +115,7 @@ def _read_atomic_chunk_cross_edges(
 
 
 def get_chunk_nodes_cross_edge_layer(
-    cg: ChunkedGraph, layer: int, chunk_coord: Sequence[int], use_threads=True
+    cg: ChunkedGraph, layer: int, chunk_coord: Sequence[int], n_processes: int = 1
 ) -> Dict:
     """
     gets nodes in a chunk that are part of cross chunk edges
@@ -117,14 +126,14 @@ def get_chunk_nodes_cross_edge_layer(
     if len(atomic_chunks) == 0:
         return {}
 
-    if not use_threads:
+    if n_processes <= 1:
         return _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer)
 
     cg_info = cg.get_serialized_info()
     manager = mp.Manager()
     node_ids_shared = manager.list()
     node_layers_shared = manager.list()
-    task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count() / 10))
+    task_size = int(math.ceil(len(atomic_chunks) / n_processes / 10))
     chunked_l2chunk_list = chunked(atomic_chunks, task_size)
     multi_args = []
     for atomic_chunks in chunked_l2chunk_list:
@@ -132,7 +141,7 @@ def get_chunk_nodes_cross_edge_layer(
             (node_ids_shared, node_layers_shared, cg_info, atomic_chunks, layer)
         )
 
-    with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+    with mp.Pool(processes=min(len(multi_args), n_processes)) as pool:
         pool.map(_get_chunk_nodes_cross_edge_layer_helper, multi_args)
 
     node_layer_d_shared = manager.dict()
@@ -142,10 +151,18 @@ def get_chunk_nodes_cross_edge_layer(
 
 def _get_chunk_nodes_cross_edge_layer_helper(args):
     node_ids_shared, node_layers_shared, cg_info, atomic_chunks, layer = args
-    cg = ChunkedGraph(**cg_info)
-    node_layer_d = _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer)
-    node_ids_shared.append(np.fromiter(node_layer_d.keys(), dtype=basetypes.NODE_ID))
-    node_layers_shared.append(np.fromiter(node_layer_d.values(), dtype=np.uint8))
+    # See _get_children_chunk_cross_edges_helper: keep the failure picklable.
+    try:
+        cg = ChunkedGraph(**cg_info)
+        node_layer_d = _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer)
+        node_ids_shared.append(
+            np.fromiter(node_layer_d.keys(), dtype=basetypes.NODE_ID)
+        )
+        node_layers_shared.append(np.fromiter(node_layer_d.values(), dtype=np.uint8))
+    except Exception as exc:
+        raise RuntimeError(
+            f"_get_chunk_nodes_cross_edge_layer failed at layer {layer}: {exc!r}"
+        ) from None
 
 
 def _get_chunk_nodes_cross_edge_layer(cg: ChunkedGraph, atomic_chunks, layer):

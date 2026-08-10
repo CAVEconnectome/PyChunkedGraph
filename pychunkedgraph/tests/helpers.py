@@ -197,7 +197,7 @@ def build_graph(gen_graph, n_layers, supervoxels, edges=(), *, timestamp=None, a
     for layer in range(3, n_layers + 1):
         pcoords = {tuple(np.array(c) // fanout ** (layer - 2)) for c in members}
         for pcoord in sorted(pcoords):
-            add_parent_chunk(cg, layer, list(pcoord), time_stamp=ts, n_threads=1)
+            add_parent_chunk(cg, layer, list(pcoord), time_stamp=ts, n_processes=1)
     return BuiltGraph(cg, sv)
 
 

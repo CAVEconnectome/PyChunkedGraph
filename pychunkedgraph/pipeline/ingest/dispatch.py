@@ -31,14 +31,14 @@ class IngestConfig:
 
 
 def process_chunk(
-    cg, layer: int, coord: Sequence[int], config: IngestConfig, n_threads: int = 1
+    cg, layer: int, coord: Sequence[int], config: IngestConfig, n_processes: int = 1
 ) -> None:
     """Ingest a single chunk: L2 atomic edges, or L>2 parent agglomeration."""
     coord = np.array(list(coord), dtype=int)
     if layer == 2:
         _add_atomic_chunk(cg, coord, config)
     else:
-        add_parent_chunk(cg, layer, coord, n_threads=n_threads)
+        add_parent_chunk(cg, layer, coord, n_processes=n_processes)
 
 
 def _add_atomic_chunk(cg, coord: np.ndarray, config: IngestConfig) -> None:

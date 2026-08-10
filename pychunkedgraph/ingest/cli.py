@@ -281,18 +281,18 @@ def ingest_chunk(queue: str, chunk_info):
 @ingest_cli.command("chunk_local")
 @click.argument("graph_id", type=str)
 @click.argument("chunk_info", nargs=4, type=int)
-@click.option("--n_threads", type=int, default=1)
+@click.option("--n_processes", type=int, default=1)
 @job_type_guard(group_name)
-def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
+def ingest_chunk_local(graph_id: str, chunk_info, n_processes: int):
     """Manually ingest a chunk on a local machine."""
     layer, coords = chunk_info[0], chunk_info[1:]
     if layer == 2:
         create_atomic_chunk(coords)
     else:
         cg = ChunkedGraph(graph_id=graph_id)
-        add_parent_chunk(cg, layer, coords, n_threads=n_threads)
+        add_parent_chunk(cg, layer, coords, n_processes=n_processes)
     cg = ChunkedGraph(graph_id=graph_id)
-    add_parent_chunk(cg, layer, coords, n_threads=n_threads)
+    add_parent_chunk(cg, layer, coords, n_processes=n_processes)
 
 
 @ingest_cli.command("rate")

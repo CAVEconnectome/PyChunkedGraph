@@ -133,7 +133,7 @@ class TestGraphBuild:
             edges=[(label(cg, SV(x=1)), label(cg, SV()), inf)],
         )
 
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
         res = cg.client.read_all_rows()
         res.consume_all()
 
@@ -244,7 +244,7 @@ class TestGraphBuild:
             edges=[(label(cg, SV(x=1)), label(cg, SV()), inf)],
         )
 
-        add_parent_chunk(cg, 3, np.array([0, 0, 0]), n_threads=1)
+        add_parent_chunk(cg, 3, np.array([0, 0, 0]), n_processes=1)
         res = cg.client.read_all_rows()
         res.consume_all()
 
@@ -347,10 +347,10 @@ class TestGraphBuild:
         # Preparation: Build Chunk Z
         create_chunk(cg, vertices=[label(cg, SV(x=7, y=7, z=7))], edges=[])
 
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
-        add_parent_chunk(cg, 3, [3, 3, 3], n_threads=1)
-        add_parent_chunk(cg, 4, [0, 0, 0], n_threads=1)
-        add_parent_chunk(cg, 5, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
+        add_parent_chunk(cg, 3, [3, 3, 3], n_processes=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], n_processes=1)
+        add_parent_chunk(cg, 5, [0, 0, 0], n_processes=1)
 
         res = cg.client.read_all_rows()
         res.consume_all()
@@ -396,21 +396,21 @@ class TestGraphBuild:
             3,
             [0, 0, 0],
             time_stamp=fake_ts,
-            n_threads=1,
+            n_processes=1,
         )
         add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
             time_stamp=fake_ts,
-            n_threads=1,
+            n_processes=1,
         )
         add_parent_chunk(
             cg,
             4,
             [0, 0, 0],
             time_stamp=fake_ts,
-            n_threads=1,
+            n_processes=1,
         )
 
         assert len(cg.range_read_chunk(cg.get_chunk_id(layer=2, x=0, y=0, z=0))) == 2

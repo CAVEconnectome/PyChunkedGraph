@@ -23,8 +23,8 @@ def test_derive_initial_ts_after_root_build(gen_graph):
         edges=[],
         timestamp=fake_ts,
     )
-    add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
-    add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
+    add_parent_chunk(graph, 3, [0, 0, 0], n_processes=1)
+    add_parent_chunk(graph, 4, [0, 0, 0], n_processes=1)
     assert "earliest_ts" in graph.meta.custom_data
     boundary = datetime.fromisoformat(graph.meta.custom_data["earliest_ts"])
     assert derive_initial_ts(graph) == int(boundary.timestamp()) + 1

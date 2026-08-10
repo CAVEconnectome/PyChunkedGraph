@@ -77,7 +77,7 @@ class TestGetChildrenChunkCrossEdges:
             timestamp=fake_ts,
         )
 
-        result = get_children_chunk_cross_edges(graph, 3, [0, 0, 0], use_threads=False)
+        result = get_children_chunk_cross_edges(graph, 3, [0, 0, 0], n_processes=1)
         # Should return empty or no cross edges
         assert len(result) == 0 or result.size == 0
 
@@ -102,7 +102,7 @@ class TestGetChildrenChunkCrossEdges:
             timestamp=fake_ts,
         )
 
-        result = get_children_chunk_cross_edges(graph, 3, [0, 0, 0], use_threads=False)
+        result = get_children_chunk_cross_edges(graph, 3, [0, 0, 0], n_processes=1)
         assert len(result) > 0
 
     @pytest.mark.timeout(30)
@@ -118,19 +118,19 @@ class TestGetChildrenChunkCrossEdges:
             edges=[],
             timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
 
         # chunk_coord [1,0,0] is out of bounds for atomic_chunk_bounds=[1,1,1]
         # so get_touching_atomic_chunks returns empty, triggering early return
         result = get_children_chunk_cross_edges(
-            cg, layer=3, chunk_coord=[1, 0, 0], use_threads=False
+            cg, layer=3, chunk_coord=[1, 0, 0], n_processes=1
         )
         assert len(result) == 0
 
     @pytest.mark.timeout(30)
     def test_basic_cross_edges(self, gen_graph):
         """A 4-layer graph with cross-chunk connected SVs returns cross edges
-        when called with use_threads=False."""
+        when called with n_processes=1."""
         cg = gen_graph(n_layers=4)
         fake_ts = fake_timestamp()
 
@@ -155,11 +155,11 @@ class TestGetChildrenChunkCrossEdges:
         )
 
         # Build parent layer so L3 nodes exist
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
 
         # Layer 3, chunk [0,0,0] should have cross edges connecting children chunks
         result = get_children_chunk_cross_edges(
-            cg, layer=3, chunk_coord=[0, 0, 0], use_threads=False
+            cg, layer=3, chunk_coord=[0, 0, 0], n_processes=1
         )
         result = np.array(result)
         assert result.size > 0
@@ -196,10 +196,10 @@ class TestGetChildrenChunkCrossEdgesAdditional:
             ],
             timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
 
         result = get_children_chunk_cross_edges(
-            cg, layer=3, chunk_coord=[0, 0, 0], use_threads=False
+            cg, layer=3, chunk_coord=[0, 0, 0], n_processes=1
         )
         result = np.array(result)
         assert result.size > 0
@@ -232,12 +232,12 @@ class TestGetChildrenChunkCrossEdgesAdditional:
             ],
             timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
+        add_parent_chunk(cg, 3, [1, 0, 0], n_processes=1)
 
         # At layer 4, chunk [0,0,0] should find cross edges at the L3 boundary
         result = get_children_chunk_cross_edges(
-            cg, layer=4, chunk_coord=[0, 0, 0], use_threads=False
+            cg, layer=4, chunk_coord=[0, 0, 0], n_processes=1
         )
         result = np.array(result)
         assert result.size > 0
@@ -249,7 +249,7 @@ class TestGetChunkNodesCrossEdgeLayer:
 
     @pytest.mark.timeout(60)
     def test_no_threads_with_cross_edges(self, gen_graph):
-        """use_threads=False should return dict mapping node_id to layer.
+        """n_processes=1 should return dict mapping node_id to layer.
         Cross edge between [0,0,0] and [2,0,0] has layer 3.
         get_bounding_atomic_chunks(meta, 3, [0,0,0]) returns L2 boundary
         chunks of L3 [0,0,0], which includes L2 at x=0 with AtomicCrossChunkEdge[3].
@@ -275,11 +275,11 @@ class TestGetChunkNodesCrossEdgeLayer:
             ],
             timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
-        add_parent_chunk(cg, 3, [1, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
+        add_parent_chunk(cg, 3, [1, 0, 0], n_processes=1)
 
         result = get_chunk_nodes_cross_edge_layer(
-            cg, layer=3, chunk_coord=[0, 0, 0], use_threads=False
+            cg, layer=3, chunk_coord=[0, 0, 0], n_processes=1
         )
         assert isinstance(result, dict)
         assert len(result) > 0
@@ -288,7 +288,7 @@ class TestGetChunkNodesCrossEdgeLayer:
 
     @pytest.mark.timeout(60)
     def test_no_threads_empty_chunk(self, gen_graph):
-        """use_threads=False with out-of-bounds chunk should return empty dict."""
+        """n_processes=1 with out-of-bounds chunk should return empty dict."""
         cg = gen_graph(n_layers=3, atomic_chunk_bounds=np.array([1, 1, 1]))
         fake_ts = fake_timestamp()
 
@@ -298,11 +298,11 @@ class TestGetChunkNodesCrossEdgeLayer:
             edges=[],
             timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
 
         # Out of bounds chunk coord
         result = get_chunk_nodes_cross_edge_layer(
-            cg, layer=3, chunk_coord=[1, 0, 0], use_threads=False
+            cg, layer=3, chunk_coord=[1, 0, 0], n_processes=1
         )
         assert isinstance(result, dict)
         assert len(result) == 0
@@ -319,10 +319,10 @@ class TestGetChunkNodesCrossEdgeLayer:
             edges=[],
             timestamp=fake_ts,
         )
-        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_processes=1)
 
         result = get_chunk_nodes_cross_edge_layer(
-            cg, layer=3, chunk_coord=[0, 0, 0], use_threads=False
+            cg, layer=3, chunk_coord=[0, 0, 0], n_processes=1
         )
         assert isinstance(result, dict)
         assert len(result) == 0

@@ -210,6 +210,7 @@ def update_chunk(
     split: int = None,
     splits: int = None,
     clean: bool = False,
+    n_processes: int = 1,
 ):
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
@@ -261,7 +262,7 @@ def update_chunk(
         tasks.append(args)
 
     process_multiplier = int(os.environ.get("PROCESS_MULTIPLIER", 5))
-    processes = min(mp.cpu_count() * process_multiplier, len(tasks))
+    processes = min(n_processes * process_multiplier, len(tasks))
     logger.note(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(

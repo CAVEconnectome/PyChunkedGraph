@@ -64,7 +64,7 @@ def make_processor(cg, layer, env):
     config = _atomic_config(cg) if layer == 2 else None
     expiry = _expiry(layer, float(os.environ.get("PCG_LOCK_EXPIRY_SCALE", 1)))
     opts = {
-        "n_threads": env["n_threads"],
+        "n_processes": env["n_processes"],
         "expiry": expiry,
         "renew": expiry.total_seconds() / 3,
         "poll": float(os.environ.get("PCG_LOCK_POLL_SEC", 10)),
@@ -107,7 +107,9 @@ def _process_one(table, cg, layer, coord, config, opts) -> str:
     )
     heartbeat.start()
     try:
-        dispatch.process_chunk(cg, layer, coord, config, n_threads=opts["n_threads"])
+        dispatch.process_chunk(
+            cg, layer, coord, config, n_processes=opts["n_processes"]
+        )
         outcome = "ok"
     except FatalChunkError:
         logger.exception(f"fatal chunk {layer}_{tuple(coord)}")

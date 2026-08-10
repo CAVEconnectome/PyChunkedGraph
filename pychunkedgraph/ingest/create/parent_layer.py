@@ -35,13 +35,15 @@ def add_parent_chunk(
     children_coords: Sequence[Sequence[int]] = np.array([]),
     *,
     time_stamp: Optional[datetime.datetime] = None,
-    n_threads: int = 4,
+    n_processes: int = 1,
 ) -> None:
+    """``n_processes`` bounds every worker pool below; it is the pod's CPU
+    allocation (PCG_N_PROCESSES), never the node's core count."""
     if not children_coords.size:
         children_coords = get_children_chunk_coords(cg.meta, layer_id, coords)
-    children_ids = _read_children_chunks(cg, layer_id, children_coords, n_threads > 1)
+    children_ids = _read_children_chunks(cg, layer_id, children_coords, n_processes)
     cx_edges = get_children_chunk_cross_edges(
-        cg, layer_id, coords, use_threads=n_threads > 1
+        cg, layer_id, coords, n_processes=n_processes
     )
 
     node_layers = cg.get_chunk_layers(children_ids)
@@ -62,7 +64,7 @@ def add_parent_chunk(
 
     ts = get_valid_timestamp(time_stamp)
     _write_connected_components(
-        cg, layer_id, coords, connected_components, ts, n_threads > 1
+        cg, layer_id, coords, connected_components, ts, n_processes
     )
 
     # Stamp the post-ingest boundary meshing reads to split initial from edited roots.
@@ -76,9 +78,9 @@ def add_parent_chunk(
 
 
 def _read_children_chunks(
-    cg: ChunkedGraph, layer_id, children_coords, use_threads=True
+    cg: ChunkedGraph, layer_id, children_coords, n_processes: int = 1
 ):
-    if not use_threads:
+    if n_processes <= 1:
         children_ids = [types.empty_1d]
         for child_coord in children_coords:
             children_ids.append(_read_chunk([], cg, layer_id - 1, child_coord))
@@ -96,15 +98,23 @@ def _read_children_chunks(
                     child_coord,
                 )
             )
-        with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+        with mp.Pool(processes=min(len(multi_args), n_processes)) as pool:
             pool.map(_read_chunk_helper, multi_args)
         return np.concatenate(children_ids_shared).astype(basetypes.NODE_ID)
 
 
 def _read_chunk_helper(args):
     children_ids_shared, cg_info, layer_id, chunk_coord = args
-    cg = ChunkedGraph(**cg_info)
-    _read_chunk(children_ids_shared, cg, layer_id, chunk_coord)
+    # Re-raise as a bare RuntimeError: the original may hold an unpicklable client
+    # handle, which the pool would surface as MaybeEncodingError, losing the cause.
+    try:
+        cg = ChunkedGraph(**cg_info)
+        _read_chunk(children_ids_shared, cg, layer_id, chunk_coord)
+    except Exception as exc:
+        raise RuntimeError(
+            f"_read_chunk failed at layer {layer_id} chunk "
+            f"{tuple(map(int, chunk_coord))}: {exc!r}"
+        ) from None
 
 
 def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coord):
@@ -127,34 +137,40 @@ def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coor
 
 
 def _write_connected_components(
-    cg, layer, pcoords, components, time_stamp, use_threads=True
+    cg, layer, pcoords, components, time_stamp, n_processes: int = 1
 ):
     if len(components) == 0:
         return
 
     node_layer_d = {}
     if layer < cg.meta.layer_count:
-        node_layer_d = get_chunk_nodes_cross_edge_layer(cg, layer, pcoords, use_threads)
+        node_layer_d = get_chunk_nodes_cross_edge_layer(cg, layer, pcoords, n_processes)
 
-    if not use_threads:
-        _write(cg, layer, pcoords, components, node_layer_d, time_stamp, use_threads)
+    if n_processes <= 1:
+        _write(cg, layer, pcoords, components, node_layer_d, time_stamp, False)
         return
 
-    task_size = int(math.ceil(len(components) / mp.cpu_count() / 10))
+    task_size = int(math.ceil(len(components) / n_processes / 10))
     chunked_ccs = chunked(components, task_size)
     cg_info = cg.get_serialized_info()
     multi_args = []
     for ccs in chunked_ccs:
         args = (cg_info, layer, pcoords, ccs, node_layer_d, time_stamp)
         multi_args.append(args)
-    with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+    with mp.Pool(processes=min(len(multi_args), n_processes)) as pool:
         pool.map(_write_components_helper, multi_args)
 
 
 def _write_components_helper(args):
     cg_info, layer, pcoords, ccs, node_layer_d, time_stamp = args
-    cg = ChunkedGraph(**cg_info)
-    _write(cg, layer, pcoords, ccs, node_layer_d, time_stamp)
+    # See _read_chunk_helper: keep the failure picklable.
+    try:
+        cg = ChunkedGraph(**cg_info)
+        _write(cg, layer, pcoords, ccs, node_layer_d, time_stamp)
+    except Exception as exc:
+        raise RuntimeError(
+            f"_write failed at layer {layer} chunk {tuple(map(int, pcoords))}: {exc!r}"
+        ) from None
 
 
 def _children_rows(

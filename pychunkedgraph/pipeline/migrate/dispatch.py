@@ -10,7 +10,7 @@ from ...ingest.upgrade import atomic_layer, parent_layer
 
 
 def process_chunk(
-    cg, layer: int, coord: Sequence[int], clean: bool = False, n_threads: int = 1
+    cg, layer: int, coord: Sequence[int], clean: bool = False, n_processes: int = 1
 ) -> None:
     """Upgrade a single chunk: L2 atomic IDs, or L>2 parent IDs."""
     coord = list(map(int, coord))
@@ -20,4 +20,6 @@ def process_chunk(
     else:
         parent_layer.CHILDREN.clear()
         parent_layer.CX_EDGES.clear()
-        parent_layer.update_chunk(cg, coord, layer, clean=clean)
+        parent_layer.update_chunk(
+            cg, coord, layer, clean=clean, n_processes=n_processes
+        )
