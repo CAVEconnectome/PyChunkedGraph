@@ -11,6 +11,7 @@ import multiprocessing as mp
 import numpy as np
 from tqdm import tqdm
 from cloudfiles import CloudFiles, reset_connection_pools
+from cloudfiles.gcs import MAX_COMPOSITE_PARTS
 from cloudvolume import CloudVolume
 from cloudvolume.datasource.precomputed.sharding import ShardingSpecification
 
@@ -28,6 +29,10 @@ logger = get_logger(__name__)
 
 _LIBC = ctypes.CDLL(ctypes.util.find_library("c"))
 _MALLOC_TRIM = getattr(_LIBC, "malloc_trim", None)
+
+# Smallest upload part, matching cloudfiles' own default: below this a shard is a
+# single PUT and never a composite upload.
+COMPOSITE_PART_SIZE_MIN = int(1e8)
 
 
 def _malloc_trim():
@@ -147,8 +152,19 @@ def _write_shard(
     shard_binary = sharding_spec.synthesize_shard(merged_meshes)
     synth_s = time.time() - t
     shard_filename = cv.mesh.readers[layer].get_filename(chunk_id)
+    # cloudfiles uses one value as both the composite-upload trigger and the part
+    # size. Sizing it to the shard keeps parts at or under MAX_COMPOSITE_PARTS, so a
+    # shard of any size costs one compose instead of a tree of them; GCS throttles
+    # compose (429) and cloudfiles cannot retry it, since it composes without
+    # if_generation_match and that disables the client's conditional retry. The floor
+    # keeps small shards on the plain single-PUT path.
+    part_size = max(
+        COMPOSITE_PART_SIZE_MIN,
+        math.ceil(len(shard_binary) / MAX_COMPOSITE_PARTS),
+    )
     cf = CloudFiles(
-        os.path.join(cv.cloudpath, cv.mesh.meta.mesh_path, out_subdir, str(layer))
+        os.path.join(cv.cloudpath, cv.mesh.meta.mesh_path, out_subdir, str(layer)),
+        composite_upload_threshold=part_size,
     )
     logger.note(
         "synthesized shard (%.2f GB, %s labels) in %.1fs; uploading %s/%s/%s",
