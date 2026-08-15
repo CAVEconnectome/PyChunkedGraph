@@ -65,6 +65,30 @@ class Edges:
     def areas(self, areas):
         self._areas = areas
 
+    @classmethod
+    def concatenate(cls, edges_iterable) -> "Edges":
+        """Combine any number of Edges in a single pass.
+
+        Equivalent to ``reduce(lambda x, y: x + y, edges_iterable, Edges([], []))`` but
+        allocates each output array once instead of once per element. Folding with ``+``
+        is quadratic in allocation: combining n chunk edge sets copies every edge already
+        accumulated on each step, so peak memory runs well above the size of the result.
+        Callers that combine per-chunk edges (see ChunkedGraph.get_l2_agglomerations)
+        should use this instead.
+        """
+        parts = list(edges_iterable)
+        if not parts:
+            return cls(
+                np.array([], dtype=basetypes.NODE_ID),
+                np.array([], dtype=basetypes.NODE_ID),
+            )
+        return cls(
+            np.concatenate([p.node_ids1 for p in parts]),
+            np.concatenate([p.node_ids2 for p in parts]),
+            affinities=np.concatenate([p.affinities for p in parts]),
+            areas=np.concatenate([p.areas for p in parts]),
+        )
+
     def __add__(self, other):
         """add two Edges instances"""
         node_ids1 = np.concatenate([self.node_ids1, other.node_ids1])

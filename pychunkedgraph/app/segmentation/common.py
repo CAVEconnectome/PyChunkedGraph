@@ -4,7 +4,6 @@ import json
 import os
 import time
 from datetime import datetime
-from functools import reduce
 from collections import deque, defaultdict
 
 import numpy as np
@@ -787,7 +786,7 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
         bbox_is_coordinate=True,
         max_num_chunks=current_app.config.get("SUBGRAPH_MAX_CHUNKS"),
     )
-    edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
+    edges = cg_edges.Edges.concatenate(edges)
 
     if only_internal_edges:
         supervoxels = np.concatenate(

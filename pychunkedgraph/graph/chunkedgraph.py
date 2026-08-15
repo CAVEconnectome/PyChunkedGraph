@@ -668,7 +668,6 @@ class ChunkedGraph:
         Edges are read from cloud storage.
         """
         from itertools import chain
-        from functools import reduce
         from .misc import get_agglomerations
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
@@ -680,10 +679,8 @@ class ChunkedGraph:
             edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
-        all_chunk_edges = reduce(
-            lambda x, y: x + y,
-            chain(edges_d.values(), fake_edges.values()),
-            Edges([], []),
+        all_chunk_edges = Edges.concatenate(
+            chain(edges_d.values(), fake_edges.values())
         )
 
         if edges_only:
