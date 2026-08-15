@@ -27,6 +27,13 @@ class BaseConfig(object):
     # None disables the guard; set a concrete integer in the instance config.cfg to enable.
     LVL2_GRAPH_MAX_NODES = None
 
+    # Guard for /subgraph (see pychunkedgraph.graph.subgraph.get_subgraph_edges_and_leaves).
+    # Counts chunks rather than level 2 nodes: the endpoint reads every edge in every chunk the
+    # object touches (all objects in the chunk, not just the requested one), so cost tracks the
+    # volume queried, not the object. A large 'bounds' is expensive even for a small object.
+    # None disables the guard; set a concrete integer in the instance config.cfg to enable.
+    SUBGRAPH_MAX_CHUNKS = None
+
     CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
     PROJECT_ID = os.environ.get("PROJECT_ID", None)
     CG_READ_ONLY = os.environ.get("CG_READ_ONLY", None) is not None

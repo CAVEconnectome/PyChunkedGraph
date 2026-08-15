@@ -556,9 +556,14 @@ class ChunkedGraph:
         edges_only: bool = False,
         leaves_only: bool = False,
         return_flattened: bool = False,
+        max_num_chunks: typing.Optional[int] = None,
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """
         Generic subgraph method.
+
+        :param max_num_chunks: Optional[int] reject the request (raising BadRequest) when the
+            node ids span more than this many chunks. ``None`` disables the guard. Only
+            applies to the edges/leaves path, which is the one that can OOM.
         """
         from .subgraph import get_subgraph_nodes
         from .subgraph import get_subgraph_edges_and_leaves
@@ -573,7 +578,13 @@ class ChunkedGraph:
                 return_flattened=return_flattened,
             )
         return get_subgraph_edges_and_leaves(
-            self, node_id_or_ids, bbox, bbox_is_coordinate, edges_only, leaves_only
+            self,
+            node_id_or_ids,
+            bbox,
+            bbox_is_coordinate,
+            edges_only,
+            leaves_only,
+            max_num_chunks=max_num_chunks,
         )
 
     def get_subgraph_nodes(

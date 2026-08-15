@@ -785,6 +785,7 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
         int(root_id),
         bbox=bounding_box,
         bbox_is_coordinate=True,
+        max_num_chunks=current_app.config.get("SUBGRAPH_MAX_CHUNKS"),
     )
     edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
 
