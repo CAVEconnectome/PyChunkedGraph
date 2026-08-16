@@ -49,7 +49,11 @@ def _parse_edges(compressed: List[bytes], sorted_svs: np.ndarray = None) -> List
     decompressed = []
     try:
         decompressed = zdc.multi_decompress_to_buffer(compressed, threads=n_threads)
-    except ValueError:
+    except (ValueError, AttributeError):
+        # ValueError: build lacks multi-threading support.
+        # AttributeError: zstandard >= 0.23 removed multi_decompress_to_buffer entirely
+        # (the image pins 0.21.0, but the fallback should not depend on that pin).
+        decompressed = []
         for content in compressed:
             decompressed.append(zdc.decompressobj().decompress(content))
 
