@@ -71,10 +71,17 @@ def _parse_edges(compressed: List[bytes], sorted_svs: np.ndarray = None) -> List
     return result
 
 
+try:
+    EDGES_BATCH_SIZE = int(os.environ.get("PCG_EDGES_BATCH_SIZE", 64))
+except ValueError:
+    EDGES_BATCH_SIZE = 64
+
+
 def get_chunk_edges(
     edges_dir: str,
     chunks_coordinates: List[np.ndarray],
     supervoxels: np.ndarray = None,
+    batch_size: int = None,
 ) -> Dict:
     """Read edges from GCS.
 
@@ -82,6 +89,10 @@ def get_chunk_edges(
         each chunk is filtered to edges touching one of them before anything is retained,
         so peak memory tracks the size of the object rather than the total edge content of
         the chunks it spans. ``None`` reads every edge (the ingest path relies on this).
+    :param batch_size: how many chunk files to fetch and decompress at a time. Bounds the
+        transient buffers to the batch instead of the whole request, so a query spanning
+        many chunks costs no more per moment than one spanning a few. Defaults to
+        PCG_EDGES_BATCH_SIZE (64).
     """
     fnames = []
     for chunk_coords in chunks_coordinates:
@@ -94,14 +105,26 @@ def get_chunk_edges(
     if supervoxels is not None:
         sorted_svs = np.unique(np.asarray(supervoxels, dtype=basetypes.NODE_ID))
 
+    if batch_size is None:
+        batch_size = EDGES_BATCH_SIZE
+    batch_size = max(1, batch_size)
+
     cf = CloudFiles(edges_dir, num_threads=4)
-    files = cf.get(fnames, raw=True)
-    compressed = []
-    for f in files:
-        if not f["content"]:
-            continue
-        compressed.append(f["content"])
-    return concatenate_chunk_edges(_parse_edges(compressed, sorted_svs))
+    # Accumulate the per-chunk dicts batch by batch. Each batch's compressed and
+    # decompressed buffers are released before the next is fetched; only the filtered
+    # survivors are carried forward, so peak tracks batch_size rather than len(fnames).
+    parsed = []
+    for start in range(0, len(fnames), batch_size):
+        files = cf.get(fnames[start : start + batch_size], raw=True)
+        compressed = []
+        for f in files:
+            if not f["content"]:
+                continue
+            compressed.append(f["content"])
+        del files
+        parsed.extend(_parse_edges(compressed, sorted_svs))
+        del compressed
+    return concatenate_chunk_edges(parsed)
 
 
 def put_chunk_edges(
