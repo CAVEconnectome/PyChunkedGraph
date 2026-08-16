@@ -171,3 +171,57 @@ class TestFiltering:
                 "gs://x", coords, supervoxels=np.array([5], dtype=basetypes.NODE_ID)
             )
         )
+
+
+class TestDecompression:
+    """_decompress replaced multi_decompress_to_buffer (removed in zstandard 0.23).
+
+    A thread pool matches its throughput because decompression releases the GIL, but
+    ZstdDecompressor is not thread-safe, so correctness under threads is what these pin.
+    """
+
+    def _blobs(self, n=32, size=200_000):
+        rng = np.random.default_rng(3)
+        cctx = zstd.ZstdCompressor(level=3)
+        raw = [rng.integers(0, 255, size=size, dtype=np.uint8).tobytes() for _ in range(n)]
+        return raw, [cctx.compress(r) for r in raw]
+
+    @pytest.mark.parametrize("n_threads", [1, 2, 4, 8])
+    def test_matches_input_for_any_thread_count(self, n_threads):
+        raw, blobs = self._blobs()
+
+        out = io_edges._decompress(blobs, n_threads)
+
+        assert [bytes(o) for o in out] == raw
+
+    def test_threaded_matches_serial(self):
+        """Sharing one ZstdDecompressor across threads corrupts silently; this catches it."""
+        raw, blobs = self._blobs()
+
+        assert [bytes(o) for o in io_edges._decompress(blobs, 4)] == [
+            bytes(o) for o in io_edges._decompress(blobs, 1)
+        ]
+
+    def test_preserves_order(self):
+        raw, blobs = self._blobs(n=16)
+
+        out = [bytes(o) for o in io_edges._decompress(blobs, 4)]
+
+        assert out == raw  # pool.map must not reorder
+
+    @pytest.mark.parametrize("n_threads", [1, 4])
+    def test_empty_and_single(self, n_threads):
+        raw, blobs = self._blobs(n=1)
+
+        assert io_edges._decompress([], n_threads) == []
+        assert [bytes(o) for o in io_edges._decompress(blobs, n_threads)] == raw
+
+    @pytest.mark.parametrize("n_threads", [1, 4])
+    def test_frames_without_content_size(self, n_threads):
+        """dctx.decompress needs the size in the header; decompressobj covers frames without it."""
+        rng = np.random.default_rng(4)
+        raw = [rng.integers(0, 255, size=50_000, dtype=np.uint8).tobytes() for _ in range(4)]
+        cctx = zstd.ZstdCompressor(level=3, write_content_size=False)
+        blobs = [cctx.compress(r) for r in raw]
+
+        assert [bytes(o) for o in io_edges._decompress(blobs, n_threads)] == raw
