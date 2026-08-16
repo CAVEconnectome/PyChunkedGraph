@@ -671,12 +671,25 @@ class ChunkedGraph:
         from .misc import get_agglomerations
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
+
+        # Resolve the object's supervoxels before reading any edges. Both consumers below
+        # discard every edge that does not touch one of them, so passing them down lets each
+        # chunk be filtered as it is parsed instead of after the whole set is materialized.
+        # A chunk's edge file holds every object in that chunk, so for a single neuron this
+        # is the difference between retaining the chunk content and retaining the object.
+        l2id_children_d = self.get_children(level2_ids)
+        supervoxels = (
+            np.concatenate(list(l2id_children_d.values()))
+            if l2id_children_d
+            else types.empty_1d.copy()
+        )
+
         # google does not provide a storage emulator at the moment
         # this is an ugly hack to avoid permission issues in tests
         # find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            edges_d = self.read_chunk_edges(chunk_ids)
+            edges_d = self.read_chunk_edges(chunk_ids, supervoxels=supervoxels)
 
         fake_edges = self.get_fake_edges(chunk_ids)
         all_chunk_edges = Edges.concatenate(
@@ -688,12 +701,10 @@ class ChunkedGraph:
                 all_chunk_edges = self.mock_edges.get_pairs()
             else:
                 all_chunk_edges = all_chunk_edges.get_pairs()
-            supervoxels = self.get_children(level2_ids, flatten=True)
             mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
             mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
             return all_chunk_edges[mask0 & mask1]
 
-        l2id_children_d = self.get_children(level2_ids)
         sv_parent_d = {}
         for l2id in l2id_children_d:
             svs = l2id_children_d[l2id]
@@ -1004,12 +1015,15 @@ class ChunkedGraph:
     def get_cross_chunk_edges_layer(self, cross_edges: typing.Iterable):
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
-    def read_chunk_edges(self, chunk_ids: typing.Iterable) -> typing.Dict:
+    def read_chunk_edges(
+        self, chunk_ids: typing.Iterable, supervoxels: np.ndarray = None
+    ) -> typing.Dict:
         from ..io.edges import get_chunk_edges
 
         return get_chunk_edges(
             self.meta.data_source.EDGES,
             self.get_chunk_coordinates_multiple(chunk_ids),
+            supervoxels=supervoxels,
         )
 
     def get_proofread_root_ids(

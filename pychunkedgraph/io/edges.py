@@ -36,7 +36,7 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
-def _parse_edges(compressed: List[bytes]) -> List[Dict]:
+def _parse_edges(compressed: List[bytes], sorted_svs: np.ndarray = None) -> List[Dict]:
     result = []
     if(len(compressed) == 0):
         return result
@@ -60,17 +60,35 @@ def _parse_edges(compressed: List[bytes]) -> List[Dict]:
         edges_dict[EDGE_TYPES.in_chunk] = deserialize(chunk_edges.in_chunk)
         edges_dict[EDGE_TYPES.between_chunk] = deserialize(chunk_edges.between_chunk)
         edges_dict[EDGE_TYPES.cross_chunk] = deserialize(chunk_edges.cross_chunk)
+        if sorted_svs is not None:
+            for edge_type, edges in edges_dict.items():
+                edges_dict[edge_type] = edges.filter_touching(sorted_svs)
         result.append(edges_dict)
     return result
 
 
-def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dict:
-    """Read edges from GCS."""
+def get_chunk_edges(
+    edges_dir: str,
+    chunks_coordinates: List[np.ndarray],
+    supervoxels: np.ndarray = None,
+) -> Dict:
+    """Read edges from GCS.
+
+    :param supervoxels: optional supervoxel ids of the object being queried. When given,
+        each chunk is filtered to edges touching one of them before anything is retained,
+        so peak memory tracks the size of the object rather than the total edge content of
+        the chunks it spans. ``None`` reads every edge (the ingest path relies on this).
+    """
     fnames = []
     for chunk_coords in chunks_coordinates:
         chunk_str = "_".join(str(coord) for coord in chunk_coords)
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
+
+    # sort once here rather than per chunk inside the parse loop
+    sorted_svs = None
+    if supervoxels is not None:
+        sorted_svs = np.unique(np.asarray(supervoxels, dtype=basetypes.NODE_ID))
 
     cf = CloudFiles(edges_dir, num_threads=4)
     files = cf.get(fnames, raw=True)
@@ -79,7 +97,7 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
         if not f["content"]:
             continue
         compressed.append(f["content"])
-    return concatenate_chunk_edges(_parse_edges(compressed))
+    return concatenate_chunk_edges(_parse_edges(compressed, sorted_svs))
 
 
 def put_chunk_edges(

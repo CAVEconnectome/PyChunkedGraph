@@ -21,7 +21,7 @@ from itertools import chain
 import numpy as np
 import pytest
 
-from ..graph.edges import Edges
+from ..graph.edges import Edges, in_sorted
 from ..graph.utils import basetypes
 
 
@@ -243,3 +243,113 @@ class TestEdgesConcatenateReplacesFold:
 
         assert bulk_calls == 4, f"expected one concatenate per array, got {bulk_calls}"
         assert fold_calls == 4 * len(parts)
+
+
+def _svs(ids):
+    return np.unique(np.array(ids, dtype=basetypes.NODE_ID))
+
+
+class TestInSorted:
+    def test_matches_np_isin(self):
+        rng = np.random.default_rng(0)
+        values = rng.integers(0, 200, size=500).astype(basetypes.NODE_ID)
+        ref = _svs(rng.integers(0, 200, size=40))
+
+        np.testing.assert_array_equal(in_sorted(values, ref), np.isin(values, ref))
+
+    @pytest.mark.parametrize(
+        "values,ref",
+        [([], [1, 2]), ([1, 2], []), ([], []), ([5], [5]), ([5], [6])],
+    )
+    def test_edge_cases(self, values, ref):
+        v, r = np.array(values, dtype=basetypes.NODE_ID), _svs(ref)
+        np.testing.assert_array_equal(in_sorted(v, r), np.isin(v, r))
+
+    def test_values_beyond_reference_range(self):
+        """searchsorted returns len(ref) for values past the end; must not index out of bounds."""
+        v = np.array([0, 999999], dtype=basetypes.NODE_ID)
+        r = _svs([10, 20])
+
+        np.testing.assert_array_equal(in_sorted(v, r), np.array([False, False]))
+
+
+class TestFilterTouching:
+    """Edges.filter_touching runs per chunk before edges are accumulated.
+
+    The property that makes that sound: it must keep a superset of what the two
+    consumers keep, so filtering early cannot change their output.
+    """
+
+    def _edges(self):
+        # endpoints chosen to cover: both in, only first in, only second in, neither in
+        return Edges(
+            np.array([10, 20, 99, 98], dtype=basetypes.NODE_ID),
+            np.array([11, 97, 30, 96], dtype=basetypes.NODE_ID),
+            affinities=np.array([1, 2, 3, 4], dtype=basetypes.EDGE_AFFINITY),
+            areas=np.array([5, 6, 7, 8], dtype=basetypes.EDGE_AREA),
+        )
+
+    def test_keeps_edges_touching_the_set(self):
+        kept = self._edges().filter_touching(_svs([10, 11, 20, 30]))
+
+        assert kept.node_ids1.tolist() == [10, 20, 99]
+        assert kept.node_ids2.tolist() == [11, 97, 30]
+
+    def test_carries_affinities_and_areas(self):
+        kept = self._edges().filter_touching(_svs([10, 11, 20, 30]))
+
+        assert kept.affinities.tolist() == [1, 2, 3]
+        assert kept.areas.tolist() == [5, 6, 7]
+
+    def test_is_superset_of_categorize_predicate(self):
+        """categorize_edges_v2 only keeps edges whose node_ids1 is in the set."""
+        e, svs = self._edges(), _svs([10, 11, 20, 30])
+        kept = set(map(tuple, e.filter_touching(svs).get_pairs().tolist()))
+
+        needed = {
+            tuple(p) for p in e.get_pairs().tolist() if in_sorted(np.array([p[0]], dtype=basetypes.NODE_ID), svs)[0]
+        }
+        assert needed <= kept
+
+    def test_is_superset_of_edges_only_predicate(self):
+        """The edges_only path keeps edges with BOTH endpoints in the set."""
+        e, svs = self._edges(), _svs([10, 11, 20, 30])
+        kept = set(map(tuple, e.filter_touching(svs).get_pairs().tolist()))
+
+        pairs = e.get_pairs()
+        both = pairs[np.isin(pairs[:, 0], svs) & np.isin(pairs[:, 1], svs)]
+        assert {tuple(p) for p in both.tolist()} <= kept
+
+    def test_empty_set_drops_everything(self):
+        kept = self._edges().filter_touching(_svs([]))
+
+        assert len(kept) == 0
+        assert kept.get_pairs().shape == (0, 2)
+
+    def test_empty_edges(self):
+        assert len(Edges([], []).filter_touching(_svs([1, 2]))) == 0
+
+    def test_all_matching_is_identity(self):
+        e = self._edges()
+        kept = e.filter_touching(_svs([10, 11, 20, 97, 99, 30, 98, 96]))
+
+        np.testing.assert_array_equal(kept.node_ids1, e.node_ids1)
+        np.testing.assert_array_equal(kept.node_ids2, e.node_ids2)
+
+    def test_filter_then_concatenate_equals_concatenate_then_filter(self):
+        """Per-chunk filtering must equal filtering the fully accumulated set."""
+        rng = np.random.default_rng(7)
+        svs = _svs(rng.integers(0, 50, size=12))
+        chunks = [
+            Edges(
+                rng.integers(0, 100, size=30).astype(basetypes.NODE_ID),
+                rng.integers(0, 100, size=30).astype(basetypes.NODE_ID),
+            )
+            for _ in range(5)
+        ]
+
+        early = Edges.concatenate([c.filter_touching(svs) for c in chunks])
+        late = Edges.concatenate(chunks).filter_touching(svs)
+
+        np.testing.assert_array_equal(early.node_ids1, late.node_ids1)
+        np.testing.assert_array_equal(early.node_ids2, late.node_ids2)
