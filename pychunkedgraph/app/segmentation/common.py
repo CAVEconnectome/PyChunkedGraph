@@ -13,6 +13,7 @@ from pytz import UTC
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.app import l2cache_utils
 from pychunkedgraph.graph import (
     attributes,
     cutting,
@@ -1140,7 +1141,7 @@ def handle_find_path(table_id, precision_mode):
             "l2_path": l2_path,
         }
     else:
-        centroids = pathing.compute_rough_coordinate_path(cg, l2_path)
+        centroids = l2cache_utils.compute_coordinate_path(cg, l2_path)
         print(f"Centroids: {centroids}")
         return {"centroids_list": centroids, "failed_l2_ids": [], "l2_path": l2_path}
 

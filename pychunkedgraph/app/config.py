@@ -34,6 +34,27 @@ class BaseConfig(object):
     # None disables the guard; set a concrete integer in the instance config.cfg to enable.
     SUBGRAPH_MAX_CHUNKS = None
 
+    # Base URL of a pcgl2cache deployment (e.g. "http://pcgl2cache-service" in cluster). When
+    # set, /find_path with precision_mode=false reads each level 2 node's cached rep_coord_nm
+    # instead of returning its chunk center; see pychunkedgraph.app.l2cache_utils. Which tables
+    # actually have a cache is discovered at runtime from the service's table_mapping endpoint,
+    # so this only has to be set once per deployment. None disables the feature and the service
+    # is never contacted; every other failure falls back to the chunk centers as well.
+    L2CACHE_URL = os.environ.get("L2CACHE_URL", None)
+    # caveclient sets no request timeout at all -- an unreachable l2cache took 150s to fail
+    # in testing -- so l2cache_utils applies these to its session. Retries multiply them:
+    # worst case per request is (MAX_RETRIES + 1) x (CONNECT + READ), i.e. ~12s by default.
+    # Kept short deliberately: a slow cache must never cost more than the chunk-center path
+    # it is accelerating.
+    L2CACHE_CONNECT_TIMEOUT_S = 1
+    L2CACHE_READ_TIMEOUT_S = 5
+    L2CACHE_MAX_RETRIES = 1
+    # How long the table_mapping lookup is memoized in-process. A failed lookup is cached
+    # too, for the shorter interval, so an l2cache that is down is retried periodically
+    # rather than on every single request.
+    L2CACHE_MAPPING_TTL_S = 600
+    L2CACHE_MAPPING_FAILURE_TTL_S = 60
+
     CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
     PROJECT_ID = os.environ.get("PROJECT_ID", None)
     CG_READ_ONLY = os.environ.get("CG_READ_ONLY", None) is not None

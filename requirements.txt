@@ -4,8 +4,11 @@
 #
 #    pip-compile --output-file=requirements.txt requirements.in
 #
+asttokens==3.0.2
+    # via stack-data
 attrs==23.1.0
     # via
+    #   caveclient
     #   jsonschema
     #   referencing
 blinker==1.6.2
@@ -26,8 +29,11 @@ brotli==1.1.0
 cachetools==5.3.1
     # via
     #   -r requirements.in
+    #   caveclient
     #   google-auth
     #   middle-auth-client
+caveclient==8.2.1
+    # via -r requirements.in
 certifi==2023.7.22
     # via requests
 chardet==5.2.0
@@ -62,6 +68,8 @@ crc32c==2.3.post0
     # via cloud-files
 datastoreflex==0.5.0
     # via -r requirements.in
+decorator==5.3.1
+    # via ipython
 deflate==0.4.0
     # via cloud-files
 dill==0.3.7
@@ -72,6 +80,8 @@ dracopy==1.3.0
     # via
     #   -r requirements.in
     #   cloud-volume
+executing==2.2.1
+    # via stack-data
 fasteners==0.19
     # via cloud-files
 fastremap==1.14.0
@@ -97,7 +107,6 @@ gevent==23.9.1
     #   task-queue
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigtable
     #   google-cloud-core
     #   google-cloud-datastore
@@ -160,14 +169,22 @@ grpcio-status==1.58.0
     # via
     #   google-api-core
     #   google-cloud-pubsub
+h5py==3.16.0
+    # via caveclient
 idna==3.4
     # via requests
 inflection==0.5.1
     # via python-jsonschema-objects
 iniconfig==2.0.0
     # via pytest
+ipython==9.10.1
+    # via caveclient
+ipython-pygments-lexers==1.1.1
+    # via ipython
 itsdangerous==2.1.2
     # via flask
+jedi==0.20.0
+    # via ipython
 jinja2==3.1.3
     # via flask
 jmespath==1.0.1
@@ -178,6 +195,7 @@ json5==0.9.14
     # via cloud-volume
 jsonschema==4.19.1
     # via
+    #   caveclient
     #   cloud-volume
     #   python-jsonschema-objects
 jsonschema-specifications==2023.7.1
@@ -188,6 +206,8 @@ markupsafe==2.1.3
     # via
     #   jinja2
     #   werkzeug
+matplotlib-inline==0.2.2
+    # via ipython
 messagingclient==0.1.3
     # via -r requirements.in
 middle-auth-client==3.16.1
@@ -199,16 +219,19 @@ multiwrapper==0.1.1
 networkx==3.1
     # via
     #   -r requirements.in
+    #   caveclient
     #   cloud-volume
 numpy==1.26.0
     # via
     #   -r requirements.in
+    #   caveclient
     #   cloud-volume
     #   compressed-segmentation
     #   compresso
     #   crackle-codec
     #   fastremap
     #   fpzip
+    #   h5py
     #   messagingclient
     #   multiwrapper
     #   pandas
@@ -223,10 +246,16 @@ orjson==3.9.7
     # via
     #   cloud-files
     #   task-queue
-packaging==23.1
-    # via pytest
+packaging==26.3
+    # via
+    #   caveclient
+    #   pytest
 pandas==2.1.1
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   caveclient
+parso==0.8.7
+    # via jedi
 pathos==0.3.1
     # via
     #   cloud-files
@@ -234,6 +263,8 @@ pathos==0.3.1
     #   task-queue
 pbr==5.11.1
     # via task-queue
+pexpect==4.9.0
+    # via ipython
 pillow==10.0.1
     # via cloud-volume
 pluggy==1.3.0
@@ -244,6 +275,8 @@ pox==0.3.3
     # via pathos
 ppft==1.7.6.7
     # via pathos
+prompt-toolkit==3.0.53
+    # via ipython
 proto-plus==1.22.3
     # via
     #   google-cloud-bigtable
@@ -264,6 +297,12 @@ protobuf==4.24.3
     #   proto-plus
 psutil==5.9.5
     # via cloud-volume
+ptyprocess==0.7.0
+    # via pexpect
+pure-eval==0.2.3
+    # via stack-data
+pyarrow==25.0.1
+    # via caveclient
 pyasn1==0.5.0
     # via
     #   pyasn1-modules
@@ -272,6 +311,10 @@ pyasn1-modules==0.3.0
     # via google-auth
 pybind11==2.11.1
     # via crackle-codec
+pygments==2.21.0
+    # via
+    #   ipython
+    #   ipython-pygments-lexers
 pysimdjson==5.0.2
     # via cloud-volume
 pyspng-seunglab==1.1.0
@@ -302,6 +345,7 @@ referencing==0.30.2
 requests==2.31.0
     # via
     #   -r requirements.in
+    #   caveclient
     #   cloud-files
     #   cloud-volume
     #   google-api-core
@@ -330,6 +374,8 @@ six==1.16.0
     #   orderedmultidict
     #   python-dateutil
     #   python-jsonschema-objects
+stack-data==0.6.3
+    # via ipython
 task-queue==2.13.0
     # via -r requirements.in
 tenacity==8.2.3
@@ -342,15 +388,24 @@ tqdm==4.66.1
     #   cloud-files
     #   cloud-volume
     #   task-queue
+traitlets==5.16.1
+    # via
+    #   ipython
+    #   matplotlib-inline
+typing-extensions==4.16.0
+    # via ipython
 tzdata==2023.3
     # via pandas
 urllib3[brotli]==1.26.16
     # via
     #   botocore
+    #   caveclient
     #   cloud-files
     #   cloud-volume
     #   google-auth
     #   requests
+wcwidth==0.8.2
+    # via prompt-toolkit
 werkzeug==2.3.8
     # via
     #   -r requirements.in
