@@ -1,12 +1,19 @@
 """Equivalence tests for ``_get_edges_for_lvl2_ids``.
 
-The function was reworked to cut its peak memory (725MB -> 304MB on a synthetic object of
-250k level 2 ids / 2M cross edges). Every change was supposed to be behaviour-preserving,
-so what these tests pin is exactly that: a reference implementation of the previous
-algorithm runs beside the current one over randomized inputs, and the two must agree
-element for element. The reference is deliberately written the slow, obvious way -- it is
-the specification, not an optimization.
+The function was reworked to cut its peak memory -- measured in the api6 read pod on
+aibs_v1dd root 864691132764660103, peak rss 1868-1878MB -> 991-1031MB, and slightly
+faster with it. Every change was meant to be behaviour-preserving, so that is what these
+tests pin: a reference implementation of the previous algorithm runs beside the current
+one over randomized inputs, and the two must agree element for element. The reference is
+deliberately written the slow, obvious way -- it is the specification, not an
+optimization.
+
+The read is now sliced, so the tests also cover the slicing itself: that the result does
+not depend on the slice size, that every id is read exactly once (one Bigtable pass, not
+two), and that a partner living in a different slice is still resolved.
 """
+
+import importlib
 
 import numpy as np
 import pytest
@@ -21,10 +28,18 @@ class FakeCg:
         self._cce = cce_dict
         self._parents = parents or {}
         self.get_parents_calls = 0
+        self.read_calls = 0
+        self.ids_read = []
 
     def get_atomic_cross_edges(self, l2_ids):
-        # a fresh dict per call, as both real implementations return
-        return {k: dict(v) for k, v in self._cce.items()}
+        # A fresh dict per call holding only the ids asked for, as the real one does.
+        # Honouring l2_ids matters: the implementation calls this once per slice, and a
+        # fake that ignored the argument would hand every slice the whole object, so no
+        # slicing bug could ever fail a test.
+        wanted = {int(i) for i in l2_ids}
+        self.read_calls += 1
+        self.ids_read.extend(sorted(wanted))
+        return {k: dict(v) for k, v in self._cce.items() if int(k) in wanted}
 
     def get_parents(self, supervoxels):
         self.get_parents_calls += 1
@@ -177,3 +192,105 @@ def test_duplicate_lvl2_ids_in_input():
     got = _get_edges_for_lvl2_ids(FakeCg(cce, parents), dup, induced=True)
     want = _get_edges_for_lvl2_ids(FakeCg(cce, parents), lvl2_ids, induced=True)
     assert np.array_equal(got, want)
+
+
+@pytest.mark.parametrize("batch_size", [1, 2, 7, 59, 10_000])
+@pytest.mark.parametrize("induced", [True, False])
+def test_result_is_independent_of_batch_size(batch_size, induced):
+    """Slicing the read must change the peak memory and nothing else."""
+    cce, parents, lvl2_ids = build_case(4)
+    want = reference(FakeCg(cce, parents), lvl2_ids, induced=induced)
+    got = _get_edges_for_lvl2_ids(
+        FakeCg(cce, parents), lvl2_ids, induced=induced, batch_size=batch_size
+    )
+    assert np.array_equal(got, want), f"batch_size={batch_size} induced={induced}"
+
+
+def test_read_is_sliced_and_covers_every_id_once():
+    """One read per slice, every id read exactly once -- a single pass over Bigtable.
+
+    Asserted directly because a slicing bug that skipped or repeated ids would still
+    usually produce plausible-looking output.
+    """
+    cce, parents, lvl2_ids = build_case(6)
+    cg = FakeCg(cce, parents)
+    _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True, batch_size=7)
+    assert cg.read_calls == int(np.ceil(len(lvl2_ids) / 7))
+    ids, counts = np.unique(np.array(cg.ids_read), return_counts=True)
+    assert np.array_equal(ids, np.unique(lvl2_ids)), "every id must be read"
+    assert set(counts.tolist()) == {1}, "and read exactly once -- one pass, not two"
+
+
+def test_partner_in_a_different_slice_is_still_resolved():
+    """The mapping must be complete before anything is remapped; with batch_size=1 every
+    partner necessarily belongs to a different slice."""
+    cce, parents, lvl2_ids = build_case(8)
+    want = reference(FakeCg(cce, parents), lvl2_ids, induced=True)
+    got = _get_edges_for_lvl2_ids(FakeCg(cce, parents), lvl2_ids, induced=True, batch_size=1)
+    assert np.array_equal(got, want)
+    assert len(got) > 0, "fixture should produce cross-slice edges"
+
+
+def test_subset_query_still_looks_up_outside_parents():
+    """A bounds-style query: ask for half the object, so partners outside it have no
+    mapping entry and have to come from get_parents."""
+    cce, parents, lvl2_ids = build_case(9)
+    subset = lvl2_ids[: len(lvl2_ids) // 2]
+    cg = FakeCg(cce, parents)
+    got = _get_edges_for_lvl2_ids(cg, subset, induced=True, batch_size=5)
+    want = reference(FakeCg(cce, parents), subset, induced=True)
+    assert np.array_equal(got, want)
+    assert cg.get_parents_calls == 1, "partners outside the subset must be looked up"
+    assert np.isin(got, subset).all()
+
+
+def _reload_pathing():
+    """Re-import the module so its module-level env parsing runs again."""
+    from pychunkedgraph.graph.analysis import pathing
+
+    return importlib.reload(pathing)
+
+
+@pytest.fixture
+def pathing_module():
+    """Reload around the test so an env override cannot leak into the rest of the suite."""
+    yield _reload_pathing()
+    _reload_pathing()
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("2500", 2500),
+        ("1", 1),
+        (None, 10_000),          # unset -> default
+        ("not-a-number", 10_000),  # unparseable -> default, not a crash at import
+        ("0", 10_000),           # would yield no slices at all -> refused
+        ("-5", 10_000),          # same
+    ],
+)
+def test_batch_size_env_var(monkeypatch, pathing_module, value, expected):
+    if value is None:
+        monkeypatch.delenv("PCG_CROSS_EDGE_READ_BATCH", raising=False)
+    else:
+        monkeypatch.setenv("PCG_CROSS_EDGE_READ_BATCH", value)
+    assert _reload_pathing().CROSS_EDGE_READ_BATCH == expected
+
+
+def test_env_batch_size_is_actually_used(monkeypatch, pathing_module):
+    """The constant has to reach the read loop, not just sit in the module."""
+    monkeypatch.setenv("PCG_CROSS_EDGE_READ_BATCH", "9")
+    mod = _reload_pathing()
+    cce, parents, lvl2_ids = build_case(6)
+    cg = FakeCg(cce, parents)
+    got = mod._get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True)
+    assert cg.read_calls == int(np.ceil(len(lvl2_ids) / 9))
+    assert np.array_equal(got, reference(FakeCg(cce, parents), lvl2_ids, induced=True))
+
+
+def test_explicit_non_positive_batch_size_raises():
+    """Silently returning zero edges would be far worse than failing."""
+    cce, parents, lvl2_ids = build_case(0)
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="batch_size must be positive"):
+            _get_edges_for_lvl2_ids(FakeCg(cce, parents), lvl2_ids, batch_size=bad)
