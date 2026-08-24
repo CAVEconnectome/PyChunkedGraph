@@ -1125,7 +1125,13 @@ def handle_find_path(table_id, precision_mode):
         [np.uint64(nodes[0][0])], return_numpy=False
     )[0]
     l2_path = pathing.find_l2_shortest_path(
-        cg, source_l2_id, target_l2_id, time_stamp=root_time_stamp
+        cg,
+        source_l2_id,
+        target_l2_id,
+        time_stamp=root_time_stamp,
+        # Same guard the lvl2_graph endpoint applies. It was previously passed only there,
+        # so a find_path across a mega-merge was unguarded.
+        max_num_lvl2_ids=current_app.config.get("LVL2_GRAPH_MAX_NODES"),
     )
     print(f"Path: {l2_path}")
     if precision_mode:
