@@ -7,6 +7,7 @@ import numpy as np
 from pychunkedgraph.graph.utils import flatgraph
 
 from .. import exceptions as cg_exceptions
+from ..edges import in_sorted
 from ..subgraph import get_subgraph_nodes
 
 
@@ -123,46 +124,74 @@ def get_lvl2_edge_list(
 
 
 def _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=False):
+    """Cross-chunk edges between `lvl2_ids`, remapped from supervoxels to level 2 ids.
+
+    Memory, not speed, is the binding constraint here: on a large object the intermediates
+    dwarf the answer. On a synthetic object the size of the ones that trip uwsgi's
+    reload-on-rss in production (250k level 2 ids, 2M cross edges, 300k induced edges),
+    this function peaked at 888MB to return 4.6MB of edges. The four numbered comments
+    below mark what accounted for that; the same case now peaks at 512MB and runs in 0.8s
+    instead of 3.1s, returning byte-identical output. test_lvl2_edges.py pins that
+    equivalence against a reference copy of the previous implementation.
+    """
     # protect in case there are no lvl2 ids
     if len(lvl2_ids) == 0:
         return np.empty((0, 2), dtype=np.uint64)
 
     cce_dict = cg.get_atomic_cross_edges(lvl2_ids)
 
-    # Gather all of the supervoxel ids into two lists, we will map them to
-    # their parent lvl2 ids
-    edge_array = []
-    for l2_id in cce_dict:
-        for level in cce_dict[l2_id]:
-            edge_array.append(cce_dict[l2_id][level])
-
-    # protect in case there are no edges
-    if len(edge_array) == 0:
-        return np.empty((0, 2), dtype=np.uint64)
-    
-    edge_array = np.concatenate(edge_array)
-    known_supervoxels_list = []
-    known_l2_list = []
-    unknown_supervoxel_list = []
+    # Flatten the per-(lvl2 id, layer) arrays into one edge array, recording which lvl2 id
+    # owns each block. Keeping the block lengths lets the supervoxel -> lvl2 mapping below
+    # be rebuilt from column views of the concatenated array, so the dict only has to be
+    # walked once.
+    blocks = []
+    owners = []
+    lengths = []
     for lvl2_id in cce_dict:
         for level in cce_dict[lvl2_id]:
-            known_supervoxels_for_lv2_id = cce_dict[lvl2_id][level][:, 0]
-            unknown_supervoxels_for_lv2_id = cce_dict[lvl2_id][level][:, 1]
-            known_supervoxels_list.append(known_supervoxels_for_lv2_id)
-            known_l2_list.append(np.full(known_supervoxels_for_lv2_id.shape, lvl2_id))
-            unknown_supervoxel_list.append(unknown_supervoxels_for_lv2_id)
+            block = cce_dict[lvl2_id][level]
+            if len(block) == 0:
+                continue
+            blocks.append(block)
+            owners.append(lvl2_id)
+            lengths.append(len(block))
+
+    # protect in case there are no edges
+    if len(blocks) == 0:
+        return np.empty((0, 2), dtype=np.uint64)
+
+    edge_array = np.concatenate(blocks)
+    # (1) np.concatenate copied every block, so drop the originals before the peak rather
+    # than holding them to the end of the function. This dict is one small array per
+    # (lvl2 id, layer) -- 500k of them in the measured case, 213MB for 31MB of edges,
+    # nearly all of it numpy object overhead.
+    del blocks
+    cce_dict.clear()
+
+    # Column 0 of each block is a supervoxel whose lvl2 parent is known (the block's
+    # owner); column 1 is its partner across the chunk boundary, whose parent may not be.
+    # (2) Both are views into edge_array. The previous version rebuilt them as two more
+    # lists of per-block arrays plus an np.full() per block for the owner, then
+    # concatenated all three -- 390MB of the old peak, for data already sitting in
+    # edge_array. One np.repeat replaces the per-block np.full calls.
+    owner_column = np.repeat(
+        np.array(owners, dtype=edge_array.dtype), np.array(lengths, dtype=np.int64)
+    )
+    del owners, lengths
 
     # Create two arrays to map supervoxels for which we know their parents
     known_supervoxel_array, unique_indices = np.unique(
-        np.concatenate(known_supervoxels_list), return_index=True
+        edge_array[:, 0], return_index=True
     )
-    known_l2_array = (np.concatenate(known_l2_list))[unique_indices]
-    unknown_supervoxel_array = np.unique(np.concatenate(unknown_supervoxel_list))
+    known_l2_array = owner_column[unique_indices]
+    del owner_column, unique_indices
+    unknown_supervoxel_array = np.unique(edge_array[:, 1])
 
     # Call get_parents on any supervoxels for which we don't know their parents
     supervoxels_to_query_parent = np.setdiff1d(
         unknown_supervoxel_array, known_supervoxel_array
     )
+    del unknown_supervoxel_array
     if len(supervoxels_to_query_parent) > 0:
         missing_l2_ids = cg.get_parents(supervoxels_to_query_parent)
         known_supervoxel_array = np.concatenate(
@@ -174,17 +203,28 @@ def _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=False):
     edge_view = edge_array.view()
     edge_view.shape = -1
     fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
+    del known_supervoxel_array, known_l2_array
 
-    edge_array = np.unique(np.sort(edge_array, axis=1), axis=0)
+    # (3) In place: edge_array is ours (np.concatenate always copies) and was just
+    # rewritten in place by the remap above, so sorting it in place avoids duplicating the
+    # largest array in the function.
+    edge_array.sort(axis=1)
 
     if induced:
         # make this an induced subgraph
-        # keep only the edges that are between the lvl2 ids asked for
+        # keep only the edges that are between the lvl2 ids asked for.
+        # (4) Filter BEFORE the dedup below, not after. Most of these edges leave the
+        # object -- 2M in, 300k out in the measured case -- and np.unique(axis=0) is the
+        # single most expensive step here, so it should see the small array. Deduplication
+        # and this filter commute, so the result is unchanged. in_sorted rather than
+        # np.isin because np.isin re-sorts lvl2_ids on each of the two calls.
+        sorted_lvl2_ids = np.unique(lvl2_ids)
         edge_array = edge_array[
-            np.isin(edge_array[:, 0], lvl2_ids) & np.isin(edge_array[:, 1], lvl2_ids)
+            in_sorted(edge_array[:, 0], sorted_lvl2_ids)
+            & in_sorted(edge_array[:, 1], sorted_lvl2_ids)
         ]
 
-    return edge_array
+    return np.unique(edge_array, axis=0)
 
 
 def find_l2_shortest_path(
