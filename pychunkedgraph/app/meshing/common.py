@@ -9,6 +9,7 @@ from flask import Response, current_app, g, jsonify, make_response, request
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
 from pychunkedgraph.meshing.manifest import get_children_before_start_layer
@@ -72,9 +73,20 @@ def handle_get_manifest(table_id, node_id):
     return_seg_ids = return_seg_ids in ["True", "true", "1", True]
     prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
     start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
-    start_layer = int(request.args.get("start_layer", start_layer))
-    if "start_layer" in data:
-        start_layer = int(data["start_layer"])
+    raw_start_layer = data.get("start_layer", request.args.get("start_layer", start_layer))
+    try:
+        start_layer = int(raw_start_layer)
+    except (TypeError, ValueError):
+        raise cg_exceptions.BadRequest(
+            f"start_layer must be an integer, got {raw_start_layer!r}."
+        )
+
+    # Meshes only exist from layer 2 upwards. Below that this endpoint cannot return anything:
+    if start_layer < 2:
+        raise cg_exceptions.BadRequest(
+            f"start_layer must be at least 2, got {start_layer}. Meshes exist from layer 2 "
+            "upwards, so a lower value can only ever produce an empty manifest."
+        )
 
     flexible_start_layer = None
     if "flexible_start_layer" in data:
