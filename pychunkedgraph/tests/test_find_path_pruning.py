@@ -73,6 +73,7 @@ class FakeCg:
             return out
 
     def __init__(self, layers, children, cross_edges):
+        self.graph_id = "fake_graph"
         self.meta = self._Meta()
         self.client = self._Client(self)
         self._layers = layers
@@ -100,12 +101,33 @@ class FakeCg:
             for n in node_ids
         }
 
+    def get_root(self, node_id, time_stamp=None, **kwargs):
+        node = int(node_id)
+        while node in self._parent:
+            node = self._parent[node]
+        return np.uint64(node)
+
     def get_parent(self, node_id, time_stamp=None):
         return self._parent.get(int(node_id))
 
     def get_parents(self, node_ids, time_stamp=None):
+        """Supervoxel -> the level 2 node that owns it *now*, as the real one does.
+
+        Ownership is read back out of the cross edge rows (column 0 of a node's rows is
+        its own supervoxels) rather than inferred from the id, because an edit re-mints
+        the owning level 2 id while leaving the supervoxel alone -- which is exactly the
+        case the edge-list splice depends on.
+        """
+        owner = {}
+        for lvl2_id, per_layer in self.cross_edges.items():
+            for block in per_layer.values():
+                block = np.asarray(block)
+                if block.size:
+                    for sv in block.reshape(-1, 2)[:, 0].tolist():
+                        owner[int(sv)] = lvl2_id
         return np.array(
-            [self._parent.get(int(n), n) for n in node_ids], dtype=np.uint64
+            [owner.get(int(n), self._parent.get(int(n), n)) for n in node_ids],
+            dtype=np.uint64,
         )
 
     # -- edges -------------------------------------------------------------------
@@ -199,9 +221,19 @@ def build_object(n_groups=12, per_group=40, side_depth=1):
     return cg, spine_l2, side_l2, source, target
 
 
+def _coarse_groups(cg, node_id, target_groups):
+    """The old three-tuple, rebuilt from the split pipeline, so the tests below can keep
+    asking the one question they care about: how the object was partitioned."""
+    roots, by_group, layer, _, _ = pathing._coarse_membership(
+        cg, node_id, target_groups, cache=None
+    )
+    lvl2, groups = pathing._flatten_groups(roots, by_group)
+    return lvl2, groups, layer
+
+
 def _full_path(cg, source, target):
     """The exact answer: shortest path over the whole object's level 2 graph."""
-    lvl2, _, _ = pathing._coarse_groups(cg, ROOT, TARGET_GROUPS)
+    lvl2, _, _ = _coarse_groups(cg, ROOT, TARGET_GROUPS)
     edges = pathing._get_edges_for_lvl2_ids(cg, lvl2, induced=True)
     return pathing._shortest_path_between(edges, source, target)
 
@@ -219,7 +251,7 @@ def tuned_for_small_fixtures(monkeypatch):
 
 def test_coarse_groups_partition_the_object():
     cg, spine_l2, side_l2, _, _ = build_object()
-    lvl2, groups, coarse_layer = pathing._coarse_groups(cg, ROOT, TARGET_GROUPS)
+    lvl2, groups, coarse_layer = _coarse_groups(cg, ROOT, TARGET_GROUPS)
     assert sorted(lvl2.tolist()) == sorted(spine_l2 + side_l2)
     assert len(lvl2) == len(groups)
     # every level 2 node lands in exactly one group, and groups are whole subtrees
@@ -232,8 +264,8 @@ def test_cut_width_follows_the_target_not_a_layer():
     """The cut is chosen by width. A larger target descends further, to finer groups."""
     cg, spine_l2, side_l2, _, _ = build_object(n_groups=6, per_group=10, side_depth=1)
     n_group_nodes = 12  # 6 spine + 6 side
-    _, coarse, _ = pathing._coarse_groups(cg, ROOT, n_group_nodes - 2)
-    _, fine, _ = pathing._coarse_groups(cg, ROOT, 10**6)
+    _, coarse, _ = _coarse_groups(cg, ROOT, n_group_nodes - 2)
+    _, fine, _ = _coarse_groups(cg, ROOT, 10**6)
     assert len(np.unique(coarse)) == n_group_nodes
     # asking for more groups than exist at that layer pushes the cut down to level 2
     assert len(np.unique(fine)) == len(spine_l2) + len(side_l2)

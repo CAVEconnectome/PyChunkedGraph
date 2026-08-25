@@ -8,6 +8,7 @@ from pychunkedgraph.graph.utils import flatgraph
 
 from .. import attributes
 from .. import exceptions as cg_exceptions
+from .. import lineage
 from ..edges import in_sorted
 from ..subgraph import get_subgraph_nodes
 from ..utils import basetypes
@@ -207,6 +208,31 @@ FIND_PATH_MIN_LVL2_IDS = _positive_int_from_env("PCG_FIND_PATH_MIN_LVL2_IDS", 50
 # meaningful setting -- the coarse path and nothing around it.
 FIND_PATH_DILATION = _positive_int_from_env("PCG_FIND_PATH_DILATION", 1, minimum=0)
 
+# Whether a cold object should pay the full edge read once, to seed the root level cache
+# that every later call on that neuron patches. Off by default: it roughly doubles the
+# first call (the corridor search exists precisely to avoid that read), and a drive-by
+# query on a neuron nobody is editing would pay it for nothing. Turn it on where the
+# workload is proofreading sessions rather than one-off lookups.
+FIND_PATH_SEED_CACHE = os.environ.get("PCG_FIND_PATH_SEED_CACHE", "0") != "0"
+
+# Smallest subtree whose edge list is worth storing when the unpruned search computes one
+# anyway. Below this a query is already well under a second and caching it would only
+# churn keys; above it, a subtree that bypasses the coarse pass would otherwise stay at
+# its first-call cost forever -- 2.1s at 13k level 2 ids, and up to ~8s at the bypass
+# threshold itself.
+FIND_PATH_CACHE_MIN_LVL2_IDS = _positive_int_from_env(
+    "PCG_FIND_PATH_CACHE_MIN_LVL2_IDS", 2_000
+)
+
+# Largest object worth seeding an edge list for. Building one is the full read the corridor
+# search exists to avoid -- 47s and ~1GB peak at 240,928 level 2 ids -- so it grows out of
+# reach quickly and would be refused outright by LVL2_GRAPH_MAX_NODES beyond that. Objects
+# past this cap still get cached at whatever shared parent a query lands on, which is what
+# makes mid-tree queries on a huge neuron fast without ever materialising the whole thing.
+FIND_PATH_SEED_MAX_LVL2_IDS = _positive_int_from_env(
+    "PCG_FIND_PATH_SEED_MAX_LVL2_IDS", 300_000
+)
+
 
 def _sorted_by_key(keys, values):
     """Sort a key/value pair of arrays together, by key.
@@ -397,30 +423,38 @@ def _shortest_path_between(edge_array, source_id, target_id):
     return indexed_ids[[graph.vertex_index[v] for v in vertex_list]]
 
 
-def _coarse_groups(cg, node_id, target_groups):
-    """Partition an object's level 2 ids into subtrees, for use as a coarse graph.
+def _make_cache(cg):
+    """A SubtreeCache for this graph, or None if it is not usable.
 
-    Descends one layer at a time from `node_id`, stopping as soon as the cut is at least
-    `target_groups` wide. Which *layer* the cut lands on is therefore chosen per object
-    rather than fixed: layer sizes differ between datasets and between objects, and a
-    shallow shared parent should just produce a small cut instead of a degenerate one.
-    The descent has to happen anyway to collect the level 2 ids, so this costs nothing.
+    Everything about the cache is optional: a redis that is absent, unreachable or turned
+    off must leave find_path working exactly as it would without one.
+    """
+    try:
+        from . import path_cache
 
-    The cut stays layer aligned, and that is load bearing rather than incidental. Every
-    group root has a parent strictly above `coarse_layer`, so two groups can only be
-    separated at `coarse_layer` or above, which is exactly what lets `_coarse_edge_list`
-    read only the CrossChunkEdge[coarse_layer:] columns. A cut chosen purely by width --
-    expanding whatever is expandable until the frontier is wide enough -- is not layer
-    aligned and loses that guarantee: measured on the profiled object it produced a
-    similar 19,982 groups but forced coarse_layer down to 3, which is 51% of the cross
-    edge payload instead of 11.7%.
+        cache = path_cache.SubtreeCache(cg.graph_id)
+        return cache if cache.available else None
+    except Exception:
+        return None
 
-    Nodes already below the current layer are carried along untouched, so groups are not
-    all at the same layer -- the hierarchy skips layers, and a high layer node can have
-    level 2 children directly. They still form an antichain, so the groups are disjoint
-    subtrees covering every level 2 id.
 
-    Returns (lvl2_ids, group_of_lvl2, coarse_layer), the first two positionally aligned.
+def _coarse_cut(cg, node_id, target_groups):
+    """Descend to an antichain of subtrees wide enough to serve as a coarse graph.
+
+    Stops as soon as the cut is at least `target_groups` wide, so which *layer* it lands
+    on is chosen per object rather than fixed: layer sizes differ between datasets and
+    objects, and a shallow shared parent should produce a small cut instead of a
+    degenerate one.
+
+    The cut stays layer aligned, which is load bearing rather than incidental. Every group
+    root has a parent strictly above `coarse_layer`, so two groups can only be separated
+    at `coarse_layer` or above -- exactly what lets the caller read only the
+    CrossChunkEdge[coarse_layer:] columns. A cut chosen purely by width is not layer
+    aligned and loses that: measured on the profiled object it gave a similar 19,982
+    groups but forced coarse_layer to 3, which is 51% of the cross edge payload instead
+    of 11.7%.
+
+    Returns (group_roots, coarse_layer).
     """
     frontier = np.array([node_id], dtype=basetypes.NODE_ID)
     while True:
@@ -437,32 +471,28 @@ def _coarse_groups(cg, node_id, target_groups):
         if not len(grown) or len(grown) <= len(frontier):
             break
         frontier = grown
-
-    group_roots = frontier
+    if not len(frontier):
+        return np.empty(0, dtype=basetypes.NODE_ID), 2
     # The tightest layer the cut is aligned to, which is the fewest cross edge columns
-    # _coarse_edge_list can get away with reading.
-    coarse_layer = max(2, int(cg.get_chunk_layers(group_roots).max())) if len(
-        group_roots
-    ) else 2
-    if not len(group_roots):
-        return (
-            np.empty(0, dtype=basetypes.NODE_ID),
-            np.empty(0, dtype=basetypes.NODE_ID),
-            2,
-        )
+    # the caller can get away with reading.
+    return frontier, max(2, int(cg.get_chunk_layers(frontier).max()))
 
-    # Expand every group root to its level 2 descendants, carrying the group label down.
+
+def _expand_groups(cg, group_roots):
+    """Level 2 descendants of each group root, as {group root: level 2 ids}."""
+    if not len(group_roots):
+        return {}
     lvl2_ids = []
-    lvl2_groups = []
+    labels = []
     frontier = group_roots
-    labels = group_roots
+    frontier_labels = group_roots
     while len(frontier):
         layers = cg.get_chunk_layers(frontier)
         at_lvl2 = layers == 2
         lvl2_ids.append(frontier[at_lvl2])
-        lvl2_groups.append(labels[at_lvl2])
+        labels.append(frontier_labels[at_lvl2])
         above = frontier[~at_lvl2]
-        labels_above = labels[~at_lvl2]
+        labels_above = frontier_labels[~at_lvl2]
         if not len(above):
             break
         children_d = cg.get_children(above)
@@ -471,30 +501,51 @@ def _coarse_groups(cg, node_id, target_groups):
         if not keep.any():
             break
         frontier = np.concatenate([children_d[n] for n in above[keep]])
-        labels = np.repeat(labels_above[keep], counts[keep])
-    return np.concatenate(lvl2_ids), np.concatenate(lvl2_groups), coarse_layer
+        frontier_labels = np.repeat(labels_above[keep], counts[keep])
+
+    all_l2 = np.concatenate(lvl2_ids)
+    all_labels = np.concatenate(labels)
+    if not len(all_l2):
+        return {}
+    order = np.argsort(all_labels, kind="stable")
+    all_l2 = all_l2[order]
+    all_labels = all_labels[order]
+    splits = np.flatnonzero(np.diff(all_labels)) + 1
+    starts = np.concatenate([[0], splits])
+    return {
+        int(all_labels[s]): part
+        for s, part in zip(starts, np.split(all_l2, splits))
+    }
 
 
-def _coarse_edge_list(cg, lvl2_ids, lvl2_groups, coarse_layer, batch_size=None):
-    """Edges between the coarse groups, from the high-layer cross edge columns only.
+def _boundary_edges(cg, lvl2_by_group, coarse_layer, batch_size=None):
+    """Cross edges leaving each group, as {group root: (n, 3) array}.
 
-    Two level 2 nodes in different groups must be connected by an edge that crosses a
-    chunk boundary at `coarse_layer` or above -- were it a lower boundary they would be in
-    the same group. Those edges live in the CrossChunkEdge[coarse_layer:] columns, which
-    on the profiled object are 11.7% of the payload (the per-column shares are
-    CCE[2] 49.0%, CCE[3] 27.0%, CCE[4] 12.2%, CCE[5] 5.7%, CCE[6-11] 6.1%). So the coarse
-    graph costs a fraction of the full read.
+    Columns are (own level 2 id, own supervoxel, partner supervoxel). The partner is left
+    as a supervoxel deliberately -- see path_cache: the level 2 node owning it lives
+    outside this subtree and can be replaced by an edit there, while the supervoxel id
+    cannot. Resolution to a current level 2 id happens in _coarse_context.
 
-    Unlike _get_edges_for_lvl2_ids this never calls get_parents: a partner supervoxel
-    inside the object necessarily appears in some other group's column 0 of this same
-    restricted read, because cross edges are stored from both sides. Partners that stay
-    unmapped are outside the object and are dropped, which is what `induced` means here.
+    Two level 2 nodes in different groups must be joined by an edge crossing a chunk
+    boundary at `coarse_layer` or above -- a lower boundary would put them in the same
+    group -- so only the CrossChunkEdge[coarse_layer:] columns are read. Conversely
+    everything in those columns is a boundary edge, by the same argument.
     """
+    if not lvl2_by_group:
+        return {}
     if batch_size is None:
         batch_size = CROSS_EDGE_READ_BATCH
-    order = np.argsort(lvl2_ids, kind="stable")
-    sorted_lvl2 = lvl2_ids[order]
-    sorted_groups = lvl2_groups[order]
+
+    owners = np.concatenate(list(lvl2_by_group.values()))
+    owner_groups = np.concatenate(
+        [
+            np.full(len(part), group, dtype=basetypes.NODE_ID)
+            for group, part in lvl2_by_group.items()
+        ]
+    )
+    order = np.argsort(owners, kind="stable")
+    owners = owners[order]
+    owner_groups = owner_groups[order]
     del order
 
     properties = [
@@ -502,16 +553,16 @@ def _coarse_edge_list(cg, lvl2_ids, lvl2_groups, coarse_layer, batch_size=None):
         for layer in range(coarse_layer, max(coarse_layer + 1, cg.meta.layer_count))
     ]
 
-    batches = []
-    map_keys = []
-    map_values = []
-    for start in range(0, len(sorted_lvl2), batch_size):
-        chunk = sorted_lvl2[start : start + batch_size]
+    all_triples = []
+    all_groups = []
+    for start in range(0, len(owners), batch_size):
         # Read the restricted column set directly. cg.get_atomic_cross_edges always reads
         # every layer, which is the cost this function exists to avoid.
-        rows = cg.client.read_nodes(node_ids=chunk, properties=properties)
+        rows = cg.client.read_nodes(
+            node_ids=owners[start : start + batch_size], properties=properties
+        )
         blocks = []
-        owners = []
+        block_owners = []
         lengths = []
         for lvl2_id, columns in rows.items():
             for cells in columns.values():
@@ -519,7 +570,7 @@ def _coarse_edge_list(cg, lvl2_ids, lvl2_groups, coarse_layer, batch_size=None):
                 if len(block) == 0:
                     continue
                 blocks.append(block)
-                owners.append(lvl2_id)
+                block_owners.append(lvl2_id)
                 lengths.append(len(block))
         rows.clear()
         if not blocks:
@@ -527,48 +578,247 @@ def _coarse_edge_list(cg, lvl2_ids, lvl2_groups, coarse_layer, batch_size=None):
         edges = np.concatenate(blocks)
         del blocks
         owner_column = np.repeat(
-            np.array(owners, dtype=edges.dtype), np.array(lengths, dtype=np.int64)
+            np.array(block_owners, dtype=edges.dtype),
+            np.array(lengths, dtype=np.int64),
         )
-        keys, first = np.unique(edges[:, 0], return_index=True)
-        map_keys.append(keys)
-        map_values.append(owner_column[first])
-        batches.append(edges)
-        del edges, owner_column, keys, first
+        all_triples.append(np.column_stack([owner_column, edges[:, 0], edges[:, 1]]))
+        all_groups.append(owner_groups[np.searchsorted(owners, owner_column)])
+        del edges, owner_column
 
-    if not batches:
-        return np.empty((0, 2), dtype=basetypes.NODE_ID)
+    empty = np.empty((0, 3), dtype=basetypes.NODE_ID)
+    if not all_triples:
+        return {int(group): empty for group in lvl2_by_group}
 
-    known_supervoxels = np.concatenate(map_keys)
-    known_lvl2 = np.concatenate(map_values)
-    del map_keys, map_values
-    known_supervoxels, known_lvl2 = _sorted_by_key(known_supervoxels, known_lvl2)
+    triples = np.concatenate(all_triples)
+    groups = np.concatenate(all_groups)
+    del all_triples, all_groups
 
-    reduced = []
-    while batches:
-        edges = batches.pop()
-        flat = edges.reshape(-1)
-        idx = np.searchsorted(known_supervoxels, flat)
-        idx[idx == len(known_supervoxels)] = 0
-        mapped = known_lvl2[idx]
-        # unmapped supervoxels belong outside the object
-        keep = (known_supervoxels[idx] == flat).reshape(-1, 2).all(axis=1)
-        del flat, idx
-        mapped = mapped.reshape(-1, 2)[keep]
-        del keep
-        if not len(mapped):
-            del edges
+    # One sort and one split, rather than a boolean mask per group. Masking per group is
+    # O(groups x rows) -- with ~27k groups over millions of rows it cost more than the
+    # Bigtable read it accompanies, which made a warm cache slower than no cache at all.
+    order = np.argsort(groups, kind="stable")
+    groups = groups[order]
+    triples = triples[order]
+    del order
+    splits = np.flatnonzero(np.diff(groups)) + 1
+    starts = np.concatenate([[0], splits])
+    per_group = {int(group): empty for group in lvl2_by_group}
+    # No per-group np.unique here. Bigtable returns each (level 2 id, layer) row once, so
+    # there is nothing to dedupe, and _coarse_graph uniques the group pairs at the end
+    # regardless. Doing it per group meant ~27k np.unique calls on tiny arrays, which cost
+    # more than the read itself.
+    for begin, part in zip(starts, np.split(triples, splits)):
+        per_group[int(groups[begin])] = part
+    return per_group
+
+
+def _coarse_membership(cg, node_id, target_groups, cache=None):
+    """The cut and which level 2 ids fall under each of its subtrees.
+
+    Deliberately does not touch cross edges: a small object skips the coarse pass
+    entirely, and reading its boundary columns first would be pure waste.
+
+    Returns (group_roots, lvl2_by_group, coarse_layer, cache, fresh), where `fresh` is
+    the subset the caller still has to persist if it decides the cache is worth writing.
+    """
+    group_roots, coarse_layer = _coarse_cut(cg, node_id, target_groups)
+    if not len(group_roots):
+        return group_roots, {}, coarse_layer, cache
+    if cache is None:
+        cache = _make_cache(cg)
+
+    cached = cache.get_descendants(group_roots) if cache is not None else {}
+    missed = np.array(
+        [g for g in group_roots if int(g) not in cached], dtype=basetypes.NODE_ID
+    )
+    fresh = _expand_groups(cg, missed)
+    cached.update(fresh)
+    # `fresh` is handed back rather than written here: a small object bypasses the coarse
+    # pass entirely a moment from now, and its cut degenerates to one group per level 2
+    # node, so persisting it would store thousands of single-element lists that nothing
+    # will ever read. The caller writes them only once it knows it is on the path that
+    # benefits.
+    return group_roots, cached, coarse_layer, cache, fresh
+
+
+def _flatten_groups(group_roots, lvl2_by_group):
+    """(lvl2_ids, lvl2_groups), positionally aligned."""
+    parts = []
+    labels = []
+    for group in group_roots:
+        part = lvl2_by_group.get(int(group))
+        if part is None or not len(part):
             continue
-        # level 2 -> group
-        group_pairs = sorted_groups[np.searchsorted(sorted_lvl2, mapped)]
-        del mapped
-        group_pairs.sort(axis=1)
-        group_pairs = group_pairs[group_pairs[:, 0] != group_pairs[:, 1]]
-        reduced.append(np.unique(group_pairs, axis=0))
-        del edges, group_pairs
+        parts.append(part)
+        labels.append(np.full(len(part), group, dtype=basetypes.NODE_ID))
+    if not parts:
+        empty = np.empty(0, dtype=basetypes.NODE_ID)
+        return empty, empty
+    return np.concatenate(parts), np.concatenate(labels)
 
-    if not reduced:
-        return np.empty((0, 2), dtype=basetypes.NODE_ID)
-    return np.unique(np.concatenate(reduced), axis=0)
+
+def _coarse_graph(
+    cg, group_roots, lvl2_by_group, lvl2_ids, lvl2_groups, coarse_layer, cache=None
+):
+    """Group-level edges of the coarse graph, from cache where possible."""
+    no_edges = np.empty((0, 2), dtype=basetypes.NODE_ID)
+    if not len(group_roots):
+        return no_edges
+
+    # Not cached. These rows are 65MB per object against a 4.4MB answer, and the answer
+    # itself is cached at root level instead -- so this only runs when there is no usable
+    # predecessor to patch from, i.e. on a genuinely cold object.
+    wanted = {
+        int(g): lvl2_by_group[int(g)]
+        for g in group_roots
+        if len(lvl2_by_group.get(int(g), ()))
+    }
+    parts = [rows for rows in _boundary_edges(cg, wanted, coarse_layer).values() if len(rows)]
+    if not parts:
+        return no_edges
+    boundary = np.concatenate(parts)
+    del parts
+
+    # Resolve each partner supervoxel to the level 2 node that owns it *now*. Column 1 of
+    # every row is an own supervoxel paired with its own level 2 id in column 0, and cross
+    # edges are stored from both sides, so the union of those pairs covers every partner
+    # inside this object. This is the step that makes a cached row survive an edit on the
+    # far side of the boundary: the supervoxel is stable, the level 2 node owning it is not.
+    supervoxels, first = np.unique(boundary[:, 1], return_index=True)
+    owners_of = boundary[first, 0]
+    partners = boundary[:, 2]
+    idx = np.searchsorted(supervoxels, partners)
+    idx[idx == len(supervoxels)] = 0
+    inside = supervoxels[idx] == partners
+    ends = np.column_stack([boundary[:, 0], owners_of[idx]])[inside]
+    del supervoxels, owners_of, partners, idx, inside, boundary, first
+    if not len(ends):
+        return no_edges
+
+    # ...then map both ends onto the grouping this request actually has. A partner that
+    # stays unresolved here is outside the object, which is what makes the graph induced.
+    order = np.argsort(lvl2_ids, kind="stable")
+    sorted_lvl2 = lvl2_ids[order]
+    lookup = lvl2_groups[order]
+    del order
+    flat = ends.reshape(-1)
+    idx = np.searchsorted(sorted_lvl2, flat)
+    idx[idx == len(sorted_lvl2)] = 0
+    known = (sorted_lvl2[idx] == flat).reshape(-1, 2).all(axis=1)
+    pairs = lookup[idx].reshape(-1, 2)[known]
+    del flat, idx, known, ends
+    if not len(pairs):
+        return no_edges
+    pairs.sort(axis=1)
+    pairs = pairs[pairs[:, 0] != pairs[:, 1]]
+    return np.unique(pairs, axis=0) if len(pairs) else no_edges
+
+
+def _splice_edge_list(cg, old_lvl2, old_edges, new_lvl2):
+    """Patch a cached edge list from one root onto the level 2 ids of another.
+
+    An edit replaces a handful of level 2 nodes and leaves the rest alone, so the whole
+    edge list can be brought forward by dropping what left and reading only what arrived:
+
+      * edges between two surviving nodes are untouched, so they carry over verbatim;
+      * every edge involving a new node appears in that node's own cross edge rows, since
+        cross edges are stored from both sides -- so reading only the new ids finds them
+        all, including the ones joining a new node to a surviving one.
+
+    Measured at ~0.6s for 50 changed ids against 31.5s to rebuild from scratch.
+    """
+    old_sorted = np.unique(old_lvl2)
+    new_sorted = np.unique(new_lvl2)
+    added = new_sorted[~in_sorted(new_sorted, old_sorted)]
+    survived = old_sorted[in_sorted(old_sorted, new_sorted)]
+
+    if len(old_edges):
+        keep = in_sorted(old_edges[:, 0], survived) & in_sorted(
+            old_edges[:, 1], survived
+        )
+        carried = old_edges[keep]
+    else:
+        carried = np.empty((0, 2), dtype=basetypes.NODE_ID)
+    if not len(added):
+        return carried
+
+    # induced=False, then filtered here: an edge from a new node to a surviving one has
+    # only one endpoint in `added`, so inducing on `added` would drop exactly the edges
+    # that stitch the new material onto the old.
+    fresh = _get_edges_for_lvl2_ids(cg, added, induced=False)
+    if len(fresh):
+        inside = in_sorted(fresh[:, 0], new_sorted) & in_sorted(fresh[:, 1], new_sorted)
+        fresh = fresh[inside]
+    if not len(fresh):
+        return carried
+    if not len(carried):
+        return np.unique(fresh, axis=0)
+    return np.unique(np.concatenate([carried, fresh]), axis=0)
+
+
+def _edges_from_root_cache(cg, shared_parent_id, lvl2_ids, cache, time_stamp=None):
+    """Serve a mid-tree query by narrowing the whole object's cached edge list.
+
+    A subtree's level 2 ids are a subset of its root's, so its induced edges are a subset
+    of the root's induced edges and the narrowing is exact rather than approximate.
+    Measured on api6: fetching the root's 6.4MB entry and filtering it to an 11,578 node
+    layer 8 subtree took 0.022s against 1.83s to rebuild that subtree from Bigtable, and
+    produced element-identical output.
+
+    Deliberately a direct lookup with no splice. Patching a root entry forward would need
+    the root's *current* level 2 ids, and obtaining those is the 5.5s descent this path
+    exists to avoid -- far more than the ~1.8s rebuild it is trying to beat. So after an
+    edit this simply misses until some root level query refreshes the entry, and the
+    caller falls back to computing the subtree.
+    """
+    if cache is None:
+        return None
+    try:
+        root_id = cg.get_root(shared_parent_id, time_stamp=time_stamp)
+    except Exception:
+        return None
+    if root_id is None or int(root_id) == int(shared_parent_id):
+        return None  # already a root query; the caller's own lookup covers it
+    found = cache.get_edges([root_id])
+    entry = found.get(int(root_id))
+    if entry is None:
+        return None
+    root_lvl2, root_edges = entry
+    if not len(root_edges):
+        return None
+    subset = np.unique(lvl2_ids)
+    # The subset relationship is what makes narrowing exact, so it is checked rather than
+    # assumed. If the entry does not cover every level 2 id in this subtree, narrowing it
+    # would silently drop the edges touching the ones it is missing -- a shorter edge list
+    # that still yields a path, just the wrong one. Falling back costs a rebuild; getting
+    # this wrong costs a wrong answer.
+    if not in_sorted(subset, np.unique(root_lvl2)).all():
+        return None
+    return root_edges[
+        in_sorted(root_edges[:, 0], subset) & in_sorted(root_edges[:, 1], subset)
+    ]
+
+
+def _edge_list_from_cache(cg, node_id, lvl2_ids, cache):
+    """The full level 2 edge list for `node_id`, from cache or patched from a predecessor.
+
+    Returns None when neither is available, leaving the caller to prune instead.
+    """
+    if cache is None:
+        return None
+    direct = cache.get_edges([node_id])
+    if int(node_id) in direct:
+        return direct[int(node_id)][1]
+    try:
+        previous = lineage.get_previous_root_ids(cg, [node_id])
+    except Exception:
+        return None
+    candidates = [int(r) for ids in previous.values() for r in np.asarray(ids).reshape(-1)]
+    if not candidates:
+        return None
+    for root_id, (old_lvl2, old_edges) in cache.get_edges(candidates).items():
+        return _splice_edge_list(cg, old_lvl2, old_edges, lvl2_ids)
+    return None
 
 
 def _dilate(edge_array, seed_ids, hops):
@@ -593,6 +843,7 @@ def find_l2_shortest_path(
     target_l2_id: np.uint64,
     time_stamp=None,
     max_num_lvl2_ids: typing.Optional[int] = None,
+    cache=None,
 ):
     """
     Find a path of level 2 ids that connect two level 2 node ids through cross chunk edges.
@@ -600,7 +851,7 @@ def find_l2_shortest_path(
     Return None if the two level 2 ids do not belong to the same object.
 
     For a large object this does not read the whole level 2 graph. It first builds a
-    coarse graph over subtrees (see `_coarse_groups` and `_coarse_edge_list`), finds the
+    coarse graph over subtrees (see `_coarse_context`), finds the
     route through that, dilates it, and only then reads the level 2 cross edges under the
     resulting corridor. Measured on api6 aibs_v1dd root 864691132764660103, the widest
     possible pair -- the graph diameter, a 1,616 node path -- passes through 195 of the
@@ -628,9 +879,10 @@ def find_l2_shortest_path(
     if shared_parent_id is None:
         return None
 
-    lvl2_ids, lvl2_groups, coarse_layer = _coarse_groups(
-        cg, shared_parent_id, FIND_PATH_TARGET_GROUPS
+    group_roots, lvl2_by_group, coarse_layer, cache, fresh_descendants = _coarse_membership(
+        cg, shared_parent_id, FIND_PATH_TARGET_GROUPS, cache=cache
     )
+    lvl2_ids, lvl2_groups = _flatten_groups(group_roots, lvl2_by_group)
     if max_num_lvl2_ids is not None and len(lvl2_ids) > max_num_lvl2_ids:
         raise cg_exceptions.BadRequest(
             f"The level 2 graph for {shared_parent_id} has {len(lvl2_ids)} level 2 nodes, "
@@ -639,17 +891,49 @@ def find_l2_shortest_path(
 
     def _full_search():
         # The level 2 ids are already in hand, so this repeats the read but not the descent.
-        return _shortest_path_between(
-            _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True),
-            source_l2_id,
-            target_l2_id,
-        )
+        edges = _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True)
+        # Free to cache: this *is* the full edge list, already paid for. Without it a
+        # subtree just under the bypass threshold stays slow forever -- measured at 2.1s
+        # first call and 2.1s on requery, with nothing between it and the ~8s the
+        # threshold allows. Skipped for trivially small subtrees, which are already
+        # sub-second and would only churn keys.
+        if (
+            cache is not None
+            and len(lvl2_ids) >= FIND_PATH_CACHE_MIN_LVL2_IDS
+        ):
+            if fresh_descendants:
+                cache.set_descendants(fresh_descendants)
+            cache.set_edges(shared_parent_id, lvl2_ids, edges)
+        return _shortest_path_between(edges, source_l2_id, target_l2_id)
 
     # Below this size the corridor machinery costs more than it saves, and the exact
     # answer is cheap. This is the common case: two nearby level 2 ids share a parent low
     # in the hierarchy, so the subtree under it is small and this is where they land.
+    # Consulted before the size bypass, not after: a cached edge list answers in ~12ms
+    # whatever the subtree's size, so there is no reason to make small objects redo work
+    # that is already sitting in redis.
+    cached_edges = _edge_list_from_cache(cg, shared_parent_id, lvl2_ids, cache)
+    if cached_edges is None:
+        # Nothing under this shared parent, but the whole object may be cached from an
+        # earlier end-to-end query. Narrowing that is ~80x cheaper than rebuilding.
+        cached_edges = _edges_from_root_cache(
+            cg, shared_parent_id, lvl2_ids, cache, time_stamp
+        )
+    if cached_edges is not None:
+        if cache is not None:
+            cache.set_edges(shared_parent_id, lvl2_ids, cached_edges)
+        path = _shortest_path_between(cached_edges, source_l2_id, target_l2_id)
+        if path is not None:
+            return path
+        # An edge list that cannot connect the two is either stale or genuinely
+        # disconnected; fall through and let the unpruned search settle it.
+
     if len(lvl2_ids) <= FIND_PATH_MIN_LVL2_IDS:
         return _full_search()
+
+    if cache is not None and fresh_descendants:
+        cache.set_descendants(fresh_descendants)
+
 
     # Both degenerate ends of the cut make the coarse pass pure cost. One group cannot
     # separate anything, so the coarse graph comes out empty and the corridor is the whole
@@ -660,7 +944,10 @@ def find_l2_shortest_path(
     if n_groups < 2 or n_groups >= len(lvl2_ids):
         return _full_search()
 
-    coarse_edges = _coarse_edge_list(cg, lvl2_ids, lvl2_groups, coarse_layer)
+    # Only now, past every bypass, is the boundary read worth issuing.
+    coarse_edges = _coarse_graph(
+        cg, group_roots, lvl2_by_group, lvl2_ids, lvl2_groups, coarse_layer, cache=cache
+    )
     sorted_lvl2 = np.sort(lvl2_ids)
     group_lookup = lvl2_groups[np.argsort(lvl2_ids, kind="stable")]
     source_group = group_lookup[np.searchsorted(sorted_lvl2, source_l2_id)]
@@ -692,8 +979,34 @@ def find_l2_shortest_path(
     if path is None:
         # The corridor was too tight, or the only route leaves it. Never report the two
         # nodes as unconnected on the strength of a pruned search.
-        return _full_search()
+        path = _full_search()
+    _seed_edge_cache(cg, shared_parent_id, lvl2_ids, cache)
     return path
+
+
+def _seed_edge_cache(cg, node_id, lvl2_ids, cache):
+    """Compute and store the full edge list so later calls can patch it.
+
+    Deliberately separate from answering the request: it costs the full ~31.5s read that
+    the corridor search exists to avoid, and buys nothing for the call that pays it. It is
+    only worth doing when more calls on the same neuron are expected, which is why it is
+    opt-in.
+    """
+    if cache is None or not FIND_PATH_SEED_CACHE:
+        return
+    if len(lvl2_ids) > FIND_PATH_SEED_MAX_LVL2_IDS:
+        # Seeding builds the whole edge list, and that does not scale: 240,928 level 2 ids
+        # cost 47s and ~1GB of peak rss, so a million-node object would be minutes and
+        # several GB -- on a pod shared by 8-16 workers. Past this size the corridor search
+        # is the only sane way to answer, and intermediate entries carry the caching.
+        return
+    try:
+        cache.set_edges(
+            node_id, lvl2_ids, _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True)
+        )
+    except Exception:
+        # Seeding is best effort; never let it fail a request that already succeeded.
+        pass
 
 
 def compute_rough_coordinate_path(cg, l2_ids):
