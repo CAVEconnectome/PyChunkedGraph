@@ -4,13 +4,15 @@ Tests get_stale_nodes() and get_new_nodes() from stale.py using real graph
 operations through the BigTable emulator.
 """
 
-
+from datetime import UTC, datetime
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
 from ..helpers import SV, build_graph
-from ...graph.edges.stale import get_stale_nodes, get_new_nodes
+from ...graph.edges.stale import LatestEdgesFinder, get_stale_nodes, get_new_nodes
+from ...graph.exceptions import PreconditionError
 
 
 class TestStaleEdges:
@@ -345,3 +347,116 @@ class TestStaleEdges:
         result = get_new_nodes(cg, np.array([sv0], dtype=np.uint64), layer=root_layer)
         assert result.shape == (1,)
         assert result[0] == root
+
+
+class TestLatestEdgesFinder:
+    def test_migration_fallback_keeps_atomic_edge_lookup(self):
+        source_l2 = np.uint64(101)
+        destination_l2 = np.uint64(201)
+        current_destination_l2 = np.uint64(202)
+        destination_supervoxel = np.uint64(21)
+        parent_ts = datetime.now(UTC)
+
+        cg = MagicMock()
+        cg.get_parents.side_effect = [
+            np.array([], dtype=np.uint64),
+            np.array([current_destination_l2], dtype=np.uint64),
+        ]
+        cg.get_atomic_cross_edges.return_value = {
+            source_l2: {
+                3: np.array([[np.uint64(11), destination_supervoxel]], dtype=np.uint64)
+            }
+        }
+
+        finder = LatestEdgesFinder.__new__(LatestEdgesFinder)
+        finder.cg = cg
+        finder._get_children_from_cache = MagicMock(
+            return_value=np.array([destination_supervoxel], dtype=np.uint64)
+        )
+        finder._populate_parents_cache = MagicMock()
+
+        edges = np.array([[source_l2, destination_l2]], dtype=np.uint64)
+        with (
+            patch("pychunkedgraph.graph.edges.stale.PARENTS_CACHE", {}),
+            patch(
+                "pychunkedgraph.graph.edges.stale.get_parents_at_timestamp",
+                return_value=(
+                    np.array([current_destination_l2], dtype=np.uint64),
+                    np.array([], dtype=np.uint64),
+                ),
+            ),
+            patch(
+                "pychunkedgraph.graph.edges.stale.get_stale_nodes",
+                return_value=np.array([], dtype=np.uint64),
+            ),
+        ):
+            result = finder._get_parents_b(edges, parent_ts, layer=3, fallback=True)
+
+        np.testing.assert_array_equal(result, [current_destination_l2])
+        cg.get_atomic_cross_edges.assert_called_once()
+        cg.get_cross_chunk_edges.assert_not_called()
+
+    def test_source_owned_atomic_edge_resolves_stale_destination(self):
+        source_l2 = np.uint64(101)
+        stale_destination_l2 = np.uint64(201)
+        current_destination_l2 = np.uint64(202)
+        source_supervoxel = np.uint64(11)
+        destination_supervoxel = np.uint64(21)
+        unrelated_supervoxel = np.uint64(22)
+        parent_ts = datetime.now(UTC)
+
+        cg = MagicMock()
+        cg.cache.new_ids = set()
+        cg.get_children.return_value = np.array(
+            [destination_supervoxel], dtype=np.uint64
+        )
+        cg.get_parents.side_effect = lambda nodes, **kwargs: np.array(
+            [
+                (
+                    current_destination_l2
+                    if node == destination_supervoxel
+                    else np.uint64(302)
+                )
+                for node in nodes
+            ],
+            dtype=np.uint64,
+        )
+        cg.get_cross_chunk_edges.return_value = {current_destination_l2: {}}
+        cg.get_chunk_layers.return_value = np.array([2], dtype=int)
+        cg.get_atomic_cross_edges.return_value = {
+            source_l2: {
+                3: np.array(
+                    [
+                        [source_supervoxel, destination_supervoxel],
+                        [source_supervoxel, unrelated_supervoxel],
+                    ],
+                    dtype=np.uint64,
+                )
+            }
+        }
+
+        finder = LatestEdgesFinder.__new__(LatestEdgesFinder)
+        finder.cg = cg
+        finder._check_cross_edges_from_a = MagicMock(return_value=False)
+        finder._check_hierarchy_a_from_b = MagicMock(return_value=False)
+
+        edges = np.array([[source_l2, stale_destination_l2]], dtype=np.uint64)
+        with patch(
+            "pychunkedgraph.graph.edges.stale.get_stale_nodes",
+            return_value=np.array([], dtype=np.uint64),
+        ):
+            result = finder._get_parents_b(edges, parent_ts, layer=3)
+
+        np.testing.assert_array_equal(result, [current_destination_l2])
+        cg.get_atomic_cross_edges.assert_called_once()
+
+    def test_unresolvable_stale_edge_raises_precondition_error(self, monkeypatch):
+        finder = LatestEdgesFinder.__new__(LatestEdgesFinder)
+        finder.stale_edges = np.array([[101, 201]], dtype=np.uint64)
+        finder.edge_layers = np.array([3], dtype=int)
+        finder.parent_ts = datetime.now(UTC)
+        finder._get_new_edge = MagicMock(return_value=np.empty((0, 2), dtype=np.uint64))
+        monkeypatch.setenv("MAX_CHEBYSHEV_DISTANCE", "0")
+
+        with pytest.raises(PreconditionError, match="Refresh the segmentation"):
+            finder.run()

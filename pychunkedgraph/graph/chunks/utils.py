@@ -279,6 +279,12 @@ def get_l2chunkids_along_boundary(
     l2chunks_a = np.concatenate(l2chunks_a)
     l2chunks_b = np.concatenate(l2chunks_b)
 
+    l2_chunk_bounds = np.asarray(cg_meta.layer_chunk_bounds[2], dtype=int)
+    mask_a = np.all((l2chunks_a >= 0) & (l2chunks_a < l2_chunk_bounds), axis=1)
+    mask_b = np.all((l2chunks_b >= 0) & (l2chunks_b < l2_chunk_bounds), axis=1)
+    l2chunks_a = l2chunks_a[mask_a]
+    l2chunks_b = l2chunks_b[mask_b]
+
     l2chunk_ids_a = get_chunk_ids_from_coords(cg_meta, 2, l2chunks_a)
     l2chunk_ids_b = get_chunk_ids_from_coords(cg_meta, 2, l2chunks_b)
     return l2chunk_ids_a, l2chunk_ids_b
