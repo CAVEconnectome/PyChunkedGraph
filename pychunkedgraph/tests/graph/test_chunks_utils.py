@@ -210,6 +210,36 @@ class TestGetL2ChunkIdsAlongBoundary:
         assert len(ids_a) > 0
         assert len(ids_b) > 0
 
+    @pytest.mark.parametrize("padding", range(4))
+    @pytest.mark.parametrize(
+        "coord_a,coord_b",
+        [
+            ((0, 0, 0), (1, 0, 0)),
+            ((3, 0, 0), (2, 0, 0)),
+        ],
+    )
+    def test_padding_is_clipped_to_l2_chunk_bounds(self, padding, coord_a, coord_b):
+        class GraphConfig:
+            FANOUT = 2
+            LAYER_ID_BITS = 8
+
+        class Meta:
+            graph_config = GraphConfig()
+            bitmasks = {2: 10}
+            layer_chunk_bounds = {2: np.array([8, 1, 1], dtype=int)}
+
+        meta = Meta()
+        chunk_utils.get_l2chunkids_along_boundary.cache_clear()
+        ids_a, ids_b = chunk_utils.get_l2chunkids_along_boundary(
+            meta, 3, coord_a, coord_b, padding=padding
+        )
+
+        for chunk_ids in (ids_a, ids_b):
+            coordinates = chunk_utils.get_chunk_coordinates_multiple(meta, chunk_ids)
+            assert np.all(coordinates >= 0)
+            assert np.all(coordinates < meta.layer_chunk_bounds[2])
+            assert np.all(chunk_utils.get_chunk_layers(meta, chunk_ids) == 2)
+
 
 class TestGetBoundingChildrenChunks:
     def test_basic(self, gen_graph):

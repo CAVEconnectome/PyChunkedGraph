@@ -17,6 +17,7 @@ from pychunkedgraph.graph import types
 from pychunkedgraph.graph.chunks.utils import get_l2chunkids_along_boundary
 
 from pychunkedgraph.graph import basetypes
+from pychunkedgraph.graph.exceptions import PreconditionError
 from ..utils.generic import get_parents_at_timestamp
 
 PARENTS_CACHE: LRUCache = None
@@ -322,7 +323,38 @@ class LatestEdgesFinder:
                 _new_ids = list(self.cg.cache.new_ids)
                 if np.any(np.isin(_new_ids, parents_a)):
                     _parents_b.append(_node)
-        return np.array(_parents_b, dtype=basetypes.NODE_ID)
+        if _parents_b:
+            return np.array(_parents_b, dtype=basetypes.NODE_ID)
+        return self._get_parents_b_from_source_atomic_edges(
+            parents_a, children_b, parent_ts, layer
+        )
+
+    def _get_parents_b_from_source_atomic_edges(
+        self, parents_a, children_b, parent_ts, layer
+    ):
+        source_layers = self.cg.get_chunk_layers(parents_a)
+        source_l2_ids = parents_a[source_layers == 2]
+        if source_l2_ids.size == 0 or children_b.size == 0:
+            return types.empty_1d.copy()
+
+        atomic_edges_d = self.cg.get_atomic_cross_edges(source_l2_ids)
+        atomic_edges = [types.empty_2d]
+        for layer_edges_d in atomic_edges_d.values():
+            atomic_edges.append(layer_edges_d.get(layer, types.empty_2d))
+        atomic_edges = np.concatenate(atomic_edges)
+        if atomic_edges.size == 0:
+            return types.empty_1d.copy()
+
+        partner_mask = np.isin(atomic_edges[:, 1], children_b)
+        partner_supervoxels = np.unique(atomic_edges[partner_mask, 1])
+        if partner_supervoxels.size == 0:
+            return types.empty_1d.copy()
+
+        parents_b = self.cg.get_parents(
+            partner_supervoxels, time_stamp=parent_ts, fail_to_zero=True
+        )
+        parents_b = parents_b[parents_b != 0]
+        return np.unique(parents_b)
 
     def _get_parents_b_with_chunk_mask(
         self,
@@ -435,9 +467,11 @@ class LatestEdgesFinder:
                 if _new_edges.size:
                     break
                 logger.note(f"{_edge}, expanding search with padding {pad+1}.")
-            assert (
-                _new_edges.size
-            ), f"No new edge found {_edge}; {edge_layer}, {self.parent_ts}"
+            if not _new_edges.size:
+                raise PreconditionError(
+                    "Could not resolve a stale cross-chunk edge to the current graph. "
+                    "Refresh the segmentation before retrying the split."
+                )
             result.append(_new_edges)
         return np.concatenate(result)
 
