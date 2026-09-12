@@ -31,29 +31,33 @@ def requested_manifest_version(accept_header, default: int = 1) -> int:
     return default
 
 
-def to_v2_groups(node_ids, fragments, prepend_seg_ids):
-    """Group v1 fragments into ``(initial, dynamic)`` by the leading ``~`` marker.
+def to_v2_groups(node_ids, fragments, return_seg_ids):
+    """Group v1 fragments into ``(initial, dynamic)``, each row plain under its bucket.
 
-    Each fragment is emitted exactly as the v1 manifest would (seg id prepended
-    when requested); only the initial-vs-dynamic grouping is added. The raw ``~``
-    selects the group, matching v1's ``~<segid>:<fragment>``.
+    A dynamic fragment is named after its node id, so ``return_seg_ids`` prefixes
+    the sharded rows alone.
     """
     initial, dynamic = [], []
     for node_id, frag in zip(node_ids, fragments):
-        out = f"~{node_id}:{frag}" if prepend_seg_ids else frag
-        (initial if frag.startswith("~") else dynamic).append(out)
+        if not frag.startswith("~"):
+            dynamic.append(frag)
+            continue
+        shard = frag[1:]
+        initial.append(f"{node_id}:{shard}" if return_seg_ids else shard)
     return initial, dynamic
 
 
-def assemble(initial_path: str, dynamic_path: str, initial_frags, dynamic_frags) -> dict:
-    """v2 manifest dict: fragment lists grouped by absolute bucket path.
+def assemble(
+    initial_path: str, dynamic_path: str, initial_frags, dynamic_frags
+) -> dict[str, object]:
+    """v2 manifest: fragment lists grouped by absolute bucket path.
 
-    Empty groups are omitted; each bucket value is a sub-object so per-bucket
-    metadata can be added later without breaking the shape.
+    Empty groups are omitted. Metadata is added beside ``fragments`` at the top
+    level, so a bucket maps straight to its list.
     """
-    fragments = {}
+    fragments: dict[str, list[str]] = {}
     if len(initial_frags):
-        fragments[initial_path] = {"fragments": list(initial_frags)}
+        fragments[initial_path] = list(initial_frags)
     if len(dynamic_frags):
-        fragments[dynamic_path] = {"fragments": list(dynamic_frags)}
+        fragments[dynamic_path] = list(dynamic_frags)
     return {"manifest_version": MANIFEST_VERSION, "fragments": fragments}
