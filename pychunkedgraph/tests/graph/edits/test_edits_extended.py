@@ -60,6 +60,7 @@ class TestCrossEdgeParentRedistribution:
             child_a: {},
             child_b: {},
         }
+        cg.get_chunk_layers.return_value = np.array([3, 3])
         cg.cache.cross_chunk_edges_cache = {}
         cg.client.mutate_row.return_value = "resolved-edge-mutation"
 
@@ -108,6 +109,7 @@ class TestCrossEdgeParentRedistribution:
             parent_b: np.array([], dtype=np.uint64),
         }
         cg.get_cross_chunk_edges.return_value = {child_a: {}}
+        cg.get_chunk_layers.return_value = np.array([3, 3])
         cg.cache.cross_chunk_edges_cache = {}
 
         updated_edges = {
@@ -131,6 +133,91 @@ class TestCrossEdgeParentRedistribution:
             pytest.raises(PostconditionError, match="parent resolution"),
         ):
             create_parents._update_cross_edge_cache_batched([parent_a, parent_b])
+
+        cg.client.mutate_row.assert_not_called()
+        assert cg.cache.cross_chunk_edges_cache == {}
+
+    @pytest.mark.parametrize(
+        "resolved_parents",
+        [
+            np.array([0, 301], dtype=np.uint64),
+            np.array([400, 0], dtype=np.uint64),
+        ],
+    )
+    def test_zero_parent_fails_before_mutation(self, resolved_parents):
+        parent = np.uint64(400)
+        child = np.uint64(101)
+        destination = np.uint64(201)
+
+        cg = MagicMock()
+        cg.meta.layer_count = 5
+        cg.get_chunk_layer.return_value = 3
+        cg.get_children.return_value = {
+            parent: np.array([child], dtype=np.uint64),
+        }
+        cg.get_cross_chunk_edges.return_value = {child: {}}
+        cg.cache.cross_chunk_edges_cache = {}
+
+        updated_edges = {
+            3: np.array([[child, destination]], dtype=np.uint64),
+        }
+        edge_nodes = np.array([child, destination], dtype=np.uint64)
+
+        create_parents = self._create_parent_nodes(cg)
+        with (
+            patch(
+                "pychunkedgraph.graph.edits.get_latest_edges_wrapper",
+                return_value=(updated_edges, edge_nodes),
+            ),
+            patch(
+                "pychunkedgraph.graph.edits.get_new_nodes",
+                return_value=resolved_parents,
+            ),
+            pytest.raises(PostconditionError, match="parent resolution"),
+        ):
+            create_parents._update_cross_edge_cache_batched([parent])
+
+        cg.get_chunk_layers.assert_not_called()
+        cg.client.mutate_row.assert_not_called()
+        assert cg.cache.cross_chunk_edges_cache == {}
+
+    def test_destination_parent_at_wrong_layer_fails_before_mutation(self):
+        parent = np.uint64(400)
+        child = np.uint64(101)
+        destination = np.uint64(201)
+        destination_parent = np.uint64(301)
+
+        cg = MagicMock()
+        cg.meta.layer_count = 5
+        cg.get_chunk_layer.return_value = 3
+        cg.get_children.return_value = {
+            parent: np.array([child], dtype=np.uint64),
+        }
+        cg.get_cross_chunk_edges.return_value = {child: {}}
+        cg.get_chunk_layers.return_value = np.array([3, 4])
+        cg.cache.cross_chunk_edges_cache = {}
+
+        updated_edges = {
+            3: np.array([[child, destination]], dtype=np.uint64),
+        }
+        edge_nodes = np.array([child, destination], dtype=np.uint64)
+        resolved_parents = np.array(
+            [parent, destination_parent], dtype=np.uint64
+        )
+
+        create_parents = self._create_parent_nodes(cg)
+        with (
+            patch(
+                "pychunkedgraph.graph.edits.get_latest_edges_wrapper",
+                return_value=(updated_edges, edge_nodes),
+            ),
+            patch(
+                "pychunkedgraph.graph.edits.get_new_nodes",
+                return_value=resolved_parents,
+            ),
+            pytest.raises(PostconditionError, match="parent resolution"),
+        ):
+            create_parents._update_cross_edge_cache_batched([parent])
 
         cg.client.mutate_row.assert_not_called()
         assert cg.cache.cross_chunk_edges_cache == {}

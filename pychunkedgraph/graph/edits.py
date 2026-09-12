@@ -709,9 +709,48 @@ class CreateParentNodes:
             )
 
         edge_nodes = np.unique(np.asarray(edge_nodes, dtype=basetypes.NODE_ID))
-        edge_parents = get_new_nodes(
-            self.cg, edge_nodes, parent_layer, self._last_ts
+        edge_parents = np.asarray(
+            get_new_nodes(self.cg, edge_nodes, parent_layer, self._last_ts),
+            dtype=basetypes.NODE_ID,
         )
+        if edge_parents.shape != edge_nodes.shape:
+            logger.error(
+                "cross-edge parent resolution cardinality mismatch; "
+                f"op={self._opid}, parent_layer={parent_layer}, "
+                f"edge_nodes={edge_nodes}, edge_parents={edge_parents}"
+            )
+            raise PostconditionError(
+                "Cross-chunk edge parent resolution is inconsistent. "
+                "Refresh the segmentation before retrying the split."
+            )
+
+        zero_parent_nodes = edge_nodes[edge_parents == 0]
+        if zero_parent_nodes.size:
+            logger.error(
+                "cross-edge parent resolution returned zero; "
+                f"op={self._opid}, parent_layer={parent_layer}, "
+                f"nodes={zero_parent_nodes}"
+            )
+            raise PostconditionError(
+                "Cross-chunk edge parent resolution is inconsistent. "
+                "Refresh the segmentation before retrying the split."
+            )
+
+        edge_parent_layers = self.cg.get_chunk_layers(edge_parents)
+        invalid_layer_mask = edge_parent_layers != parent_layer
+        if np.any(invalid_layer_mask):
+            logger.error(
+                "cross-edge parent resolution returned wrong layer; "
+                f"op={self._opid}, parent_layer={parent_layer}, "
+                f"nodes={edge_nodes[invalid_layer_mask]}, "
+                f"parents={edge_parents[invalid_layer_mask]}, "
+                f"layers={edge_parent_layers[invalid_layer_mask]}"
+            )
+            raise PostconditionError(
+                "Cross-chunk edge parent resolution is inconsistent. "
+                "Refresh the segmentation before retrying the split."
+            )
+
         edge_parents_d = dict(zip(edge_nodes, edge_parents))
         new_ids_array = np.asarray(new_ids, dtype=basetypes.NODE_ID)
         parent_cx_edges = {new_id: {} for new_id in new_ids_array}
