@@ -57,6 +57,11 @@ def handle_valid_frags(table_id, node_id):
 ## MANIFEST --------------------------------------------------------------------
 
 
+def _flag(name: str, data: dict[str, object]) -> bool:
+    """A manifest request flag, from the query string or the body, false when absent."""
+    return app_utils.toboolean(request.args.get(name) or data.get(name) or "false")
+
+
 def handle_get_manifest(table_id, node_id):
     current_app.request_type = "manifest"
     current_app.table_id = table_id
@@ -79,12 +84,9 @@ def handle_get_manifest(table_id, node_id):
             "client to one that requests "
             "'Accept: application/x.cave;manifest_version=2'."
         )
-    verify = request.args.get("verify", False)
-    verify = verify in ["True", "true", "1", True]
-    return_seg_ids = request.args.get("return_seg_ids", False)
-    prepend_seg_ids = request.args.get("prepend_seg_ids", False)
-    return_seg_ids = return_seg_ids in ["True", "true", "1", True]
-    prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
+    verify = _flag("verify", data)
+    return_seg_ids = _flag("return_seg_ids", data)
+    prepend_seg_ids = _flag("prepend_seg_ids", data)
     start_layer = mm.max_layer
     start_layer = int(request.args.get("start_layer", start_layer))
     if "start_layer" in data:
@@ -137,11 +139,11 @@ def manifest_response(cg, args):
         )
 
     if manifest_version >= 2:
+        # Seg ids travel on the fragments and nowhere else: a top level list cannot be lined up
+        # with fragments split across buckets, and duplicates what the prefix already carries.
         mm = MeshMeta(cg)
-        initial, dynamic = v2.to_v2_groups(seg_ids, fragments, prepend_seg_ids)
+        initial, dynamic = v2.to_v2_groups(seg_ids, fragments, return_seg_ids)
         resp = v2.assemble(mm.initial_path, mm.dynamic_path, initial, dynamic)
-        if return_seg_ids:
-            resp["seg_ids"] = seg_ids
     else:
         resp = {"fragments": fragments}
         if prepend_seg_ids:
@@ -152,11 +154,9 @@ def manifest_response(cg, args):
 
 
 def _check_post_options(cg, resp, data, seg_ids):
-    if app_utils.toboolean(data.get("return_seg_ids", "false")):
-        resp["seg_ids"] = seg_ids
-    if app_utils.toboolean(data.get("return_seg_id_layers", "false")):
+    if _flag("return_seg_id_layers", data):
         resp["seg_id_layers"] = cg.get_chunk_layers(seg_ids)
-    if app_utils.toboolean(data.get("return_seg_chunk_coordinates", "false")):
+    if _flag("return_seg_chunk_coordinates", data):
         resp["seg_chunk_coordinates"] = [
             cg.get_chunk_coordinates(seg_id) for seg_id in seg_ids
         ]

@@ -27,3 +27,17 @@ There can be two types of mesh fragments in a manifest: `initial` and `dynamic`.
 
 
 For all formats, `prepend_seg_ids=true` query parameter can be used to add `~{segment_id}:` as prefix to fragment ID in the manifest. This can be used in neuroglancer to map segment ID to mesh fragment in cache, this helps avoid redownloading unaffected fragments after an edit operation.
+
+In a v2 manifest, requested with `Accept: application/x.cave;manifest_version=2`, that prefix is asked for with `return_seg_ids=true` instead, and `prepend_seg_ids` is ignored. A v2 manifest carries no top level `seg_ids` list: fragments are grouped by bucket, so a flat list cannot be lined up with them, and a dynamic fragment is named after its own segment.
+
+```
+{
+  "manifest_version": 2,
+  "fragments": {
+    "gs://bucket/graphene_meshes/initial": ["<segid>:<layer>/<shard>.shard:<offset>:<size>"],
+    "gs://bucket/graphene_meshes/dynamic": ["<segid>:0:<bbox>"]
+  }
+}
+```
+
+Each bucket maps straight to its fragment list, and a group with no fragments is omitted. The bucket says which kind a fragment is, so v2 rows carry no `~`, and `return_seg_ids` prefixes the sharded rows alone.
