@@ -11,8 +11,11 @@ from flask import Response, current_app, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import chunkedgraph
+from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
+from pychunkedgraph.meshing.manifest import v2
 from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
 from pychunkedgraph.meshing.manifest import get_children_before_start_layer
 from pychunkedgraph.meshing.manifest import ManifestCache
@@ -54,6 +57,11 @@ def handle_valid_frags(table_id, node_id):
 ## MANIFEST --------------------------------------------------------------------
 
 
+def _flag(name: str, data: dict[str, object]) -> bool:
+    """A manifest request flag, from the query string or the body, false when absent."""
+    return app_utils.toboolean(request.args.get(name) or data.get(name) or "false")
+
+
 def handle_get_manifest(table_id, node_id):
     current_app.request_type = "manifest"
     current_app.table_id = table_id
@@ -68,13 +76,18 @@ def handle_get_manifest(table_id, node_id):
         bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
 
     cg = app_utils.get_cg(table_id)
-    verify = request.args.get("verify", False)
-    verify = verify in ["True", "true", "1", True]
-    return_seg_ids = request.args.get("return_seg_ids", False)
-    prepend_seg_ids = request.args.get("prepend_seg_ids", False)
-    return_seg_ids = return_seg_ids in ["True", "true", "1", True]
-    prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
-    start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    mm = MeshMeta(cg)
+    manifest_version = v2.requested_manifest_version(request.headers.get("Accept"))
+    if manifest_version < 2 and mm.needs_v2:
+        raise cg_exceptions.NotAcceptable(
+            "This dataset serves meshes from an absolute path; upgrade your "
+            "client to one that requests "
+            "'Accept: application/x.cave;manifest_version=2'."
+        )
+    verify = _flag("verify", data)
+    return_seg_ids = _flag("return_seg_ids", data)
+    prepend_seg_ids = _flag("prepend_seg_ids", data)
+    start_layer = mm.max_layer
     start_layer = int(request.args.get("start_layer", start_layer))
     if "start_layer" in data:
         start_layer = int(data["start_layer"])
@@ -91,8 +104,12 @@ def handle_get_manifest(table_id, node_id):
         flexible_start_layer,
         bounding_box,
         data,
+        manifest_version,
     )
-    return manifest_response(cg, args)
+    response = make_response(jsonify(manifest_response(cg, args)))
+    response.headers["X-Manifest-Version"] = str(manifest_version)
+    response.headers["Vary"] = "Accept"
+    return response
 
 
 def manifest_response(cg, args):
@@ -107,34 +124,39 @@ def manifest_response(cg, args):
         flexible_start_layer,
         bounding_box,
         data,
+        manifest_version,
     ) = args
-    resp = {}
-    seg_ids = []
     if not verify:
-        seg_ids, resp["fragments"] = speculative_manifest_sharded(
+        seg_ids, fragments = speculative_manifest_sharded(
             cg, node_id, start_layer=start_layer, bounding_box=bounding_box
         )
-
     else:
-        seg_ids, resp["fragments"] = get_highest_child_nodes_with_meshes(
+        seg_ids, fragments = get_highest_child_nodes_with_meshes(
             cg,
             np.uint64(node_id),
             start_layer=start_layer,
             bounding_box=bounding_box,
         )
-    if prepend_seg_ids:
-        resp["fragments"] = [f"~{i}:{f}" for i, f in zip(seg_ids, resp["fragments"])]
-    if return_seg_ids:
-        resp["seg_ids"] = seg_ids
+
+    if manifest_version >= 2:
+        # Seg ids travel on the fragments and nowhere else: a top level list cannot be lined up
+        # with fragments split across buckets, and duplicates what the prefix already carries.
+        mm = MeshMeta(cg)
+        initial, dynamic = v2.to_v2_groups(seg_ids, fragments, return_seg_ids)
+        resp = v2.assemble(mm.initial_path, mm.dynamic_path, initial, dynamic)
+    else:
+        resp = {"fragments": fragments}
+        if prepend_seg_ids:
+            resp["fragments"] = [f"~{i}:{f}" for i, f in zip(seg_ids, fragments)]
+        if return_seg_ids:
+            resp["seg_ids"] = seg_ids
     return _check_post_options(cg, resp, data, seg_ids)
 
 
 def _check_post_options(cg, resp, data, seg_ids):
-    if app_utils.toboolean(data.get("return_seg_ids", "false")):
-        resp["seg_ids"] = seg_ids
-    if app_utils.toboolean(data.get("return_seg_id_layers", "false")):
+    if _flag("return_seg_id_layers", data):
         resp["seg_id_layers"] = cg.get_chunk_layers(seg_ids)
-    if app_utils.toboolean(data.get("return_seg_chunk_coordinates", "false")):
+    if _flag("return_seg_chunk_coordinates", data):
         resp["seg_chunk_coordinates"] = [
             cg.get_chunk_coordinates(seg_id) for seg_id in seg_ids
         ]
@@ -180,22 +202,15 @@ def handle_remesh(table_id):
 
 def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
-    cv_mesh_dir = cg.meta.dataset_info["mesh"]
-    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
-    )
-    mesh_data = cg.meta.custom_data["mesh"]
-
-    # TODO: stop_layer and mip should be configurable by dataset
+    mm = MeshMeta(cg)
     meshgen.remeshing(
         cg,
         lvl2_nodes,
-        stop_layer=mesh_data["max_layer"],
-        mip=mesh_data["mip"],
-        max_err=mesh_data["max_error"],
-        cv_sharded_mesh_dir=cv_mesh_dir,
-        cv_unsharded_mesh_path=cv_unsharded_mesh_path,
+        stop_layer=mm.max_layer,
+        mip=mm.mip,
+        max_err=mm.max_error,
+        cv_sharded_mesh_dir=mm.dir,
+        cv_unsharded_mesh_path=mm.dynamic_path,
     )
 
     return Response(status=200)

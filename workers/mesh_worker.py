@@ -3,7 +3,6 @@
 import gc
 import pickle
 import logging
-from os import path
 from os import getenv
 
 import numpy as np
@@ -12,6 +11,7 @@ from messagingclient import MessagingClient
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.utils import basetypes
 from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 
 
 PCG_CACHE = {}
@@ -41,20 +41,15 @@ def callback(payload):
     )
 
     try:
-        mesh_meta = cg.meta.custom_data["mesh"]
-        mesh_dir = mesh_meta["dir"]
-        layer = mesh_meta["max_layer"]
-        mip = mesh_meta["mip"]
-        err = mesh_meta["max_error"]
-        cv_unsharded_mesh_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+        mm = MeshMeta(cg)
+        layer = mm.max_layer
+        mip = mm.mip
+        err = mm.max_error
+        mesh_dir = mm.dir
+        mesh_path = mm.dynamic_path
     except KeyError:
         logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
         return
-
-    mesh_path = path.join(
-        cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
-    )
-
 
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
     meshgen.remeshing(

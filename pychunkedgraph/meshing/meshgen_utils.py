@@ -14,6 +14,7 @@ from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
+from .mesh_meta import MeshMeta
 
 
 def str_to_slice(slice_str: str):
@@ -145,7 +146,14 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    mm = MeshMeta(cg)
+    info["mesh"] = mm.dir
+    # Absolute initial/dynamic bucket locations (the v2 manifest's bucket keys)
+    # so cloud-volume's manifest-bypass reads resolve to the real buckets.
+    mesh_metadata = dict(info.get("mesh_metadata", {}))
+    mesh_metadata["initial_mesh_path"] = mm.initial_path
+    mesh_metadata["dynamic_mesh_path"] = mm.dynamic_path
+    info["mesh_metadata"] = mesh_metadata
     info_str = dumps(info)
     return loads(info_str)
 
