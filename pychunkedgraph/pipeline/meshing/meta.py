@@ -5,7 +5,8 @@ Read from the dataset yaml under a ``mesh_config:`` block, exactly like
 required — the helper that applies it (``setup_mesh_meta``) does not
 substitute defaults for missing yaml entries. The only optional field
 is :attr:`dynamic_mesh_dir`, which is graph-id-derived and filled in by
-:meth:`with_graph_id` when omitted from the yaml.
+:meth:`with_graph_id` when omitted from the yaml. The mesh chunk_size is
+derived (CG CHUNK_SIZE / per-axis downsample at ``mip``), not configured.
 
 Example yaml block::
 
@@ -14,13 +15,12 @@ Example yaml block::
       mip: 0
       max_layer: 6
       max_error: 40
-      chunk_size: [512, 512, 256]
       minishard_bits: {2: 1, 3: 3, 4: 6, 5: 9, 6: 12}
       # dynamic_mesh_dir: my_custom_dir  # optional; default "dynamic_<graph_id>"
 """
 
 from dataclasses import asdict, dataclass, replace
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 
 @dataclass
@@ -31,7 +31,6 @@ class MeshConfig:
     mip: int
     max_layer: int
     max_error: int
-    chunk_size: List[int]
     minishard_bits: Dict[int, int]
     dynamic_mesh_dir: Optional[str] = None
 
@@ -54,8 +53,6 @@ class MeshConfig:
             kwargs["minishard_bits"] = {
                 int(k): int(v) for k, v in kwargs["minishard_bits"].items()
             }
-        if "chunk_size" in kwargs:
-            kwargs["chunk_size"] = [int(x) for x in kwargs["chunk_size"]]
         return cls(**kwargs)
 
     def with_graph_id(self, graph_id: str) -> "MeshConfig":

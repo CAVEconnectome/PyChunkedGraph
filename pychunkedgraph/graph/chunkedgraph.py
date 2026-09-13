@@ -1020,3 +1020,8 @@ class ChunkedGraph:
             _, timestamp = self.client.read_log_entry(op_id)
             if timestamp is not None:
                 return timestamp - timedelta(milliseconds=500)
+        # no ops: the ingest-completion boundary stamped during the root-layer build
+        stamped = self.meta.custom_data.get("earliest_ts")
+        if stamped is not None:
+            return datetime.datetime.fromisoformat(stamped)
+        return datetime.datetime.fromtimestamp(0, tz=datetime.timezone.utc)
