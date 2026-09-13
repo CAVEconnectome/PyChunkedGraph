@@ -280,19 +280,17 @@ class TestGraphBuild:
         assert test_ace in atomic_cross_edge_d[2]
         assert len(children) == 1 and to_label(cg, 1, 1, 0, 0, 0) in children
 
-        # Check for the one Level 3 node that should have been created. This one combines the two
-        # connected components of Level 2
-        # to_label(cg, 3, 0, 0, 0, 1)
-        assert serialize_uint64(to_label(cg, 3, 0, 0, 0, 1)) in res.rows
+        # The one Level 3 node combines the two connected components of Level 2
+        root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
+        assert root == cg.get_root(to_label(cg, 1, 1, 0, 0, 0))
+        assert cg.get_chunk_layer(root) == 3
+        assert serialize_uint64(root) in res.rows
 
-        attr = attributes.Hierarchy.Child
-        row = res.rows[serialize_uint64(to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
-        children = attr.deserialize(row[attr.key][0].value)
-        assert (
-            len(children) == 2
-            and to_label(cg, 2, 0, 0, 0, 1) in children
-            and to_label(cg, 2, 1, 0, 0, 1) in children
-        )
+        children = cg.get_children(root)
+        assert len(children) == 2 and set(children) == {
+            cg.get_parent(to_label(cg, 1, 0, 0, 0, 0)),
+            cg.get_parent(to_label(cg, 1, 1, 0, 0, 0)),
+        }
 
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
@@ -388,19 +386,18 @@ class TestGraphBuild:
         assert test_ace in atomic_cross_edge_d[2]
         assert len(children) == 1 and to_label(cg, 1, 1, 0, 0, 0) in children
 
-        # Check for the one Level 3 node that should have been created. This one combines the two
-        # connected components of Level 2
-        # to_label(cg, 3, 0, 0, 0, 1)
-        assert serialize_uint64(to_label(cg, 3, 0, 0, 0, 1)) in res.rows
-        row = res.rows[serialize_uint64(to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
-        column = attributes.Hierarchy.Child
-        children = column.deserialize(row[column.key][0].value)
+        # The one Level 3 node combines the two connected components of Level 2
+        root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
+        assert root == cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+        assert root == cg.get_root(to_label(cg, 1, 1, 0, 0, 0))
+        assert cg.get_chunk_layer(root) == 3
+        assert serialize_uint64(root) in res.rows
 
-        assert (
-            len(children) == 2
-            and to_label(cg, 2, 0, 0, 0, 1) in children
-            and to_label(cg, 2, 1, 0, 0, 1) in children
-        )
+        children = cg.get_children(root)
+        assert len(children) == 2 and set(children) == {
+            cg.get_parent(to_label(cg, 1, 0, 0, 0, 0)),
+            cg.get_parent(to_label(cg, 1, 1, 0, 0, 0)),
+        }
 
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
@@ -436,8 +433,12 @@ class TestGraphBuild:
 
         assert serialize_uint64(to_label(cg, 1, 0, 0, 0, 0)) in res.rows
         assert serialize_uint64(to_label(cg, 1, 7, 7, 7, 0)) in res.rows
-        assert serialize_uint64(to_label(cg, 5, 0, 0, 0, 1)) in res.rows
-        assert serialize_uint64(to_label(cg, 5, 0, 0, 0, 2)) in res.rows
+        root_a = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
+        root_z = cg.get_root(to_label(cg, 1, 7, 7, 7, 0))
+        assert root_a != root_z
+        assert cg.get_chunk_layer(root_a) == cg.get_chunk_layer(root_z) == 5
+        assert serialize_uint64(root_a) in res.rows
+        assert serialize_uint64(root_z) in res.rows
 
     @pytest.mark.timeout(30)
     def test_double_chunk_creation(self, gen_graph):
@@ -501,15 +502,15 @@ class TestGraphBuild:
         assert cg.get_chunk_layer(cg.get_root(to_label(cg, 1, 0, 0, 0, 2))) == 4
         assert cg.get_chunk_layer(cg.get_root(to_label(cg, 1, 1, 0, 0, 1))) == 4
 
-        root_seg_ids = [
-            cg.get_segment_id(cg.get_root(to_label(cg, 1, 0, 0, 0, 1))),
-            cg.get_segment_id(cg.get_root(to_label(cg, 1, 0, 0, 0, 2))),
-            cg.get_segment_id(cg.get_root(to_label(cg, 1, 1, 0, 0, 1))),
+        svs = [
+            to_label(cg, 1, 0, 0, 0, 1),
+            to_label(cg, 1, 0, 0, 0, 2),
+            to_label(cg, 1, 1, 0, 0, 1),
         ]
-
-        assert 4 in root_seg_ids
-        assert 5 in root_seg_ids
-        assert 6 in root_seg_ids
+        roots = [cg.get_root(sv) for sv in svs]
+        assert len(set(roots)) == 3
+        for sv, root in zip(svs, roots):
+            assert cg.get_parent(sv) in cg.get_children(root)
 
 
 class TestGraphSimpleQueries:
@@ -524,141 +525,75 @@ class TestGraphSimpleQueries:
     @pytest.mark.timeout(30)
     def test_get_parent_and_children(self, gen_graph_simplequerytest):
         cg = gen_graph_simplequerytest
-
-        children10000 = cg.get_children(to_label(cg, 1, 0, 0, 0, 0))
-        children11000 = cg.get_children(to_label(cg, 1, 1, 0, 0, 0))
-        children11001 = cg.get_children(to_label(cg, 1, 1, 0, 0, 1))
-        children12000 = cg.get_children(to_label(cg, 1, 2, 0, 0, 0))
-
-        parent10000 = cg.get_parent(
-            to_label(cg, 1, 0, 0, 0, 0),
-        )
-        parent11000 = cg.get_parent(
-            to_label(cg, 1, 1, 0, 0, 0),
-        )
-        parent11001 = cg.get_parent(
-            to_label(cg, 1, 1, 0, 0, 1),
-        )
-        parent12000 = cg.get_parent(
-            to_label(cg, 1, 2, 0, 0, 0),
-        )
-
-        children20001 = cg.get_children(to_label(cg, 2, 0, 0, 0, 1))
-        children21001 = cg.get_children(to_label(cg, 2, 1, 0, 0, 1))
-        children22001 = cg.get_children(to_label(cg, 2, 2, 0, 0, 1))
-
-        parent20001 = cg.get_parent(
-            to_label(cg, 2, 0, 0, 0, 1),
-        )
-        parent21001 = cg.get_parent(
-            to_label(cg, 2, 1, 0, 0, 1),
-        )
-        parent22001 = cg.get_parent(
-            to_label(cg, 2, 2, 0, 0, 1),
-        )
-
-        children30001 = cg.get_children(to_label(cg, 3, 0, 0, 0, 1))
-        # children30002 = cg.get_children(to_label(cg, 3, 0, 0, 0, 2))
-        children31001 = cg.get_children(to_label(cg, 3, 1, 0, 0, 1))
-
-        parent30001 = cg.get_parent(
-            to_label(cg, 3, 0, 0, 0, 1),
-        )
-        # parent30002 = cg.get_parent(to_label(cg, 3, 0, 0, 0, 2),  )
-        parent31001 = cg.get_parent(
-            to_label(cg, 3, 1, 0, 0, 1),
-        )
-
-        children40001 = cg.get_children(to_label(cg, 4, 0, 0, 0, 1))
-        children40002 = cg.get_children(to_label(cg, 4, 0, 0, 0, 2))
-
-        parent40001 = cg.get_parent(
-            to_label(cg, 4, 0, 0, 0, 1),
-        )
-        parent40002 = cg.get_parent(
-            to_label(cg, 4, 0, 0, 0, 2),
-        )
+        sv_a = to_label(cg, 1, 0, 0, 0, 0)
+        sv_b0 = to_label(cg, 1, 1, 0, 0, 0)
+        sv_b1 = to_label(cg, 1, 1, 0, 0, 1)
+        sv_c = to_label(cg, 1, 2, 0, 0, 0)
 
         # (non-existing) Children of L1
-        assert np.array_equal(children10000, []) is True
-        assert np.array_equal(children11000, []) is True
-        assert np.array_equal(children11001, []) is True
-        assert np.array_equal(children12000, []) is True
+        for sv in (sv_a, sv_b0, sv_b1, sv_c):
+            assert np.array_equal(cg.get_children(sv), []) is True
 
         # Parent of L1
-        assert parent10000 == to_label(cg, 2, 0, 0, 0, 1)
-        assert parent11000 == to_label(cg, 2, 1, 0, 0, 1)
-        assert parent11001 == to_label(cg, 2, 1, 0, 0, 1)
-        assert parent12000 == to_label(cg, 2, 2, 0, 0, 1)
+        l2_a, l2_b, l2_c = cg.get_parent(sv_a), cg.get_parent(sv_b0), cg.get_parent(sv_c)
+        assert cg.get_parent(sv_b1) == l2_b
+        assert [cg.get_chunk_layer(node) for node in (l2_a, l2_b, l2_c)] == [2, 2, 2]
+        assert len({l2_a, l2_b, l2_c}) == 3
 
         # Children of L2
-        assert len(children20001) == 1 and to_label(cg, 1, 0, 0, 0, 0) in children20001
-        assert (
-            len(children21001) == 2
-            and to_label(cg, 1, 1, 0, 0, 0) in children21001
-            and to_label(cg, 1, 1, 0, 0, 1) in children21001
-        )
-        assert len(children22001) == 1 and to_label(cg, 1, 2, 0, 0, 0) in children22001
+        children_l2_a = cg.get_children(l2_a)
+        children_l2_b = cg.get_children(l2_b)
+        children_l2_c = cg.get_children(l2_c)
+        assert len(children_l2_a) == 1 and sv_a in children_l2_a
+        assert len(children_l2_b) == 2 and sv_b0 in children_l2_b and sv_b1 in children_l2_b
+        assert len(children_l2_c) == 1 and sv_c in children_l2_c
 
-        # Parent of L2
-        assert parent20001 == to_label(cg, 4, 0, 0, 0, 1)
-        assert parent21001 == to_label(cg, 3, 0, 0, 0, 1)
-        assert parent22001 == to_label(cg, 3, 1, 0, 0, 1)
+        # Parent of L2: A skips to the root, B and C each get a node in their own L3 chunk
+        root_a = cg.get_parent(l2_a)
+        l3_b, l3_c = cg.get_parent(l2_b), cg.get_parent(l2_c)
+        assert cg.get_chunk_layer(root_a) == 4
+        assert cg.get_chunk_layer(l3_b) == cg.get_chunk_layer(l3_c) == 3
+        assert l3_b != l3_c
 
         # Children of L3
-        assert len(children30001) == 1 and len(children31001) == 1
-        assert to_label(cg, 2, 1, 0, 0, 1) in children30001
-        assert to_label(cg, 2, 2, 0, 0, 1) in children31001
+        children_l3_b = cg.get_children(l3_b)
+        children_l3_c = cg.get_children(l3_c)
+        assert len(children_l3_b) == 1 and l2_b in children_l3_b
+        assert len(children_l3_c) == 1 and l2_c in children_l3_c
 
         # Parent of L3
-        assert parent30001 == parent31001
-        assert (
-            parent30001 == to_label(cg, 4, 0, 0, 0, 1)
-            and parent20001 == to_label(cg, 4, 0, 0, 0, 2)
-        ) or (
-            parent30001 == to_label(cg, 4, 0, 0, 0, 2)
-            and parent20001 == to_label(cg, 4, 0, 0, 0, 1)
-        )
+        root_bc = cg.get_parent(l3_b)
+        assert cg.get_parent(l3_c) == root_bc
+        assert cg.get_chunk_layer(root_bc) == 4
+        assert root_bc != root_a
 
         # Children of L4
-        assert parent10000 in children40001
-        assert parent21001 in children40002 and parent22001 in children40002
+        assert l2_a in cg.get_children(root_a)
+        children_root_bc = cg.get_children(root_bc)
+        assert l3_b in children_root_bc and l3_c in children_root_bc
 
         # (non-existing) Parent of L4
-        assert parent40001 is None
-        assert parent40002 is None
+        assert cg.get_parent(root_a) is None
+        assert cg.get_parent(root_bc) is None
 
-        children2_separate = cg.get_children(
-            [
-                to_label(cg, 2, 0, 0, 0, 1),
-                to_label(cg, 2, 1, 0, 0, 1),
-                to_label(cg, 2, 2, 0, 0, 1),
-            ]
-        )
+        children2_separate = cg.get_children([l2_a, l2_b, l2_c])
         assert len(children2_separate) == 3
-        assert to_label(cg, 2, 0, 0, 0, 1) in children2_separate and np.all(
-            np.isin(children2_separate[to_label(cg, 2, 0, 0, 0, 1)], children20001)
+        assert l2_a in children2_separate and np.all(
+            np.isin(children2_separate[l2_a], children_l2_a)
         )
-        assert to_label(cg, 2, 1, 0, 0, 1) in children2_separate and np.all(
-            np.isin(children2_separate[to_label(cg, 2, 1, 0, 0, 1)], children21001)
+        assert l2_b in children2_separate and np.all(
+            np.isin(children2_separate[l2_b], children_l2_b)
         )
-        assert to_label(cg, 2, 2, 0, 0, 1) in children2_separate and np.all(
-            np.isin(children2_separate[to_label(cg, 2, 2, 0, 0, 1)], children22001)
+        assert l2_c in children2_separate and np.all(
+            np.isin(children2_separate[l2_c], children_l2_c)
         )
 
-        children2_combined = cg.get_children(
-            [
-                to_label(cg, 2, 0, 0, 0, 1),
-                to_label(cg, 2, 1, 0, 0, 1),
-                to_label(cg, 2, 2, 0, 0, 1),
-            ],
-            flatten=True,
-        )
+        children2_combined = cg.get_children([l2_a, l2_b, l2_c], flatten=True)
         assert (
             len(children2_combined) == 4
-            and np.all(np.isin(children20001, children2_combined))
-            and np.all(np.isin(children21001, children2_combined))
-            and np.all(np.isin(children22001, children2_combined))
+            and np.all(np.isin(children_l2_a, children2_combined))
+            and np.all(np.isin(children_l2_b, children2_combined))
+            and np.all(np.isin(children_l2_c, children2_combined))
         )
 
     @pytest.mark.timeout(30)
@@ -680,13 +615,10 @@ class TestGraphSimpleQueries:
         with pytest.raises(Exception):
             cg.get_root(0)
 
-        assert (
-            root10000 == to_label(cg, 4, 0, 0, 0, 1)
-            and root11000 == root11001 == root12000 == to_label(cg, 4, 0, 0, 0, 2)
-        ) or (
-            root10000 == to_label(cg, 4, 0, 0, 0, 2)
-            and root11000 == root11001 == root12000 == to_label(cg, 4, 0, 0, 0, 1)
-        )
+        assert root11000 == root11001 == root12000
+        assert root10000 != root11000
+        assert cg.get_chunk_layer(root10000) == cg.get_chunk_layer(root11000) == 4
+        assert cg.get_parent(root10000) is None and cg.get_parent(root11000) is None
 
     @pytest.mark.timeout(30)
     def test_get_subgraph_nodes(self, gen_graph_simplequerytest):

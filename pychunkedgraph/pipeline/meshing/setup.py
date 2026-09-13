@@ -22,13 +22,14 @@ reads ``mesh_config:`` from the mounted dataset yaml (``PCG_DATASET``).
 
 import argparse
 import logging
+from datetime import datetime, timezone
 from os import environ
 
-import numpy as np
 import yaml
 
 from ...graph.chunkedgraph import ChunkedGraph
 from ...meshing.meshgen import get_draco_encoding_settings_for_chunk
+from ...meshing.meshgen_utils import get_mesh_block_shape_for_mip
 from .meta import MeshConfig
 
 logger = logging.getLogger(__name__)
@@ -39,45 +40,19 @@ DATASET_PATH = environ.get("PCG_DATASET", "/app/datasets/dataset.yml")
 
 
 def derive_initial_ts(cg: ChunkedGraph) -> int:
-    """Unix-seconds timestamp of a root id sampled from the dataset center.
+    """Unix-seconds boundary for ``mesh.initial_ts`` (see ``segregate_node_ids``).
 
-    ``mesh.initial_ts`` is the threshold ``segregate_node_ids`` (see
-    ``meshing/manifest/utils.py``) uses to classify root ids as initial
-    vs post-ingest. It must sit above the last initial-ingest commit
-    and below any post-ingest commit. Picking a root id near the
-    volume center and using its commit timestamp satisfies both bounds
-    for any graph that completed initial ingest.
-
-    Walks shells outward from the center of the L2 chunk grid (L1
-    shares L2's coordinate grid) and returns the timestamp of the root
-    of the first SV found.
+    ``get_earliest_timestamp`` returns the first edit, or — pre-edit — the
+    ingest-completion boundary stamped during the root-layer build. ``+1`` makes the
+    second-granularity threshold strictly above the last initial root (the check
+    is ``<`` and ``int()`` truncates).
     """
-    hi = np.asarray(cg.meta.layer_chunk_bounds[2])
-    center = hi // 2
-    for r in range(int(hi.max()) + 1):
-        box = (
-            np.array(
-                np.meshgrid(
-                    np.arange(-r, r + 1),
-                    np.arange(-r, r + 1),
-                    np.arange(-r, r + 1),
-                    indexing="ij",
-                )
-            )
-            .reshape(3, -1)
-            .T
+    earliest = cg.get_earliest_timestamp()
+    if earliest <= datetime.fromtimestamp(0, tz=timezone.utc):
+        raise RuntimeError(
+            "derive_initial_ts: no operations and no ingest earliest_ts stamped"
         )
-        shell = box[np.max(np.abs(box), axis=1) == r]
-        coords = np.unique(np.clip(center + shell, 0, hi - 1), axis=0)
-        for c in coords:
-            chunk_id = cg.get_chunk_id(layer=1, x=int(c[0]), y=int(c[1]), z=int(c[2]))
-            svs = list(cg.range_read_chunk(chunk_id))
-            if svs:
-                sv = svs[len(svs) // 2]
-                root = cg.get_root(sv)
-                ts = cg.get_node_timestamps(np.array([root]), return_numpy=False)[0]
-                return int(ts.timestamp())
-    raise RuntimeError("derive_initial_ts: no SVs found anywhere in the volume")
+    return int(earliest.timestamp()) + 1
 
 
 def setup_mesh_meta(
@@ -97,6 +72,11 @@ def setup_mesh_meta(
     Returns the mesh meta dict persisted into bigtable.
     """
     cfg = mesh_config.with_graph_id(cg.graph_id)
+    n_scales = len(cg.meta.ws_cv.info["scales"])
+    if not 0 <= cfg.mip < n_scales:
+        raise ValueError(
+            f"mesh_config.mip {cfg.mip} exceeds watershed scales (available 0..{n_scales - 1})"
+        )
     existing_mesh = cg.meta.custom_data.get("mesh", {})
     existing_ts = existing_mesh.get("initial_ts")
     initial_ts = int(existing_ts) if existing_ts is not None else derive_initial_ts(cg)
@@ -122,11 +102,12 @@ def setup_mesh_meta(
         for layer, bits in cfg.minishard_bits.items()
         if layer <= cfg.max_layer
     }
+    mesh_chunk_size = get_mesh_block_shape_for_mip(cg, 2, cfg.mip)
     mesh_spec = {
         "@type": "neuroglancer_legacy_mesh",
         "spatial_index": None,
         "mip": int(cfg.mip),
-        "chunk_size": list(cfg.chunk_size),
+        "chunk_size": [int(x) for x in mesh_chunk_size],
         "sharding": sharding,
     }
     cg.meta.ws_cv.mesh.meta.info = mesh_spec

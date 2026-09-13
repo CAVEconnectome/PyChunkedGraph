@@ -63,15 +63,25 @@ def add_layer(
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edge_ids, make_directed=True)
     ccs = flatgraph.connected_components(graph)
     print("ccs", len(ccs))
+    ts = get_valid_timestamp(time_stamp)
     _write_connected_components(
         cg,
         layer_id,
         parent_coords,
         ccs,
         graph_ids,
-        get_valid_timestamp(time_stamp),
+        ts,
         n_threads > 1,
     )
+
+    # Stamp the post-ingest boundary meshing reads to split initial from edited roots.
+    # ts is the explicit cell timestamp shared by every root just written; +500ms (the
+    # same guard get_earliest_timestamp puts below the first op) lifts the boundary
+    # strictly above them.
+    if layer_id == cg.meta.layer_count:
+        boundary = ts + datetime.timedelta(milliseconds=500)
+        cg.meta.custom_data["earliest_ts"] = boundary.isoformat()
+        cg.update_meta(cg.meta, overwrite=True)
     return f"{layer_id}_{'_'.join(map(str, parent_coords))}"
 
 
@@ -166,7 +176,6 @@ def _write_connected_components(
             ccs_with_node_ids,
             node_layer_d_shared,
             time_stamp,
-            use_threads=use_threads,
         )
         return
 
@@ -192,9 +201,7 @@ def _write_components_helper(args):
     _write(cg, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
 
 
-def _write(
-    cg, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp, use_threads=True
-):
+def _write(cg, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp):
     parent_layer_ids = range(layer_id, cg.meta.layer_count + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
     for node_ids in ccs:
@@ -217,7 +224,7 @@ def _write(
         reserved_parent_ids = cg.id_client.create_node_ids(
             parent_chunk_id,
             size=len(cc_connections[parent_layer_id]),
-            root_chunk=parent_layer_id == cg.meta.layer_count and use_threads,
+            root_chunk=parent_layer_id == cg.meta.layer_count,
         )
 
         for i_cc, node_ids in enumerate(cc_connections[parent_layer_id]):
