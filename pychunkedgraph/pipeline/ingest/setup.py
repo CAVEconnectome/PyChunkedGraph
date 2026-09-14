@@ -19,6 +19,7 @@ from ...graph import ChunkedGraph
 from ...graph.client import BackendClientInfo
 from ...graph.client.bigtable import BigTableConfig
 from ...graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
+from .. import run_and_exit
 
 # Predetermined mount path of the dataset yaml (the chart mounts the dataset
 # ConfigMap here); overridable for local/testing.
@@ -63,4 +64,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_and_exit(main)

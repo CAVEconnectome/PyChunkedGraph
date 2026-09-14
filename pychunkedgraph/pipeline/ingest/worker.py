@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import timedelta
 
+from ...ingest import simple_tests
 from .. import lock
 from ..exit_codes import FatalChunkError
 from ..worker import run
@@ -122,8 +123,19 @@ def _process_one(table, cg, layer, coord, config, opts) -> str:
     return "transient"
 
 
+def _verify_root(cg, layer) -> None:
+    """Once the root chunk is built, run the hierarchy sanity suite.
+
+    The chunk is already marked done, so a re-submitted root layer re-runs only this
+    check, never the build.
+    """
+    if layer != cg.meta.layer_count:
+        return
+    simple_tests.run_all(cg)
+
+
 def main() -> int:
-    return run(make_processor)
+    return run(make_processor, finalize=_verify_root)
 
 
 if __name__ == "__main__":

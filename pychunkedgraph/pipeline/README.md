@@ -38,6 +38,7 @@ typically need tuning between layers). Nothing auto-advances.
 
 | Path | Responsibility |
 |---|---|
+| `__init__.py` | `run_and_exit(main)`: every entrypoint's `__main__` guard hands `main` to it, which leaves through `os._exit` so a client's non-daemon thread never stalls the pod, as CAVEpipelines' image contract requires. |
 | `grid.py` | Fixed-seed permutation: maps a batch's contiguous index window to *scattered* chunk coords so concurrent workers spread Bigtable row-key load instead of hot-spotting one tablet. Deterministic + invertible. |
 | `exit_codes.py` | Map success / transient / non-transient failure to the Job `podFailurePolicy`. |
 | `lock.py` | Per-chunk Bigtable claim/done cell (atomic CAS). One effective writer per chunk, token-fenced; a dead holder's claim expires so a retry re-claims; already-`done` chunks are skipped. Used by ingest. |
@@ -74,7 +75,7 @@ The Job template sets these on each pod:
 | `PCG_LAYER` | layer being built |
 | `PCG_PERM_SEED` | permutation seed — **same across all pods and retries of a run** |
 | `PCG_BATCH_SIZE` | `B`, chunks per index |
-| `PCG_N_THREADS` | parallel sub-workers inside a parent-chunk build (default 1) |
+| `PCG_N_PROCESSES` | parallel sub-workers inside a parent-chunk build (default 1); above 1, pools size from the node's cores |
 | `PCG_LOCK_EXPIRY_SCALE` | (ingest) scales the per-layer claim TTL; default 1 |
 | `PCG_LOCK_POLL_SEC` / `PCG_HELD_MAX_WAIT_SEC` | (ingest) poll interval / max wait before deferring a held chunk |
 | `PCG_MESH_CACHE` | (meshing) `0` disables the mesh task's cloud cache; default on |
@@ -97,6 +98,9 @@ re-claims only the unfinished. Meshing needs no lock — it overwrites shards id
   retries (ingest skips done chunks).
 - **Non-transient failure** (`FatalChunkError`, exit 42): the index is failed fast and
   recorded for inspection. A batch finishes all its chunks before choosing an exit code.
+- **Root verify** (ingest): after the root chunk is built, the pod runs the hierarchy
+  sanity suite (`ingest.simple_tests`). A failed check fails the pod without re-opening the
+  chunk, so re-submitting the root layer re-runs only this check, never the build.
 
 ## Testing
 

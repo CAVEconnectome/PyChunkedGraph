@@ -28,8 +28,11 @@ def layer_bounds(cg, layer: int):
     return cg.meta.layer_chunk_bounds[layer]
 
 
-def run(make_processor) -> int:
-    """Run one batch index for the configured layer; returns a process exit code."""
+def run(make_processor, finalize=None) -> int:
+    """Run one batch index for the configured layer; returns a process exit code.
+
+    ``finalize(cg, layer)`` runs only after a fully successful batch; its failure fails the
+    pod (FATAL) without re-opening any chunk, so it is safe to re-run."""
     logging.basicConfig(level=NOTE)
     env = {
         "graph_id": os.environ["PCG_GRAPH_ID"],
@@ -37,7 +40,7 @@ def run(make_processor) -> int:
         "seed": int(os.environ["PCG_PERM_SEED"]),
         "batch_size": int(os.environ["PCG_BATCH_SIZE"]),
         "index": int(os.environ["JOB_COMPLETION_INDEX"]),
-        "n_threads": int(os.environ.get("PCG_N_THREADS", 1)),
+        "n_threads": int(os.environ.get("PCG_N_PROCESSES", 1)),
     }
     layer, index = env["layer"], env["index"]
 
@@ -68,4 +71,10 @@ def run(make_processor) -> int:
         return TRANSIENT
     if fatal:
         return FATAL
+    if finalize:
+        try:
+            finalize(cg, layer)
+        except Exception:
+            logger.exception("finalize failed")
+            return FATAL
     return SUCCESS
