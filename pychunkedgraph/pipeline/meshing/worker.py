@@ -2,17 +2,30 @@
 
 Mirrors ``meshing_sqs.MeshTask.execute``. Idempotent (overwrites shards), so it
 needs no per-chunk lock. Plugged into the generic ``pipeline.worker`` harness. ``mip``
-comes from the mesh meta written by setup; a per-chunk failure counts transient so
-the batch retries it.
+comes from the mesh meta written by setup; an infra failure counts transient so the
+batch retries it, while a bug or bad input fails the index fast.
 """
 
 import logging
 import os
 
+import numpy as np
+
 from ...meshing import meshgen
 from ..worker import run
 
 logger = logging.getLogger(__name__)
+
+#: Failures no retry can clear: a bug or bad input, never infrastructure. Everything
+#: else is transient, so a preemption or an RPC timeout still gets the batch's retries.
+FATAL_ERRORS = (
+    TypeError,
+    ValueError,
+    AttributeError,
+    KeyError,
+    IndexError,
+    AssertionError,
+)
 
 
 def make_processor(cg, layer, env):
@@ -22,7 +35,11 @@ def make_processor(cg, layer, env):
     cache = os.environ.get("PCG_MESH_CACHE", "1") != "0"
 
     def process_one(coord):
-        chunk_id = int(cg.get_chunk_id(layer=layer, x=coord[0], y=coord[1], z=coord[2]))
+        # np.uint64, as the legacy task passes: numpy 1.26 reads a Python int as
+        # int64, and `int64 | uint64` has no safe common type, so every id read raises.
+        chunk_id = np.uint64(
+            cg.get_chunk_id(layer=layer, x=coord[0], y=coord[1], z=coord[2])
+        )
         try:
             if layer == 2:
                 meshgen.chunk_initial_mesh_task(
@@ -33,6 +50,9 @@ def make_processor(cg, layer, env):
                     cg.graph_id, chunk_id, mip, cache=cache
                 )
             return "ok"
+        except FATAL_ERRORS:
+            logger.exception(f"fatal mesh failure on chunk {layer}_{tuple(coord)}")
+            return "fatal"
         except Exception:
             logger.exception(f"mesh failure on chunk {layer}_{tuple(coord)}")
             return "transient"

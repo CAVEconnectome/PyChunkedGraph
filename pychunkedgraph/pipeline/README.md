@@ -96,8 +96,10 @@ re-claims only the unfinished. Meshing needs no lock — it overwrites shards id
   budget); the index is retried.
 - **Transient failure**: counts toward the bounded per-index retry budget; the batch
   retries (ingest skips done chunks).
-- **Non-transient failure** (`FatalChunkError`, exit 42): the index is failed fast and
-  recorded for inspection. A batch finishes all its chunks before choosing an exit code.
+- **Non-transient failure** (exit 42): the index is failed fast and recorded for inspection.
+  Ingest raises `FatalChunkError`; meshing reads a bug or bad input off the exception type,
+  so one deterministic fault cannot burn every retry an index has. A batch finishes all its
+  chunks before choosing an exit code.
 - **Root verify** (ingest): after the root chunk is built, the pod runs the hierarchy
   sanity suite (`ingest.simple_tests`). A failed check fails the pod without re-opening the
   chunk, so re-submitting the root layer re-runs only this check, never the build.
