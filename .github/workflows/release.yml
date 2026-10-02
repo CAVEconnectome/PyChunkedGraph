@@ -36,6 +36,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Checkout cave-helm-charts repo
+        uses: actions/checkout@v4
+        with:
+          repository: CAVEconnectome/cave-helm-charts
+          token: ${{ secrets.HELM_CHART_UPDATE_TOKEN }}
+          path: helm-charts
       - name: Get tags
         run: git fetch --tags origin
       - name: Configure git for github-actions[bot]
@@ -48,9 +54,41 @@ jobs:
           python-version: "3.11"
       - name: Install bumpversion
         run: pip install bumpversion
+      - name: Determine bumpversion base version
+        id: base-version
+        run: |
+          code_version="$(sed -nE 's/^current_version[[:space:]]*=[[:space:]]*([^[:space:]]+).*$/\1/p' .bumpversion.cfg)"
+          chart_version="$(sed -nE 's/^version:[[:space:]]*"?([^"[:space:]]+)"?.*$/\1/p' helm-charts/charts/pychunkedgraph/Chart.yaml | head -n 1)"
+          code_base_version="${code_version%%-*}"
+          chart_base_version="${chart_version%%-*}"
+
+          if [[ ! "$code_base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid code version: $code_version" >&2
+            exit 1
+          fi
+          if [[ ! "$chart_base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid chart version: $chart_version" >&2
+            exit 1
+          fi
+
+          base_version="$(printf '%s\n' "$code_base_version" "$chart_base_version" | sort -V | tail -n 1)"
+          echo "Code version: $code_version (base: $code_base_version)"
+          echo "Chart version: $chart_version (base: $chart_base_version)"
+          echo "Bump base version: $base_version"
+          echo "CODE_VERSION=$code_version" >> "$GITHUB_OUTPUT"
+          echo "BASE_VERSION=$base_version" >> "$GITHUB_OUTPUT"
       - name: Bump version with bumpversion
         run: |
-          bumpversion ${{ github.event.inputs.part }}
+          if [[ "${{ steps.base-version.outputs.CODE_VERSION }}" != "${{ steps.base-version.outputs.BASE_VERSION }}" ]]; then
+            bumpversion \
+              --current-version "${{ steps.base-version.outputs.CODE_VERSION }}" \
+              --new-version "${{ steps.base-version.outputs.BASE_VERSION }}" \
+              --no-tag \
+              patch
+          fi
+          bumpversion \
+            --current-version "${{ steps.base-version.outputs.BASE_VERSION }}" \
+            ${{ inputs.part }}
       - name: Commit and push with tags
         if: ${{ github.event.inputs.dry-run == 'false' }}
         run: git push --follow-tags
