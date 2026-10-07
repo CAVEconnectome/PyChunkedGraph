@@ -1,6 +1,10 @@
 name: pychunkedgraph
 channels:
   - conda-forge
+  # never resolve against Anaconda's `defaults`: its channels are the only ones
+  # gated on a terms-of-service acceptance, and the plugin serving that gate
+  # breaks whenever conda itself is updated from conda-forge.
+  - nodefaults
 dependencies:
   - python==3.11.4
   - pip

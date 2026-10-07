@@ -15,8 +15,6 @@ RUN apt-get update && apt-get install build-essential wget -y \
   && rm Miniconda3-latest-Linux-x86_64.sh \
   && conda config --add channels conda-forge \
   && conda update -y --override-channels -c conda-forge conda \
-  && conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main \
-  && conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r \
   && conda install -y --override-channels -c conda-forge conda-pack
 
 COPY requirements.yml requirements.txt requirements-dev.txt ./
