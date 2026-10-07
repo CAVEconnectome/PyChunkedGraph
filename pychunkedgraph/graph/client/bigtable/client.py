@@ -282,6 +282,68 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             log_record["timestamp"] = timestamp
         return logs_d
 
+    def read_log_entries_streaming(
+        self,
+        properties: typing.Optional[typing.Iterable[attributes._Attribute]] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
+        end_time_inclusive: bool = False,
+        user_id: typing.Optional[str] = None,
+    ):
+        """Streaming counterpart to :meth:`read_log_entries` for the "all operations in a
+        time range" case (i.e. ``operation_ids=None``).
+
+        :meth:`read_log_entries` materializes every matching operation-log row into a single
+        dict up front. For a wide time window that dict holds tens of thousands of heavyweight
+        Bigtable cell objects in memory simultaneously, which dominates the request's peak RSS.
+        This method instead iterates the underlying ``read_rows`` stream and yields one
+        ``(operation_id, log_record)`` pair at a time, letting each decoded row be freed before
+        the next is read. Peak memory is then bounded by whatever the caller accumulates, not by
+        the full row set.
+
+        ``log_record`` has the same shape as the per-operation values produced by
+        :meth:`read_log_entries`: columns unwrapped to their first cell's deserialized value,
+        plus a derived ``"timestamp"`` key.
+
+        The operation-log key space is a single contiguous range (0 -> max operation id) of
+        fixed-width, zero-padded keys, so the range read returns rows already ordered by
+        operation id; callers need not sort.
+        """
+        if properties is None:
+            properties = attributes.OperationLogs.all()
+
+        row_set = RowSet()
+        row_set.add_row_range_from_keys(
+            start_key=serialize_uint64(np.uint64(0)),
+            start_inclusive=True,
+            end_key=serialize_uint64(self.get_max_operation_id()),
+            end_inclusive=True,
+        )
+        row_filter = utils.get_time_range_and_column_filter(
+            columns=properties,
+            start_time=start_time,
+            end_time=end_time,
+            end_inclusive=end_time_inclusive,
+            user_id=user_id,
+        )
+
+        for row in self._table.read_rows(row_set=row_set, filter_=row_filter):
+            column_dict = utils.partial_row_data_to_column_dict(row)
+            # Deserialize cell values in place (mirrors the post-read loop in _read_byte_rows).
+            for column, cells in column_dict.items():
+                for cell in cells:
+                    cell.value = column.deserialize(cell.value)
+            # Derive the operation timestamp exactly as read_log_entries does: prefer the
+            # explicit OperationTimeStamp value, falling back to the RootID cell's timestamp
+            # on older rows that predate that column.
+            try:
+                timestamp = column_dict[attributes.OperationLogs.OperationTimeStamp][0].value
+            except KeyError:
+                timestamp = column_dict[attributes.OperationLogs.RootID][0].timestamp
+            log_record = {column: cells[0].value for column, cells in column_dict.items()}
+            log_record["timestamp"] = timestamp
+            yield deserialize_uint64(row.row_key), log_record
+
     # Helpers
     def write(
         self,

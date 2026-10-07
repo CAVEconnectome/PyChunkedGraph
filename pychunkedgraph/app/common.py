@@ -17,6 +17,37 @@ USER_NOT_FOUND = "-1"
 ENABLE_LOGS = os.environ.get("PCG_SERVER_ENABLE_LOGS", "") != ""
 LOG_LEAVES_MANY = os.environ.get("PCG_SERVER_LOGS_LEAVES_MANY", "") != ""
 
+# Health-check paths to skip, matched EXACTLY (not as prefixes) so the start-log signal
+# isn't flooded by probes. These are the literal probe paths from the pychunkedgraph chart:
+# the read/write deployments' readiness+liveness probes hit "/segmentation" and the GCP load
+# balancer health check hits "/". Real API traffic lives under "/segmentation/api/..." and
+# "/meshing/api/...", which are NOT equal to these entries and so are still logged.
+_REQUEST_START_SKIP_PATHS = frozenset(("/", "/segmentation"))
+
+
+def _log_request_start():
+    # Emit a line to stdout at the *start* of a request, before any work runs, so it is
+    # captured by Cloud Logging even if the request goes on to OOM-kill or otherwise crash
+    # its worker before completing (such requests never reach after_request and so are
+    # invisible in the Datastore server_logs completion logs). The `content_length` field is
+    # the on-the-wire request body size (e.g. for a roots_binary POST, ~8 bytes per node id)
+    # and `pid` is the uwsgi worker, so a spike/OOM can be traced to the specific in-flight
+    # request and worker. Gated by the LOG_REQUEST_START Flask config value (default False);
+    # verbose, intended for temporary diagnosis.
+    try:
+        user_id = g.auth_user["id"]
+    except (AttributeError, KeyError):
+        user_id = USER_NOT_FOUND
+    current_app.logger.info(
+        "REQUEST_START pid=%s method=%s path=%s content_length=%s user=%s remote=%s",
+        os.getpid(),
+        request.method,
+        request.path,
+        request.content_length,
+        user_id,
+        request.remote_addr,
+    )
+
 
 def _log_request(response_time):
     try:
@@ -58,6 +89,10 @@ def before_request():
     current_app.table_id = None
     current_app.operation_id = None
     current_app.request_type = None
+    if current_app.config.get("LOG_REQUEST_START", False) and (
+        request.path not in _REQUEST_START_SKIP_PATHS
+    ):
+        _log_request_start()
     content_encoding = request.headers.get("Content-Encoding", "")
     if "gzip" in content_encoding.lower():
         request.data = compression.decompress(request.data, "gzip")

@@ -4,7 +4,6 @@ import json
 import os
 import time
 from datetime import datetime
-from functools import reduce
 from collections import deque, defaultdict
 
 import numpy as np
@@ -785,8 +784,9 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
         int(root_id),
         bbox=bounding_box,
         bbox_is_coordinate=True,
+        max_num_chunks=current_app.config.get("SUBGRAPH_MAX_CHUNKS"),
     )
-    edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
+    edges = cg_edges.Edges.concatenate(edges)
 
     if only_internal_edges:
         supervoxels = np.concatenate(
@@ -830,31 +830,43 @@ def tabular_change_log_recent(table_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    log_rows = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
-
+    # Stream the operation-log rows instead of materializing them all at once. Only the
+    # timestamp, user, and merge/split flag are needed, so the read is restricted to those
+    # columns (the default pulls the large variable-length added/removed-edge, coordinate,
+    # and affinity arrays for every operation, which dominate row size). AddedEdge is only
+    # existence-checked (merge vs split). RootID is not used directly but is kept so the
+    # streaming reader's timestamp fallback still works on older rows that predate the
+    # OperationTimeStamp column.
+    #
+    # read_log_entries_streaming yields one (operation_id, record) at a time and frees each
+    # decoded row before reading the next, so peak memory is bounded by the compact output
+    # columns below rather than by the full set of Bigtable cell objects for the window.
+    # Rows arrive already ordered by operation id (fixed-width keys), so no sort is needed.
+    operation_ids = []
     timestamp_list = []
     user_list = []
     is_merge_list = []
-
-    operation_ids = np.sort(list(log_rows.keys()))
-    for operation_id in operation_ids:
-        operation = log_rows[operation_id]
-
-        timestamp = operation["timestamp"]
-        timestamp_list.append(timestamp)
-
-        user_id = operation[attributes.OperationLogs.UserID]
-        user_list.append(user_id)
-
-        is_merge = attributes.OperationLogs.AddedEdge in operation
-        is_merge_list.append(is_merge)
+    for operation_id, operation in cg.client.read_log_entries_streaming(
+        start_time=start_time,
+        end_time=end_time,
+        properties=[
+            attributes.OperationLogs.OperationTimeStamp,
+            attributes.OperationLogs.UserID,
+            attributes.OperationLogs.AddedEdge,
+            attributes.OperationLogs.RootID,
+        ],
+    ):
+        operation_ids.append(operation_id)
+        timestamp_list.append(operation["timestamp"])
+        user_list.append(operation[attributes.OperationLogs.UserID])
+        is_merge_list.append(attributes.OperationLogs.AddedEdge in operation)
 
     return pd.DataFrame.from_dict(
         {
-            "operation_id": operation_ids,
+            "operation_id": np.array(operation_ids, dtype=np.uint64),
             "timestamp": timestamp_list,
             "user_id": user_list,
-            "is_merge": is_merge_list,
+            "is_merge": np.array(is_merge_list, dtype=bool),
         }
     )
 
@@ -1142,7 +1154,12 @@ def handle_get_layer2_graph(table_id, node_id):
 
     cg = app_utils.get_cg(table_id)
     print("Finding edge graph...")
-    edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id), bbox=bounding_box)
+    edge_graph = pathing.get_lvl2_edge_list(
+        cg,
+        int(node_id),
+        bbox=bounding_box,
+        max_num_lvl2_ids=current_app.config.get("LVL2_GRAPH_MAX_NODES"),
+    )
     print("Edge graph found len: {}".format(len(edge_graph)))
     return {"edge_graph": edge_graph}
 

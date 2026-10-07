@@ -1,18 +1,16 @@
 # pylint: disable=invalid-name, missing-docstring
 import json
 import os
-import threading
 
 import numpy as np
 import redis
 from rq import Queue, Connection, Retry
-from flask import Response, current_app, jsonify, make_response, request
+from flask import Response, current_app, g, jsonify, make_response, request
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.graph import chunkedgraph
+from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.app.meshing import tasks as meshing_tasks
-from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
 from pychunkedgraph.meshing.manifest import get_children_before_start_layer
 from pychunkedgraph.meshing.manifest import ManifestCache
@@ -75,9 +73,20 @@ def handle_get_manifest(table_id, node_id):
     return_seg_ids = return_seg_ids in ["True", "true", "1", True]
     prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
     start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
-    start_layer = int(request.args.get("start_layer", start_layer))
-    if "start_layer" in data:
-        start_layer = int(data["start_layer"])
+    raw_start_layer = data.get("start_layer", request.args.get("start_layer", start_layer))
+    try:
+        start_layer = int(raw_start_layer)
+    except (TypeError, ValueError):
+        raise cg_exceptions.BadRequest(
+            f"start_layer must be an integer, got {raw_start_layer!r}."
+        )
+
+    # Meshes only exist from layer 2 upwards. Below that this endpoint cannot return anything:
+    if start_layer < 2:
+        raise cg_exceptions.BadRequest(
+            f"start_layer must be at least 2, got {start_layer}. Meshes exist from layer 2 "
+            "upwards, so a lower value can only ever produce an empty manifest."
+        )
 
     flexible_start_layer = None
     if "flexible_start_layer" in data:
@@ -142,9 +151,64 @@ def _check_post_options(cg, resp, data, seg_ids):
 
 
 ## REMESHING -----------------------------------------------------
+def publish_remesh(table_id: str, user_id: str, lvl2_ids, is_priority: bool = True):
+    """Enqueue a remesh onto the same Pub/Sub topic the edit path publishes to.
+
+    Mirrors segmentation.common.publish_edit deliberately: one topic, and the
+    `remesh_priority` attribute is what routes a message to a subscription. The
+    infrastructure defines those subscriptions with attribute filters
+    (terraform-google-cave/modules/local_cluster/pubsub.tf):
+
+        <prefix>_PCG_HIGH_PRIORITY_REMESH   remesh_priority="true"   -> meshworker
+        <prefix>_PCG_LOW_PRIORITY_REMESH    remesh_priority="false"  -> remeshworker
+
+    so priority here is not a hint, it selects the consumer fleet.
+
+    Note the same topic also feeds <prefix>_<ws>_L2CACHE_{HIGH,LOW}_PRIORITY_TRIGGER, so a
+    manual remesh now also refreshes the l2 cache for these ids. That is intended -- a manual
+    remesh usually follows a data problem, and the l2 cache derives from the same chunks -- but
+    it is a real fan-out, not a no-op.
+    """
+    import pickle
+
+    from messagingclient import MessagingClient
+
+    attributes = {
+        "table_id": table_id,
+        "user_id": user_id,
+        "remesh_priority": "true" if is_priority else "false",
+        "remesh": "true",
+    }
+    payload = {
+        # 0 means "no operation". A manual remesh has no GraphEditOperation behind it, and the
+        # graph does not record which operation created a given level 2 node -- OperationID is
+        # written only onto root-id rows (edits.py::_update_root_id_lineage), so the best available
+        # answer is the latest operation on the whole object, which is not this node's provenance.
+        # A wrong id in the worker's log line is worse than an honest unknown.
+        #
+        # The key must still exist and be int-convertible: mesh_worker.callback does
+        # int(data["operation_id"]) unconditionally.
+        "operation_id": 0,
+        "new_lvl2_ids": np.asarray(lvl2_ids, dtype=np.uint64).tolist(),
+        # Neither consumer reads these (mesh_worker uses new_lvl2_ids, the l2cache trigger uses
+        # new_lvl2_ids); present so the payload shape stays identical to publish_edit's.
+        "new_root_ids": [],
+        "old_root_ids": [],
+    }
+
+    exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
+    c = MessagingClient()
+    c.publish(exchange, pickle.dumps(payload), attributes)
+
+
 def handle_remesh(table_id):
     current_app.request_type = "remesh_enque"
     current_app.table_id = table_id
+    # Same `priority` parameter, default, and semantics as every edit endpoint in
+    # segmentation.common, so the two paths cannot drift. Unset means high priority, which is
+    # the right default for an interactive request; a programmatic caller (caveclient, a
+    # backfill script) should pass priority=false so bulk work lands on the low-priority
+    # subscription and cannot starve human-triggered remeshes.
     is_priority = request.args.get("priority", True, type=str2bool)
     is_redisjob = request.args.get("use_redis", False, type=str2bool)
 
@@ -166,37 +230,22 @@ def handle_remesh(table_id):
 
         return jsonify(response_object), 202
     else:
+        # Publish, don't mesh here. This used to run meshgen.remeshing in a threading.Thread
+        # inside the api pod, which put an unbounded, unretryable, invisible workload in a
+        # request-serving process: the 202 was already returned, so a failure left no trace, and
+        # a worker recycle, rollout or HPA scale-down silently discarded the work. Measured on
+        # api6 2026-08-23, one remesh took the meshing pod from 198Mi to a 491Mi peak and left
+        # it at 420Mi -- rss does not fall back -- so pods ratcheted up until they died: one had
+        # reached 847Mi after 14h and was OOMKilled (whole cgroup, supervisord included) when a
+        # remesh pushed it past its 1536Mi limit. The mesh workers exist for exactly this work,
+        # request 3000Mi, and get retries and dead-lettering from Pub/Sub.
         new_lvl2_ids = np.array(new_lvl2_ids, dtype=np.uint64)
-        cg = app_utils.get_cg(table_id)
 
         if len(new_lvl2_ids) > 0:
-            t = threading.Thread(
-                target=_remeshing, args=(cg.get_serialized_info(), new_lvl2_ids)
-            )
-            t.start()
+            user_id = str(g.auth_user.get("id", current_app.user_id))
+            publish_remesh(table_id, user_id, new_lvl2_ids, is_priority=is_priority)
 
         return Response(status=202)
-
-
-def _remeshing(serialized_cg_info, lvl2_nodes):
-    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
-    cv_mesh_dir = cg.meta.dataset_info["mesh"]
-    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
-    )
-    mesh_data = cg.meta.custom_data["mesh"]
-
-    # TODO: stop_layer and mip should be configurable by dataset
-    meshgen.remeshing(
-        cg,
-        lvl2_nodes,
-        stop_layer=mesh_data["max_layer"],
-        mip=mesh_data["mip"],
-        max_err=mesh_data["max_error"],
-        cv_sharded_mesh_dir=cv_mesh_dir,
-        cv_unsharded_mesh_path=cv_unsharded_mesh_path,
-    )
 
     return Response(status=200)
 

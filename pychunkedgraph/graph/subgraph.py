@@ -155,9 +155,23 @@ def get_subgraph_edges_and_leaves(
     bbox_is_coordinate: bool = False,
     edges_only: bool = False,
     leaves_only: bool = False,
+    max_num_chunks: Optional[int] = None,
 ) -> Tuple[Dict, Dict, Edges]:
-    """Get the edges and/or leaves of the specified node_ids within the specified bounding box."""
+    """Get the edges and/or leaves of the specified node_ids within the specified bounding box.
+
+    :param max_num_chunks: Optional[int] reject the request (raising BadRequest) when the node
+        ids span more than this many chunks. ``None`` disables the guard.
+
+        The guard counts *chunks*, not level 2 ids or supervoxels, because that is what the
+        memory actually scales with: get_l2_agglomerations below maps the level 2 ids to their
+        chunks and then reads every edge in each of those chunks from cloud storage — all
+        objects in the chunk, not just the requested one. So a request over a large bounding
+        box is expensive even when the object itself is small, and the level 2 count is a poor
+        predictor of the byte count. Deriving the chunk ids is pure bit manipulation on ids we
+        already hold, so the check costs nothing.
+    """
     from .types import empty_1d
+    from . import exceptions as cg_exceptions
 
     node_ids = node_id_or_ids
     bbox = normalize_bounding_box(cg.meta, bbox, bbox_is_coordinate)
@@ -170,6 +184,25 @@ def get_subgraph_edges_and_leaves(
     for node_id in node_ids:
         level2_ids.append(layer_nodes_d[node_id])
     level2_ids = np.concatenate(level2_ids)
+
+    # Enforce the size guard *before* the (potentially multi-GB) agglomeration read below.
+    # Same chunk id derivation get_l2_agglomerations does, but without the reads that follow.
+    if max_num_chunks is not None:
+        num_chunks = np.unique(cg.get_chunk_ids_from_node_ids(level2_ids)).size
+        if num_chunks > max_num_chunks:
+            hint = (
+                "Provide a smaller bounding box ('bounds')."
+                if bbox is not None
+                else "Provide a bounding box ('bounds') to restrict the query to a sub-region."
+            )
+            nodes_str = ", ".join(str(node_id) for node_id in node_ids)
+            raise cg_exceptions.BadRequest(
+                f"The subgraph for {nodes_str} spans {num_chunks} chunks "
+                f"({len(level2_ids)} level 2 nodes), which exceeds the maximum of "
+                f"{max_num_chunks}. Every edge in each chunk is read, so the cost scales with "
+                f"the volume queried rather than the size of the object. {hint}"
+            )
+
     if leaves_only:
         return cg.get_children(level2_ids, flatten=True)
     if edges_only:
