@@ -29,6 +29,21 @@ class BaseConfig(object):
             AUTH_TOKEN = json.load(f)["token"]
 
     AUTH_SERVICE_NAMESPACE = "pychunkedgraph"
+
+    # Guardrail for the subgraph endpoints, see pychunkedgraph/graph/limits.py.
+    # The "default" entry applies to every table; add an entry keyed by table id
+    # to override it, or set it to null to leave that table unrestricted.
+    # `MAX_BYTES` is how much memory one request may need. The cost per level 2
+    # chunk is derived from the chunk's physical volume, which adapts to any
+    # chunk size and resolution; a dataset that is denser or sparser than the
+    # default can pin its own `BYTES_PER_CUBIC_MICRON`, or skip the estimate
+    # entirely with a measured `BYTES_PER_L2_CHUNK`.
+    # Override or extend with the PCG_SUBGRAPH_LIMITS env var, e.g.
+    # '{"minnie3_v1": {"MAX_BYTES": 5368709120, "BYTES_PER_L2_CHUNK": 1048576}}'
+    SUBGRAPH_LIMITS = {
+        "default": {"MAX_BYTES": 5 * 1024**3},
+    }
+
     VIRTUAL_TABLES = {
         "minnie65_public_v117": {
             "table_id": "minnie3_v1",

@@ -30,6 +30,9 @@ from pychunkedgraph.graph.attributes import OperationLogs
 from pychunkedgraph.graph.misc import get_contact_sites
 from pychunkedgraph.graph.operation import GraphEditOperation
 from pychunkedgraph.graph.utils import basetypes
+from pychunkedgraph.graph import (
+    limits as cg_limits,
+)
 from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
@@ -83,6 +86,12 @@ def _get_bounds_from_request(request):
     else:
         bounding_box = None
     return bounding_box
+
+
+def _get_subgraph_limits(table_id):
+    """Memory guardrail configured for `table_id`, None if unrestricted."""
+    limits = current_app.config.get("SUBGRAPH_LIMITS") or {}
+    return limits.get(table_id, limits.get("default"))
 
 
 # -------------------
@@ -781,6 +790,10 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    # fails with 413 before any chunk is read if the box is too expensive
+    cg_limits.check_subgraph_bounds(
+        cg, bounding_box, _get_subgraph_limits(table_id)
+    )
     l2id_agglomeration_d, edges = cg.get_subgraph(
         int(root_id),
         bbox=bounding_box,
