@@ -14,9 +14,10 @@ from cloudvolume import CloudVolume
 from .cache import ManifestCache
 from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
+from ..mesh_meta import MeshMeta
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
-from ...graph.utils.basetypes import NODE_ID
+from ...graph.basetypes import NODE_ID
 from ...graph.utils import generic as misc_utils
 
 
@@ -40,7 +41,7 @@ def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: Dict):
     if len(node_ids) == 0:
         return empty_1d.copy()
     node_ids = np.array(node_ids, dtype=NODE_ID)
-    mask = np.in1d(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
+    mask = np.isin(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
     children_d = cg.get_children(node_ids[~mask])
     children_cache.update(children_d)
 
@@ -105,8 +106,7 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     if len(node_ids) == 0:
         return result, not_existing
 
-    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
-    mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
+    mesh_path = MeshMeta(cg).dynamic_path
     cf = CloudFiles(mesh_path)
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
 
@@ -180,7 +180,7 @@ def segregate_node_ids(cg, node_ids):
     new = created by proofreading edit operations
     """
 
-    initial_ts = cg.meta.custom_data["mesh"]["initial_ts"]
+    initial_ts = MeshMeta(cg).initial_ts
     initial_mesh_dt = np.datetime64(datetime.fromtimestamp(initial_ts))
     node_ids_ts = cg.get_node_timestamps(node_ids)
     initial_mesh_mask = node_ids_ts < initial_mesh_dt
@@ -194,10 +194,17 @@ def get_mesh_paths(
     node_ids: Sequence[np.uint64],
     stop_layer: int = 2,
 ) -> Dict:
+    # Point the shard reader at initial_path: cloud-volume resolves shards at
+    # join(info["data_dir"], info["mesh"], "initial"), so reader_anchor splits
+    # initial_path into that (data_dir, mesh) pair — repoints a migrated bucket.
+    info = get_json_info(cg)
+    data_dir, mesh_dir = MeshMeta(cg).reader_anchor
+    info["data_dir"] = data_dir
+    info["mesh"] = mesh_dir
     shard_readers = CloudVolume(  # pylint: disable=no-member
         "graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
-        info=get_json_info(cg),
+        mesh_dir=mesh_dir,
+        info=info,
     ).mesh
 
     result = {}
