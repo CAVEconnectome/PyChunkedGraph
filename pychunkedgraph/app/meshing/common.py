@@ -141,8 +141,9 @@ def manifest_response(cg, args):
     if manifest_version >= 2:
         # Seg ids travel on the fragments and nowhere else: a top level list cannot be lined up
         # with fragments split across buckets, and duplicates what the prefix already carries.
+        # Every row carries its seg id, so neither seg id flag changes a v2 response.
         mm = MeshMeta(cg)
-        initial, dynamic = v2.to_v2_groups(seg_ids, fragments, return_seg_ids)
+        initial, dynamic = v2.to_v2_groups(seg_ids, fragments, verified=verify)
         resp = v2.assemble(mm.initial_path, mm.dynamic_path, initial, dynamic)
     else:
         resp = {"fragments": fragments}
