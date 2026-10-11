@@ -31,19 +31,22 @@ def requested_manifest_version(accept_header, default: int = 1) -> int:
     return default
 
 
-def to_v2_groups(node_ids, fragments, return_seg_ids):
-    """Group v1 fragments into ``(initial, dynamic)``, each row plain under its bucket.
+def to_v2_groups(node_ids, fragments, *, verified):
+    """Group v1 fragments into ``(initial, dynamic)``, every row opening with its one segid.
 
-    A dynamic fragment is named after its node id, so ``return_seg_ids`` prefixes
-    the sharded rows alone.
+    A verified row gains the segid its v1 form lacks. A speculative row already opens with it
+    and drops its file name's constant ``.shard``: a row names a shard only with its byte range.
     """
     initial, dynamic = [], []
     for node_id, frag in zip(node_ids, fragments):
         if not frag.startswith("~"):
             dynamic.append(frag)
-            continue
-        shard = frag[1:]
-        initial.append(f"{node_id}:{shard}" if return_seg_ids else shard)
+        elif verified:
+            initial.append(f"{node_id}:{frag[1:]}")
+        else:
+            segid, layer, chunk_id, fname, minishard = frag[1:].split(":")
+            stem = fname.removesuffix(".shard")
+            initial.append(f"{segid}:{layer}:{chunk_id}:{stem}:{minishard}")
     return initial, dynamic
 
 
