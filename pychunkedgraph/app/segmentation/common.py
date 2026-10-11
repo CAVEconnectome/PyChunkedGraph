@@ -18,6 +18,7 @@ from pychunkedgraph import __version__, get_logger
 
 logger = get_logger(__name__)
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 from pychunkedgraph.graph import attributes, cutting, segmenthistory, ChunkedGraph
 from pychunkedgraph.graph import (
     edges as cg_edges,
@@ -122,6 +123,11 @@ def handle_info(table_id):
     # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
     mesh_metadata = dict(combined_info.get("mesh_metadata", {}))
     mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
+    # Absolute mesh bucket locations (== the v2 manifest keys) so clients that
+    # bypass the manifest resolve initial/dynamic meshes from the real buckets.
+    mm = MeshMeta(cg)
+    mesh_metadata["initial_mesh_path"] = mm.initial_path
+    mesh_metadata["dynamic_mesh_path"] = mm.dynamic_path
     combined_info["mesh_metadata"] = mesh_metadata
     return jsonify(combined_info)
 
