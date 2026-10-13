@@ -69,6 +69,15 @@ class Conflict(ClientError):
     status_code = http_client.CONFLICT
 
 
+class RequestTooLarge(ClientError):
+    """Exception mapping a ``413 Request Entity Too Large`` response.
+
+    Raised when a request is rejected up front because serving it would
+    require loading more data than the server is willing to hold in memory.
+    """
+    status_code = http_client.REQUEST_ENTITY_TOO_LARGE
+
+
 class ServerError(ChunkedGraphAPIError):
     """Base for 5xx responses."""
 
