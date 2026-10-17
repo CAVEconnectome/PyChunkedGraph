@@ -30,12 +30,17 @@ ChunkedGraph.
 
 All read from `custom_data["mesh"]`:
 
-- `dir` — the mesh root under the watershed (default `graphene_meshes`).
+- `dir` — the mesh root under the watershed. No default: setup always writes it, and a
+  table without it has no meshes, so reading it raises `KeyError`.
 - `initial_mesh_dir` — the initial location (default `initial`).
 - `dynamic_mesh_dir` — the dynamic location (default `dynamic`; pcgv3 setup fills
   `dynamic_<graph_id>`).
 - `max_layer`, `mip`, `max_error` — mesh params (start layer for manifests, and
   the mip / max-error used by remeshing).
+- `uniform_draco_grid_size` — the draco grid clients deduplicate on, written by setup.
+  Deprecated shim: a table whose block lacks it, or `max_meshed_layer` /
+  `draco_grid_sizes`, gets the watershed info's value in `client_metadata` until its
+  block is rewritten. Nothing else reads the watershed info for meshes.
 - `initial_ts` — the ingest timestamp boundary that splits initial (sharded) node
   ids from proofread (dynamic) ones.
 
@@ -57,6 +62,8 @@ upstream; this module only reads the result.
 - `initial_path` → absolute dir of the initial (sharded) meshes.
 - `dynamic_path` → absolute dir of the dynamic (unsharded) meshes.
 - `dir` → the sharded mesh dir name under the watershed.
+- `dynamic_mesh_dir` → the dynamic dir as configured, a name or a cloud URL.
+- `client_metadata` → the graphene info's `mesh_metadata` for this table.
 - `max_layer`, `mip`, `max_error`, `initial_ts` → the mesh params.
 - `needs_v2` → true when either location falls **outside** the watershed dir,
   i.e. meshes are not co-located with the watershed. Old clients compose paths
