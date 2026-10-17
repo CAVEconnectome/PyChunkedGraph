@@ -73,7 +73,6 @@ def callback(payload):
         stop_layer=layer,
         mip=mip,
         max_err=err,
-        cv_sharded_mesh_dir=mesh_dir,
         cv_unsharded_mesh_path=mesh_path,
     )
     logger.info("remeshing complete; graph %s operation %s", table_id, op_id)
