@@ -1,7 +1,7 @@
 from cloudvolume import CloudVolume
 import numpy as np
-import os
 from pychunkedgraph.meshing import meshgen, meshgen_utils
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 
 
 def compute_centroid_by_range(vertices):
@@ -58,15 +58,7 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
     :param l2_ids: Sequence[np.uint64]
     :return: Union[Dict[np.uint64, np.ndarray], [np.uint64], [np.uint64]]
     """
-    cv_sharded_mesh_dir = cg.meta.dataset_info["mesh"]
-    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"][
-        "unsharded_mesh_dir"
-    ]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED,
-        cv_sharded_mesh_dir,
-        cv_unsharded_mesh_dir,
-    )
+    cv_sharded_mesh_dir = MeshMeta(cg).dir
     cv = CloudVolume(
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cv_sharded_mesh_dir,
@@ -90,10 +82,10 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
                     )
                 )
             else:
-                centroids_with_chunk_boundary_points[
-                    l2_id
-                ] = compute_centroid_with_chunk_boundary(
-                    cg, l2_mesh_vertices, l2_id, last_l2_id
+                centroids_with_chunk_boundary_points[l2_id] = (
+                    compute_centroid_with_chunk_boundary(
+                        cg, l2_mesh_vertices, l2_id, last_l2_id
+                    )
                 )
         except:
             missing_l2_ids.append(l2_id)

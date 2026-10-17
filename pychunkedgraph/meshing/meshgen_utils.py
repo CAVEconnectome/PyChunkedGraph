@@ -146,8 +146,9 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
+    mm = MeshMeta(cg)
     mesh_meta = cg.meta.custom_data.get("mesh", {})
-    info["mesh"] = mesh_meta.get("dir", "graphene_meshes")
+    info["mesh"] = mm.dir
     # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
     # subdir explicitly. Default `"dynamic"` matches the mesh worker's
     # fallback and NG's current hardcoded subdir name — see the
@@ -163,7 +164,6 @@ def get_json_info(cg):
     mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
     # Absolute initial/dynamic bucket locations (the v2 manifest's bucket keys)
     # so cloud-volume's manifest-bypass reads resolve to the real buckets.
-    mm = MeshMeta(cg)
     mesh_metadata["initial_mesh_path"] = mm.initial_path
     mesh_metadata["dynamic_mesh_path"] = mm.dynamic_path
     info["mesh_metadata"] = mesh_metadata
