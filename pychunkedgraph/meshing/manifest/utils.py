@@ -10,6 +10,7 @@ from typing import Sequence
 import numpy as np
 from cloudfiles import CloudFiles
 from cloudvolume import CloudVolume
+from cloudvolume import Mesh
 
 from .cache import ManifestCache
 from ..meshgen_utils import get_mesh_name
@@ -189,23 +190,69 @@ def segregate_node_ids(cg, node_ids):
     return initial_ids, new_ids
 
 
-def get_mesh_paths(
-    cg,
-    node_ids: Sequence[np.uint64],
-    stop_layer: int = 2,
-) -> Dict:
-    # Point the shard reader at initial_path: cloud-volume resolves shards at
-    # join(info["data_dir"], info["mesh"], "initial"), so reader_anchor splits
-    # initial_path into that (data_dir, mesh) pair — repoints a migrated bucket.
+def shard_mesh_source(cg):
+    """A cloud-volume mesh source whose shard readers read this table's ``initial_path``."""
+    # cloud-volume resolves shards at join(info["data_dir"], info["mesh"], "initial"), so
+    # reader_anchor splits initial_path into that (data_dir, mesh) pair, a migrated bucket too.
     info = get_json_info(cg)
     data_dir, mesh_dir = MeshMeta(cg).reader_anchor
     info["data_dir"] = data_dir
     info["mesh"] = mesh_dir
-    shard_readers = CloudVolume(  # pylint: disable=no-member
+    return CloudVolume(  # pylint: disable=no-member
         "graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=mesh_dir,
         info=info,
     ).mesh
+
+
+class NodeMeshReader:
+    """Reads node meshes from this table's own mesh dirs, a cloud-URL dir included.
+
+    Built once per task so the shard readers keep their index caches across reads.
+    """
+
+    def __init__(self, cg):
+        self._cg = cg
+        self._dynamic = CloudFiles(MeshMeta(cg).dynamic_path)
+        self._source = shard_mesh_source(cg)
+
+    def get(self, node_ids: Sequence[np.uint64]) -> Dict[int, Mesh]:
+        """Each node's draco mesh; a node with none is absent.
+
+        Split by ``initial_ts`` as the manifest does, so a node is read only from the
+        store that holds it: new ones as files, initial ones from their shards.
+        """
+        node_ids = np.asarray(node_ids, dtype=NODE_ID)
+        if node_ids.size == 0:
+            return {}
+        initial_ids, new_ids = segregate_node_ids(self._cg, node_ids)
+        result = {}
+        names = {get_mesh_name(self._cg, id_): int(id_) for id_ in new_ids}
+        for res in self._dynamic.get(list(names)):
+            if res["error"]:
+                raise res["error"]
+            if res["content"] is not None:
+                label = names[res["path"]]
+                result[label] = Mesh.from_draco(res["content"], segid=label)
+        meta = self._source.meta
+        layers = self._cg.get_chunk_layers(initial_ids)
+        for layer in np.unique(layers):
+            path = meta.join(meta.mesh_path, meta.sharded_mesh_dir, str(layer))
+            found = self._source.readers[int(layer)].get_data(
+                initial_ids[layers == layer], path=path
+            )
+            for label, binary in found.items():
+                if binary is not None:
+                    result[int(label)] = Mesh.from_draco(binary, segid=int(label))
+        return result
+
+
+def get_mesh_paths(
+    cg,
+    node_ids: Sequence[np.uint64],
+    stop_layer: int = 2,
+) -> Dict[np.uint64, object]:
+    shard_readers = shard_mesh_source(cg)
 
     result = {}
     node_layers = cg.get_chunk_layers(node_ids)

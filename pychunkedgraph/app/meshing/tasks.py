@@ -14,6 +14,5 @@ def remeshing(table_id, lvl2_nodes):
         stop_layer=mm.max_layer,
         mip=mm.mip,
         max_err=mm.max_error,
-        cv_sharded_mesh_dir=mm.dir,
         cv_unsharded_mesh_path=mm.dynamic_path,
     )

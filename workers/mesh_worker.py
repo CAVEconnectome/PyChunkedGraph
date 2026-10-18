@@ -6,6 +6,7 @@ import logging
 from os import getenv
 
 import numpy as np
+from cloudfiles import CloudFiles
 from messagingclient import MessagingClient
 
 from pychunkedgraph.graph import ChunkedGraph
@@ -51,6 +52,10 @@ def callback(payload):
         logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
         return
 
+    if not CloudFiles(cg.meta.data_source.WATERSHED).exists(f"{mesh_dir}/info"):
+        logging.warning(f"No meshes at {mesh_dir} for {cg.graph_id}; ignoring...")
+        return
+
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
     meshgen.remeshing(
         cg,
@@ -58,7 +63,6 @@ def callback(payload):
         stop_layer=layer,
         mip=mip,
         max_err=err,
-        cv_sharded_mesh_dir=mesh_dir,
         cv_unsharded_mesh_path=mesh_path,
     )
     logging.log(INFO_HIGH, f"remeshing complete; graph {table_id} operation {op_id}.")
