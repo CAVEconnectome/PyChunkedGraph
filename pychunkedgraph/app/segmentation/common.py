@@ -107,18 +107,12 @@ def handle_info(table_id):
     combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
         "verify", False
     )
-    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", None)
-    if mesh_dir is not None:
-        combined_info["mesh_dir"] = mesh_dir
-    elif combined_info.get("mesh_dir", None) is not None:
-        combined_info["mesh_dir"] = "graphene_meshes"
-    # Absolute mesh bucket locations (== the v2 manifest keys) so clients that
-    # bypass the manifest resolve initial/dynamic meshes from the real buckets.
-    mm = MeshMeta(cg)
-    mesh_metadata = dict(combined_info.get("mesh_metadata", {}))
-    mesh_metadata["initial_mesh_path"] = mm.initial_path
-    mesh_metadata["dynamic_mesh_path"] = mm.dynamic_path
-    combined_info["mesh_metadata"] = mesh_metadata
+    # A table without a mesh dir has no meshes, so it advertises none.
+    if cg.meta.custom_data.get("mesh", {}).get("dir") is not None:
+        mm = MeshMeta(cg)
+        combined_info["mesh_dir"] = mm.dir
+        combined_info["dynamic_mesh_dir"] = mm.dynamic_mesh_dir
+        combined_info["mesh_metadata"] = mm.client_metadata
     return jsonify(combined_info)
 
 
