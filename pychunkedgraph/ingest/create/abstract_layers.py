@@ -35,13 +35,17 @@ def add_layer(
     children_coords: Sequence[Sequence[int]] = np.array([]),
     *,
     time_stamp: Optional[datetime.datetime] = None,
-    n_threads: int = 4,
+    n_threads: Optional[int] = None,
 ) -> None:
+    """``n_threads`` bounds every worker pool below, and 1 runs serially; ``None`` uses
+    the node's cores. The pipeline passes the pod's cpu allocation (PCG_N_PROCESSES)."""
+    if n_threads is None:
+        n_threads = mp.cpu_count()
     if not children_coords.size:
         children_coords = get_children_chunk_coords(cg.meta, layer_id, parent_coords)
-    children_ids = _read_children_chunks(cg, layer_id, children_coords, n_threads > 1)
+    children_ids = _read_children_chunks(cg, layer_id, children_coords, n_threads)
     edge_ids = get_children_chunk_cross_edges(
-        cg, layer_id, parent_coords, use_threads=n_threads > 1
+        cg, layer_id, parent_coords, n_threads=n_threads
     )
 
     print("children_coords", children_coords.size, layer_id, parent_coords)
@@ -71,7 +75,7 @@ def add_layer(
         ccs,
         graph_ids,
         ts,
-        n_threads > 1,
+        n_threads,
     )
 
     # Stamp the post-ingest boundary meshing reads to split initial from edited roots.
@@ -86,9 +90,9 @@ def add_layer(
 
 
 def _read_children_chunks(
-    cg: ChunkedGraph, layer_id, children_coords, use_threads=True
+    cg: ChunkedGraph, layer_id, children_coords, n_threads: int = 1
 ):
-    if not use_threads:
+    if n_threads <= 1:
         children_ids = [types.empty_1d]
         for child_coord in children_coords:
             children_ids.append(_read_chunk([], cg, layer_id - 1, child_coord))
@@ -110,7 +114,7 @@ def _read_children_chunks(
         mu.multiprocess_func(
             _read_chunk_helper,
             multi_args,
-            n_threads=min(len(multi_args), mp.cpu_count()),
+            n_threads=min(len(multi_args), n_threads),
         )
         print("_read_children_chunks done")
         return np.concatenate(children_ids_shared)
@@ -150,7 +154,7 @@ def _write_connected_components(
     ccs,
     graph_ids,
     time_stamp,
-    use_threads=True,
+    n_threads: int = 1,
 ) -> None:
     if not ccs:
         return
@@ -159,7 +163,7 @@ def _write_connected_components(
     if layer_id < cg.meta.layer_count:
         print("getting node_layer_d_shared")
         node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
-            cg, layer_id, parent_coords, use_threads=use_threads
+            cg, layer_id, parent_coords, n_threads=n_threads
         )
 
     print("node_layer_d_shared", len(node_layer_d_shared))
@@ -168,7 +172,7 @@ def _write_connected_components(
     for cc in ccs:
         ccs_with_node_ids.append(graph_ids[cc])
 
-    if not use_threads:
+    if n_threads <= 1:
         _write(
             cg,
             layer_id,
@@ -179,7 +183,7 @@ def _write_connected_components(
         )
         return
 
-    task_size = int(math.ceil(len(ccs_with_node_ids) / mp.cpu_count() / 10))
+    task_size = int(math.ceil(len(ccs_with_node_ids) / n_threads / 10))
     chunked_ccs = chunked(ccs_with_node_ids, task_size)
     cg_info = cg.get_serialized_info()
     multi_args = []
@@ -190,7 +194,7 @@ def _write_connected_components(
     mu.multiprocess_func(
         _write_components_helper,
         multi_args,
-        n_threads=min(len(multi_args), mp.cpu_count()),
+        n_threads=min(len(multi_args), n_threads),
     )
 
 
