@@ -192,6 +192,11 @@ class ChunkedGraphMeta:
         return self._ws_info_d
 
     @property
+    def ws_info(self) -> dict[str, object]:
+        """The watershed's own ``info``; its mesh keys belong to no table in particular."""
+        return self._ws_info
+
+    @property
     def ocdbt_config(self) -> OcdbtConfig:
         """Per-CG OCDBT settings with precedence info-file > custom_data > defaults.
 
@@ -408,8 +413,13 @@ class ChunkedGraphMeta:
         )
 
     @property
-    def dataset_info(self) -> Dict:
-        info = dict(self._ws_info)
+    def dataset_info(self) -> dict[str, object]:
+        # Mesh keys come from this table's mesh block alone; the watershed's are not its own.
+        info = {
+            key: value
+            for key, value in self._ws_info.items()
+            if key not in ("mesh", "mesh_dir", "mesh_metadata")
+        }
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,
@@ -485,7 +495,8 @@ class ChunkedGraphMeta:
 def private_mesh_dirs(mesh_dir: str, graph_id: str) -> tuple[str, str]:
     """(dir, dynamic_mesh_dir) for a copied table whose meshes are all its own (source
     dynamic dir unset or the bare "dynamic"). Suffix the top-level dir per graph so even
-    initial meshes stay private; the dynamic subdir keeps the bare "dynamic" inside it."""
+    initial meshes stay private; the dynamic subdir keeps the bare "dynamic" inside it.
+    """
     return f"{mesh_dir}_{graph_id}", "dynamic"
 
 

@@ -8,6 +8,7 @@ from cloudvolume.lib import Vec
 from pychunkedgraph.graph.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
 from pychunkedgraph.graph.utils import get_local_segmentation
+from .mesh_meta import MeshMeta
 
 
 def str_to_slice(slice_str: str):
@@ -145,22 +146,10 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    mesh_meta = cg.meta.custom_data.get("mesh", {})
-    info["mesh"] = mesh_meta.get("dir", "graphene_meshes")
-    # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
-    # subdir explicitly. Default `"dynamic"` matches the mesh worker's
-    # fallback and NG's current hardcoded subdir name — see the
-    # spelunker-ocdbt graphene backend (looks up
-    # `<fragmentUrl>dynamic/<fragmentId>`). NG must be patched to read
-    # this info field before non-default values route correctly.
-    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
-    info["dynamic_mesh_dir"] = dynamic_dir
-    # cloud-volume reads the dynamic dir from mesh_metadata.unsharded_mesh_dir, not
-    # dynamic_mesh_dir; mirror it so an unpatched client fetches dynamic meshes from
-    # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
-    mesh_metadata = dict(info.get("mesh_metadata", {}))
-    mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
-    info["mesh_metadata"] = mesh_metadata
+    mm = MeshMeta(cg)
+    info["mesh"] = mm.dir
+    info["dynamic_mesh_dir"] = mm.dynamic_mesh_dir
+    info["mesh_metadata"] = mm.client_metadata
     info_str = dumps(info)
     return loads(info_str)
 

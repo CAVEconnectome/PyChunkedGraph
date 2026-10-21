@@ -63,6 +63,12 @@ class Forbidden(ClientError):
     status_code = http_client.FORBIDDEN
 
 
+class NotAcceptable(ClientError):
+    """Exception mapping a ``406 Not Acceptable`` response."""
+
+    status_code = http_client.NOT_ACCEPTABLE
+
+
 class Conflict(ClientError):
     """Exception mapping a ``409 Conflict`` response."""
 
