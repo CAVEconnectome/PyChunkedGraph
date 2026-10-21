@@ -23,7 +23,7 @@ from ...utils.general import chunked
 
 
 def get_children_chunk_cross_edges(
-    cg, layer, chunk_coord, *, use_threads=True
+    cg, layer, chunk_coord, *, n_threads: int = 1
 ) -> np.ndarray:
     """
     Cross edges that connect children chunks.
@@ -34,7 +34,7 @@ def get_children_chunk_cross_edges(
         return []
 
     print(f"touching atomic chunk count {len(atomic_chunks)}")
-    if not use_threads:
+    if n_threads <= 1:
         return _get_children_chunk_cross_edges(cg, atomic_chunks, layer - 1)
 
     print("get_children_chunk_cross_edges, atomic chunks", len(atomic_chunks))
@@ -42,7 +42,7 @@ def get_children_chunk_cross_edges(
         edge_ids_shared = manager.list()
         edge_ids_shared.append(empty_2d)
 
-        task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count() / 10))
+        task_size = int(math.ceil(len(atomic_chunks) / n_threads / 10))
         chunked_l2chunk_list = chunked(atomic_chunks, task_size)
         multi_args = []
         for atomic_chunks in chunked_l2chunk_list:
@@ -53,7 +53,7 @@ def get_children_chunk_cross_edges(
         multiprocess_func(
             _get_children_chunk_cross_edges_helper,
             multi_args,
-            n_threads=min(len(multi_args), mp.cpu_count()),
+            n_threads=min(len(multi_args), n_threads),
         )
 
         cross_edges = np.concatenate(edge_ids_shared)
@@ -111,7 +111,7 @@ def _read_atomic_chunk_cross_edges(
 
 
 def get_chunk_nodes_cross_edge_layer(
-    cg, layer: int, chunk_coord: Sequence[int], use_threads=True
+    cg, layer: int, chunk_coord: Sequence[int], n_threads: int = 1
 ) -> Dict:
     """
     gets nodes in a chunk that are part of cross chunk edges
@@ -124,7 +124,7 @@ def get_chunk_nodes_cross_edge_layer(
     if not len(atomic_chunks):
         return {}
 
-    if not use_threads:
+    if n_threads <= 1:
         return _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer)
 
     print("divide tasks")
@@ -132,7 +132,7 @@ def get_chunk_nodes_cross_edge_layer(
     manager = mp.Manager()
     ids_l_shared = manager.list()
     layers_l_shared = manager.list()
-    task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count() / 10))
+    task_size = int(math.ceil(len(atomic_chunks) / n_threads / 10))
     chunked_l2chunk_list = chunked(atomic_chunks, task_size)
     multi_args = []
     for atomic_chunks in chunked_l2chunk_list:
@@ -144,7 +144,7 @@ def get_chunk_nodes_cross_edge_layer(
     multiprocess_func(
         _get_chunk_nodes_cross_edge_layer_helper,
         multi_args,
-        n_threads=min(len(multi_args), mp.cpu_count()),
+        n_threads=min(len(multi_args), n_threads),
     )
 
     node_layer_d_shared = manager.dict()
