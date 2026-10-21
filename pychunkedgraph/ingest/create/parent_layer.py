@@ -147,7 +147,7 @@ def _write_connected_components(
         node_layer_d = get_chunk_nodes_cross_edge_layer(cg, layer, pcoords, n_processes)
 
     if n_processes <= 1:
-        _write(cg, layer, pcoords, components, node_layer_d, time_stamp, False)
+        _write(cg, layer, pcoords, components, node_layer_d, time_stamp)
         return
 
     task_size = int(math.ceil(len(components) / n_processes / 10))
@@ -218,7 +218,6 @@ def _write(
     components,
     node_layer_d,
     ts,
-    use_threads=True,
 ):
     parent_layers = range(layer_id, cg.meta.layer_count + 1)
     cc_connections = {l: [] for l in parent_layers}
@@ -239,7 +238,7 @@ def _write(
         reserved_parent_ids = cg.id_client.create_node_ids(
             parent_chunk_id,
             size=len(cc_connections[parent_layer]),
-            root_chunk=parent_layer == cg.meta.layer_count and use_threads,
+            root_chunk=parent_layer == cg.meta.layer_count,
         )
         for i_cc, children in enumerate(cc_connections[parent_layer]):
             parent = reserved_parent_ids[i_cc]
