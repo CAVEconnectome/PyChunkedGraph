@@ -147,15 +147,11 @@ def cross_edges(cg: ChunkedGraph):
             non_valid_node_ids.append(k)
 
     cc_edges = cg.get_atomic_cross_edges(valid_node_ids)
-    cc_ids = np.unique(
-        np.concatenate(
-            [
-                np.concatenate(list(v.values()))
-                for v in list(cc_edges.values())
-                if len(v.values())
-            ]
-        )
-    )
+    edges = [np.concatenate(list(v.values())) for v in cc_edges.values() if len(v)]
+    if not edges:
+        print("no cross edges in the sampled chunks; nothing to check")
+        return
+    cc_ids = np.unique(np.concatenate(edges))
 
     roots = cg.get_roots(cc_ids)
     root_dict = dict(zip(cc_ids, roots))

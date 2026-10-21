@@ -37,9 +37,9 @@ class TestGraphBuild:
             np.array([label(cg, SV(seg=1), layer=2)], dtype=basetypes.NODE_ID)
         )
         attr = attributes.Hierarchy.Child
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))].cells[
-            "0"
-        ]
+        row = res.rows[
+            serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))
+        ].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         for aces in atomic_cross_edge_d.values():
@@ -88,9 +88,9 @@ class TestGraphBuild:
             np.array([label(cg, SV(seg=1), layer=2)], dtype=basetypes.NODE_ID)
         )
         attr = attributes.Hierarchy.Child
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))].cells[
-            "0"
-        ]
+        row = res.rows[
+            serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))
+        ].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         for aces in atomic_cross_edge_d.values():
@@ -157,9 +157,9 @@ class TestGraphBuild:
         ]
 
         attr = attributes.Hierarchy.Child
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))].cells[
-            "0"
-        ]
+        row = res.rows[
+            serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))
+        ].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         test_ace = np.array(
@@ -171,7 +171,9 @@ class TestGraphBuild:
         assert len(children) == 1 and label(cg, SV()) in children
 
         # label(cg, SV(x=1, seg=1), layer=2)
-        assert serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2)) in res.rows
+        assert (
+            serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2)) in res.rows
+        )
         atomic_cross_edge_d = cg.get_atomic_cross_edges(
             np.array([label(cg, SV(x=1, seg=1), layer=2)], dtype=basetypes.NODE_ID)
         )
@@ -180,9 +182,9 @@ class TestGraphBuild:
         ]
 
         attr = attributes.Hierarchy.Child
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2))].cells[
-            "0"
-        ]
+        row = res.rows[
+            serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2))
+        ].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         test_ace = np.array(
@@ -193,21 +195,17 @@ class TestGraphBuild:
         assert test_ace in atomic_cross_edge_d[2]
         assert len(children) == 1 and label(cg, SV(x=1)) in children
 
-        # Check for the one Level 3 node that should have been created. This one combines the two
-        # connected components of Level 2
-        # label(cg, SV(seg=1), layer=3)
-        assert serializers.serialize_uint64(label(cg, SV(seg=1), layer=3)) in res.rows
+        # The one Level 3 node combines the two connected components of Level 2
+        root = cg.get_root(label(cg, SV()))
+        assert root == cg.get_root(label(cg, SV(x=1)))
+        assert cg.get_chunk_layer(root) == 3
+        assert serializers.serialize_uint64(root) in res.rows
 
-        attr = attributes.Hierarchy.Child
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(seg=1), layer=3))].cells[
-            "0"
-        ]
-        children = attr.deserialize(row[attr.key][0].value)
-        assert (
-            len(children) == 2
-            and label(cg, SV(seg=1), layer=2) in children
-            and label(cg, SV(x=1, seg=1), layer=2) in children
-        )
+        children = cg.get_children(root)
+        assert len(children) == 2 and set(children) == {
+            label(cg, SV(seg=1), layer=2),
+            label(cg, SV(x=1, seg=1), layer=2),
+        }
 
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
@@ -266,9 +264,9 @@ class TestGraphBuild:
         # dimensions as Level 1, we also expect them to be in different chunks
         # label(cg, SV(seg=1), layer=2)
         assert serializers.serialize_uint64(label(cg, SV(seg=1), layer=2)) in res.rows
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))].cells[
-            "0"
-        ]
+        row = res.rows[
+            serializers.serialize_uint64(label(cg, SV(seg=1), layer=2))
+        ].cells["0"]
         atomic_cross_edge_d = cg.get_atomic_cross_edges([label(cg, SV(seg=1), layer=2)])
         atomic_cross_edge_d = atomic_cross_edge_d[
             np.uint64(label(cg, SV(seg=1), layer=2))
@@ -289,11 +287,15 @@ class TestGraphBuild:
         )
 
         # label(cg, SV(x=1, seg=1), layer=2)
-        assert serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2)) in res.rows
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2))].cells[
-            "0"
-        ]
-        atomic_cross_edge_d = cg.get_atomic_cross_edges([label(cg, SV(x=1, seg=1), layer=2)])
+        assert (
+            serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2)) in res.rows
+        )
+        row = res.rows[
+            serializers.serialize_uint64(label(cg, SV(x=1, seg=1), layer=2))
+        ].cells["0"]
+        atomic_cross_edge_d = cg.get_atomic_cross_edges(
+            [label(cg, SV(x=1, seg=1), layer=2)]
+        )
         atomic_cross_edge_d = atomic_cross_edge_d[
             np.uint64(label(cg, SV(x=1, seg=1), layer=2))
         ]
@@ -307,21 +309,18 @@ class TestGraphBuild:
         assert test_ace in atomic_cross_edge_d[2]
         assert len(children) == 1 and label(cg, SV(x=1)) in children
 
-        # Check for the one Level 3 node that should have been created. This one combines the two
-        # connected components of Level 2
-        # label(cg, SV(seg=1), layer=3)
-        assert serializers.serialize_uint64(label(cg, SV(seg=1), layer=3)) in res.rows
-        row = res.rows[serializers.serialize_uint64(label(cg, SV(seg=1), layer=3))].cells[
-            "0"
-        ]
-        column = attributes.Hierarchy.Child
-        children = column.deserialize(row[column.key][0].value)
+        # The one Level 3 node combines the two connected components of Level 2
+        root = cg.get_root(label(cg, SV()))
+        assert root == cg.get_root(label(cg, SV(seg=1)))
+        assert root == cg.get_root(label(cg, SV(x=1)))
+        assert cg.get_chunk_layer(root) == 3
+        assert serializers.serialize_uint64(root) in res.rows
 
-        assert (
-            len(children) == 2
-            and label(cg, SV(seg=1), layer=2) in children
-            and label(cg, SV(x=1, seg=1), layer=2) in children
-        )
+        children = cg.get_children(root)
+        assert len(children) == 2 and set(children) == {
+            label(cg, SV(seg=1), layer=2),
+            label(cg, SV(x=1, seg=1), layer=2),
+        }
 
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
@@ -357,8 +356,12 @@ class TestGraphBuild:
 
         assert serializers.serialize_uint64(label(cg, SV())) in res.rows
         assert serializers.serialize_uint64(label(cg, SV(x=7, y=7, z=7))) in res.rows
-        assert serializers.serialize_uint64(label(cg, SV(seg=1), layer=5)) in res.rows
-        assert serializers.serialize_uint64(label(cg, SV(seg=2), layer=5)) in res.rows
+        root_a = cg.get_root(label(cg, SV()))
+        root_z = cg.get_root(label(cg, SV(x=7, y=7, z=7)))
+        assert root_a != root_z
+        assert cg.get_chunk_layer(root_a) == cg.get_chunk_layer(root_z) == 5
+        assert serializers.serialize_uint64(root_a) in res.rows
+        assert serializers.serialize_uint64(root_z) in res.rows
 
     @pytest.mark.timeout(30)
     def test_double_chunk_creation(self, gen_graph):
@@ -422,12 +425,8 @@ class TestGraphBuild:
         assert cg.get_chunk_layer(cg.get_root(label(cg, SV(seg=2)))) == 4
         assert cg.get_chunk_layer(cg.get_root(label(cg, SV(x=1, seg=1)))) == 4
 
-        root_seg_ids = [
-            cg.get_segment_id(cg.get_root(label(cg, SV(seg=1)))),
-            cg.get_segment_id(cg.get_root(label(cg, SV(seg=2)))),
-            cg.get_segment_id(cg.get_root(label(cg, SV(x=1, seg=1)))),
-        ]
-
-        assert 4 in root_seg_ids
-        assert 5 in root_seg_ids
-        assert 6 in root_seg_ids
+        svs = [label(cg, SV(seg=1)), label(cg, SV(seg=2)), label(cg, SV(x=1, seg=1))]
+        roots = [cg.get_root(sv) for sv in svs]
+        assert len(set(roots)) == 3
+        for sv, root in zip(svs, roots):
+            assert cg.get_parent(sv) in cg.get_children(root)

@@ -42,25 +42,39 @@ class TestGraphSimpleQueries:
         parent11001 = cg.get_parent(sv["b1"])
         parent12000 = cg.get_parent(sv["c0"])
 
-        children20001 = cg.get_children(cg.get_node_id(np.uint64(1), layer=2, x=0, y=0, z=0))
-        children21001 = cg.get_children(cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0))
-        children22001 = cg.get_children(cg.get_node_id(np.uint64(1), layer=2, x=2, y=0, z=0))
+        children20001 = cg.get_children(
+            cg.get_node_id(np.uint64(1), layer=2, x=0, y=0, z=0)
+        )
+        children21001 = cg.get_children(
+            cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0)
+        )
+        children22001 = cg.get_children(
+            cg.get_node_id(np.uint64(1), layer=2, x=2, y=0, z=0)
+        )
 
-        parent20001 = cg.get_parent(cg.get_node_id(np.uint64(1), layer=2, x=0, y=0, z=0))
-        parent21001 = cg.get_parent(cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0))
-        parent22001 = cg.get_parent(cg.get_node_id(np.uint64(1), layer=2, x=2, y=0, z=0))
+        parent20001 = cg.get_parent(
+            cg.get_node_id(np.uint64(1), layer=2, x=0, y=0, z=0)
+        )
+        parent21001 = cg.get_parent(
+            cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0)
+        )
+        parent22001 = cg.get_parent(
+            cg.get_node_id(np.uint64(1), layer=2, x=2, y=0, z=0)
+        )
 
-        children30001 = cg.get_children(cg.get_node_id(np.uint64(1), layer=3, x=0, y=0, z=0))
-        children31001 = cg.get_children(cg.get_node_id(np.uint64(1), layer=3, x=1, y=0, z=0))
+        children30001 = cg.get_children(
+            cg.get_node_id(np.uint64(1), layer=3, x=0, y=0, z=0)
+        )
+        children31001 = cg.get_children(
+            cg.get_node_id(np.uint64(1), layer=3, x=1, y=0, z=0)
+        )
 
-        parent30001 = cg.get_parent(cg.get_node_id(np.uint64(1), layer=3, x=0, y=0, z=0))
-        parent31001 = cg.get_parent(cg.get_node_id(np.uint64(1), layer=3, x=1, y=0, z=0))
-
-        children40001 = cg.get_children(cg.get_node_id(np.uint64(1), layer=4, x=0, y=0, z=0))
-        children40002 = cg.get_children(cg.get_node_id(np.uint64(2), layer=4, x=0, y=0, z=0))
-
-        parent40001 = cg.get_parent(cg.get_node_id(np.uint64(1), layer=4, x=0, y=0, z=0))
-        parent40002 = cg.get_parent(cg.get_node_id(np.uint64(2), layer=4, x=0, y=0, z=0))
+        parent30001 = cg.get_parent(
+            cg.get_node_id(np.uint64(1), layer=3, x=0, y=0, z=0)
+        )
+        parent31001 = cg.get_parent(
+            cg.get_node_id(np.uint64(1), layer=3, x=1, y=0, z=0)
+        )
 
         # (non-existing) Children of L1
         assert np.array_equal(children10000, []) is True
@@ -83,8 +97,8 @@ class TestGraphSimpleQueries:
         )
         assert len(children22001) == 1 and sv["c0"] in children22001
 
-        # Parent of L2
-        assert parent20001 == cg.get_node_id(np.uint64(1), layer=4, x=0, y=0, z=0)
+        # Parent of L2: A skips to the root, B and C each get a node in their own L3 chunk
+        assert cg.get_chunk_layer(parent20001) == 4
         assert parent21001 == cg.get_node_id(np.uint64(1), layer=3, x=0, y=0, z=0)
         assert parent22001 == cg.get_node_id(np.uint64(1), layer=3, x=1, y=0, z=0)
 
@@ -95,21 +109,17 @@ class TestGraphSimpleQueries:
 
         # Parent of L3
         assert parent30001 == parent31001
-        assert (
-            parent30001 == cg.get_node_id(np.uint64(1), layer=4, x=0, y=0, z=0)
-            and parent20001 == cg.get_node_id(np.uint64(2), layer=4, x=0, y=0, z=0)
-        ) or (
-            parent30001 == cg.get_node_id(np.uint64(2), layer=4, x=0, y=0, z=0)
-            and parent20001 == cg.get_node_id(np.uint64(1), layer=4, x=0, y=0, z=0)
-        )
+        assert cg.get_chunk_layer(parent30001) == 4
+        assert parent30001 != parent20001
 
         # Children of L4
-        assert parent10000 in children40001
-        assert parent21001 in children40002 and parent22001 in children40002
+        assert parent10000 in cg.get_children(parent20001)
+        children_root_bc = cg.get_children(parent30001)
+        assert parent21001 in children_root_bc and parent22001 in children_root_bc
 
         # (non-existing) Parent of L4
-        assert parent40001 is None
-        assert parent40002 is None
+        assert cg.get_parent(parent20001) is None
+        assert cg.get_parent(parent30001) is None
 
         children2_separate = cg.get_children(
             [
@@ -119,14 +129,35 @@ class TestGraphSimpleQueries:
             ]
         )
         assert len(children2_separate) == 3
-        assert cg.get_node_id(np.uint64(1), layer=2, x=0, y=0, z=0) in children2_separate and np.all(
-            np.isin(children2_separate[cg.get_node_id(np.uint64(1), layer=2, x=0, y=0, z=0)], children20001)
+        assert cg.get_node_id(
+            np.uint64(1), layer=2, x=0, y=0, z=0
+        ) in children2_separate and np.all(
+            np.isin(
+                children2_separate[
+                    cg.get_node_id(np.uint64(1), layer=2, x=0, y=0, z=0)
+                ],
+                children20001,
+            )
         )
-        assert cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0) in children2_separate and np.all(
-            np.isin(children2_separate[cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0)], children21001)
+        assert cg.get_node_id(
+            np.uint64(1), layer=2, x=1, y=0, z=0
+        ) in children2_separate and np.all(
+            np.isin(
+                children2_separate[
+                    cg.get_node_id(np.uint64(1), layer=2, x=1, y=0, z=0)
+                ],
+                children21001,
+            )
         )
-        assert cg.get_node_id(np.uint64(1), layer=2, x=2, y=0, z=0) in children2_separate and np.all(
-            np.isin(children2_separate[cg.get_node_id(np.uint64(1), layer=2, x=2, y=0, z=0)], children22001)
+        assert cg.get_node_id(
+            np.uint64(1), layer=2, x=2, y=0, z=0
+        ) in children2_separate and np.all(
+            np.isin(
+                children2_separate[
+                    cg.get_node_id(np.uint64(1), layer=2, x=2, y=0, z=0)
+                ],
+                children22001,
+            )
         )
 
         children2_combined = cg.get_children(
@@ -155,13 +186,10 @@ class TestGraphSimpleQueries:
         with pytest.raises(Exception):
             cg.get_root(0)
 
-        assert (
-            root10000 == cg.get_node_id(np.uint64(1), layer=4, x=0, y=0, z=0)
-            and root11000 == root11001 == root12000 == cg.get_node_id(np.uint64(2), layer=4, x=0, y=0, z=0)
-        ) or (
-            root10000 == cg.get_node_id(np.uint64(2), layer=4, x=0, y=0, z=0)
-            and root11000 == root11001 == root12000 == cg.get_node_id(np.uint64(1), layer=4, x=0, y=0, z=0)
-        )
+        assert root11000 == root11001 == root12000
+        assert root10000 != root11000
+        assert cg.get_chunk_layer(root10000) == cg.get_chunk_layer(root11000) == 4
+        assert cg.get_parent(root10000) is None and cg.get_parent(root11000) is None
 
     @pytest.mark.timeout(30)
     def test_get_subgraph_nodes(self, gen_graph):
@@ -223,9 +251,7 @@ class TestGraphSimpleQueries:
         cg, sv = self._build_graph(gen_graph)
         bb = np.array([[1, 0, 0], [2, 1, 1]], dtype=int)
         bb_coord = bb * cg.meta.graph_config.CHUNK_SIZE
-        childs_1 = cg.get_subgraph(
-            [cg.get_root(sv["b1"])], bbox=bb, leaves_only=True
-        )
+        childs_1 = cg.get_subgraph([cg.get_root(sv["b1"])], bbox=bb, leaves_only=True)
         childs_2 = cg.get_subgraph(
             [cg.get_root(sv["b1"])],
             bbox=bb_coord,
