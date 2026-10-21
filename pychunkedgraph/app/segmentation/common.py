@@ -14,6 +14,7 @@ from pytz import UTC
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 from pychunkedgraph.graph import (
     attributes,
     cutting,
@@ -106,11 +107,12 @@ def handle_info(table_id):
     combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
         "verify", False
     )
-    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", None)
-    if mesh_dir is not None:
-        combined_info["mesh_dir"] = mesh_dir
-    elif combined_info.get("mesh_dir", None) is not None:
-        combined_info["mesh_dir"] = "graphene_meshes"
+    # A table without a mesh dir has no meshes, so it advertises none.
+    if cg.meta.custom_data.get("mesh", {}).get("dir") is not None:
+        mm = MeshMeta(cg)
+        combined_info["mesh_dir"] = mm.dir
+        combined_info["dynamic_mesh_dir"] = mm.dynamic_mesh_dir
+        combined_info["mesh_metadata"] = mm.client_metadata
     return jsonify(combined_info)
 
 

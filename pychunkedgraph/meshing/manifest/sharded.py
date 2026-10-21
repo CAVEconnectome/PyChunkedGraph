@@ -8,8 +8,9 @@ from cloudvolume import CloudVolume
 from .utils import get_children_before_start_layer
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
-from ...graph.utils.basetypes import NODE_ID
+from ...graph.basetypes import NODE_ID
 from ...graph.chunks import utils as chunk_utils
+from ..mesh_meta import MeshMeta
 
 
 def verified_manifest(
@@ -61,7 +62,7 @@ def speculative_manifest(
     from ..meshgen_utils import get_json_info
 
     if start_layer is None:
-        start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+        start_layer = MeshMeta(cg).max_layer
 
     start = time()
     bounding_box = chunk_utils.normalize_bounding_box(
@@ -89,7 +90,7 @@ def speculative_manifest(
 
     readers = CloudVolume(  # pylint: disable=no-member
         "graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
+        mesh_dir=MeshMeta(cg).dir,
         info=get_json_info(cg),
     ).mesh.readers
 
