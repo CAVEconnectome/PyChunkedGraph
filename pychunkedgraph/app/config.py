@@ -14,6 +14,26 @@ class BaseConfig(object):
     LOGGING_DATEFORMAT = "%Y-%m-%dT%H:%M:%S.0Z"
     LOGGING_LEVEL = logging.DEBUG
 
+    # Opt-in start-of-request logging (see pychunkedgraph.app.common._log_request_start).
+    # When True, every non-probe request emits a REQUEST_START line to stdout before any work
+    # runs, so requests that OOM-kill their worker mid-flight (and thus never reach
+    # after_request) are still visible in Cloud Logging. Verbose; enable only for temporary
+    # diagnosis, e.g. by setting LOG_REQUEST_START = True in the instance config.cfg.
+    LOG_REQUEST_START = False
+
+    # Reject /lvl2_graph requests whose node resolves to more than this many level 2 nodes
+    # (see pychunkedgraph.graph.analysis.pathing.get_lvl2_edge_list). Such objects — typically
+    # erroneous mega-merges — produce a multi-GB induced edge list that can OOM the worker.
+    # None disables the guard; set a concrete integer in the instance config.cfg to enable.
+    LVL2_GRAPH_MAX_NODES = None
+
+    # Guard for /subgraph (see pychunkedgraph.graph.subgraph.get_subgraph_edges_and_leaves).
+    # Counts chunks rather than level 2 nodes: the endpoint reads every edge in every chunk the
+    # object touches (all objects in the chunk, not just the requested one), so cost tracks the
+    # volume queried, not the object. A large 'bounds' is expensive even for a small object.
+    # None disables the guard; set a concrete integer in the instance config.cfg to enable.
+    SUBGRAPH_MAX_CHUNKS = None
+
     CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
     PROJECT_ID = os.environ.get("PROJECT_ID", None)
     CG_READ_ONLY = os.environ.get("CG_READ_ONLY", None) is not None

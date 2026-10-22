@@ -20,6 +20,18 @@ DEFAULT_AFFINITY = np.finfo(np.float32).tiny
 DEFAULT_AREA = np.finfo(np.float32).tiny
 
 
+def in_sorted(values: np.ndarray, sorted_unique: np.ndarray) -> np.ndarray:
+    """Boolean mask of `values` present in `sorted_unique` (sorted, deduplicated).
+
+    Same result as np.isin, but does not re-sort the reference set on every call.
+    """
+    if values.size == 0 or sorted_unique.size == 0:
+        return np.zeros(values.size, dtype=bool)
+    idx = np.searchsorted(sorted_unique, values)
+    idx[idx == sorted_unique.size] = 0
+    return sorted_unique[idx] == values
+
+
 class Edges:
     def __init__(
         self,
@@ -64,6 +76,50 @@ class Edges:
     @areas.setter
     def areas(self, areas):
         self._areas = areas
+
+    def filter_touching(self, sorted_ids: np.ndarray) -> "Edges":
+        """Keep only edges with at least one endpoint in `sorted_ids`.
+
+        `sorted_ids` must be sorted and deduplicated; sorting once at the call site
+        matters because this runs per chunk against the same set.
+
+        This is deliberately a superset of what consumers keep -- categorize_edges_v2
+        drops any edge whose node_ids1 does not remap through sv_parent_d, and the
+        edges_only path keeps only edges with *both* endpoints in the set -- so applying
+        it early cannot change their results. Filtering before the per-chunk edges are
+        accumulated is what bounds memory: the arrays produced by io.edges.deserialize
+        are np.frombuffer views into the decompressed chunk, so masking copies out the
+        few edges that matter and lets the whole decompressed buffer be released.
+        """
+        if len(self) == 0 or sorted_ids.size == 0:
+            return self if len(self) == 0 else self[np.zeros(len(self), dtype=bool)]
+        mask = in_sorted(self.node_ids1, sorted_ids)
+        mask |= in_sorted(self.node_ids2, sorted_ids)
+        return self[mask]
+
+    @classmethod
+    def concatenate(cls, edges_iterable) -> "Edges":
+        """Combine any number of Edges in a single pass.
+
+        Equivalent to ``reduce(lambda x, y: x + y, edges_iterable, Edges([], []))`` but
+        allocates each output array once instead of once per element. Folding with ``+``
+        is quadratic in allocation: combining n chunk edge sets copies every edge already
+        accumulated on each step, so peak memory runs well above the size of the result.
+        Callers that combine per-chunk edges (see ChunkedGraph.get_l2_agglomerations)
+        should use this instead.
+        """
+        parts = list(edges_iterable)
+        if not parts:
+            return cls(
+                np.array([], dtype=basetypes.NODE_ID),
+                np.array([], dtype=basetypes.NODE_ID),
+            )
+        return cls(
+            np.concatenate([p.node_ids1 for p in parts]),
+            np.concatenate([p.node_ids2 for p in parts]),
+            affinities=np.concatenate([p.affinities for p in parts]),
+            areas=np.concatenate([p.areas for p in parts]),
+        )
 
     def __add__(self, other):
         """add two Edges instances"""

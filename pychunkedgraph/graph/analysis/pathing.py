@@ -1,11 +1,13 @@
+import os
 import typing
 
-import fastremap
 import graph_tool
 import numpy as np
 
 from pychunkedgraph.graph.utils import flatgraph
 
+from .. import exceptions as cg_exceptions
+from ..edges import in_sorted
 from ..subgraph import get_subgraph_nodes
 
 
@@ -77,12 +79,17 @@ def get_lvl2_edge_list(
     cg,
     node_id: np.uint64,
     bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
+    max_num_lvl2_ids: typing.Optional[int] = None,
 ):
     """get an edge list of lvl2 ids for a particular node
 
     :param cg: ChunkedGraph object
     :param node_id: np.uint64 that you want the edge list for
     :param bbox: Optional[Sequence[Sequence[int]]] a bounding box to limit the search
+    :param max_num_lvl2_ids: Optional[int] reject the request (raising BadRequest) when the
+        node resolves to more than this many level 2 ids. Guards against pathologically large
+        objects (e.g. erroneous mega-merges) whose induced level 2 edge list would be many GB
+        and can OOM the worker. ``None`` disables the guard.
     """
 
     if bbox is None:
@@ -98,73 +105,205 @@ def get_lvl2_edge_list(
             return_flattened=True,
         )
 
+    # Enforce the size guard *before* the (potentially multi-GB) induced-edge computation
+    # below. The level 2 id count is the cheap proxy we already have in hand; the edge read
+    # in _get_edges_for_lvl2_ids scales with it and is what actually exhausts memory.
+    if max_num_lvl2_ids is not None and len(lvl2_ids) > max_num_lvl2_ids:
+        hint = (
+            "Provide a smaller bounding box ('bounds')."
+            if bbox is not None
+            else "Provide a bounding box ('bounds') to restrict the query to a sub-region."
+        )
+        raise cg_exceptions.BadRequest(
+            f"The level 2 graph for {node_id} has {len(lvl2_ids)} level 2 nodes, which exceeds "
+            f"the maximum of {max_num_lvl2_ids}. {hint}"
+        )
+
     edges = _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True)
     return edges
 
 
-def _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=False):
+# Level 2 ids per call to cg.get_atomic_cross_edges. The read is the one thing here that
+# scales with object size rather than with the answer, so it is sliced. Swept on the
+# profiled object below (peak rss): 3k/5k/10k all land within noise of each other, 25k
+# drifts up. Flat enough that this is not a knife edge, so the default rarely needs
+# changing -- PCG_CROSS_EDGE_READ_BATCH is there for tuning a deployment whose objects or
+# pod memory differ, without a redeploy of the code.
+try:
+    CROSS_EDGE_READ_BATCH = int(os.environ.get("PCG_CROSS_EDGE_READ_BATCH", 10_000))
+except ValueError:
+    CROSS_EDGE_READ_BATCH = 10_000
+if CROSS_EDGE_READ_BATCH < 1:
+    # Zero or negative would make the range() below yield no slices at all, so the
+    # function would return an empty edge list instead of failing: a wrong answer rather
+    # than an error. Ignore it and keep the default.
+    CROSS_EDGE_READ_BATCH = 10_000
+
+
+def _sorted_by_key(keys, values):
+    """Sort a key/value pair of arrays together, by key.
+
+    Each slice contributes a sorted fragment but their ranges interleave, so the
+    concatenation is not sorted. Both the miss scan and the remap binary-search it.
+    """
+    order = np.argsort(keys, kind="stable")
+    return keys[order], values[order]
+
+
+def _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=False, batch_size=None):
+    """Cross-chunk edges between `lvl2_ids`, remapped from supervoxels to level 2 ids.
+
+    Memory, not speed, is the binding constraint: the intermediates dwarf the answer.
+    Profiled on api6 for aibs_v1dd root 864691132764660103, the object that trips uwsgi's
+    reload-on-rss: 240,928 level 2 ids whose cross edges are 18,349,472 supervoxel pairs
+    (280MB), collapsing to 276,472 level 2 edges (4.4MB).
+
+    The costly part is not the edges but the dict they arrive in -- one small array per
+    (level 2 id, layer), ~480k of them, 930MB for 280MB of data, nearly all numpy object
+    overhead. So the read is sliced and each slice is concatenated and its dict dropped
+    before the next is fetched, which keeps only one slice's worth of that overhead alive.
+    The edges themselves are all still held, so this is still a single pass over Bigtable.
+
+    Measured in the read pod against the previous single-shot version: peak rss
+    1861-1887MB -> 933-952MB, wall clock 33.3-35.3s -> 30.3-31.0s, output byte-identical.
+    It gets faster rather than slower because the working set shrinks and because of the
+    miss scan below.
+
+    The read slice size defaults to CROSS_EDGE_READ_BATCH (the PCG_CROSS_EDGE_READ_BATCH
+    environment variable, 10,000) and can be overridden per call with `batch_size`. It
+    changes the peak and nothing else -- the result is independent of it.
+
+    Two things that look like obvious wins here and are not, both measured:
+      - Slicing the *reduce* as well, so the edges need not be held either, drops the peak
+        to ~700MB but needs a second pass over Bigtable and costs 7s. Not worth it.
+      - Swapping fastremap for searchsorted on its own, without slicing the read, is a
+        wash (1834-1869MB). It pays only in combination, because the reduce loop below
+        would otherwise rebuild fastremap's 6.95M-key table once per slice.
+    """
     # protect in case there are no lvl2 ids
     if len(lvl2_ids) == 0:
         return np.empty((0, 2), dtype=np.uint64)
 
-    cce_dict = cg.get_atomic_cross_edges(lvl2_ids)
+    # Sorted and deduplicated once, up front. It is the reference set for the induced
+    # filter below, and slicing it keeps each supervoxel's mapping entry in exactly one
+    # slice. Reading a dict keyed by id already collapsed duplicates, so this does not
+    # change which edges are fetched.
+    lvl2_ids = np.unique(lvl2_ids)
+    if batch_size is None:
+        batch_size = CROSS_EDGE_READ_BATCH
+    elif batch_size < 1:
+        # Same trap as above, reached explicitly instead of through the environment.
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
 
-    # Gather all of the supervoxel ids into two lists, we will map them to
-    # their parent lvl2 ids
-    edge_array = []
-    for l2_id in cce_dict:
-        for level in cce_dict[l2_id]:
-            edge_array.append(cce_dict[l2_id][level])
+    batches = []
+    map_keys = []
+    map_values = []
+    partner_ids = []
+    for start in range(0, len(lvl2_ids), batch_size):
+        cce_dict = cg.get_atomic_cross_edges(lvl2_ids[start : start + batch_size])
+        blocks = []
+        owners = []
+        lengths = []
+        for lvl2_id in cce_dict:
+            for level in cce_dict[lvl2_id]:
+                block = cce_dict[lvl2_id][level]
+                if len(block) == 0:
+                    continue
+                blocks.append(block)
+                owners.append(lvl2_id)
+                lengths.append(len(block))
+        # The whole point: the slice's edges are copied out by the concatenate, so its
+        # dict can go before the next read allocates another one.
+        cce_dict.clear()
+        if not blocks:
+            continue
+        edges = np.concatenate(blocks)
+        del blocks
+
+        # Column 0 is a supervoxel of the block's owner, column 1 its partner across the
+        # chunk boundary; both are views into `edges`. One np.repeat gives the parent of
+        # every row, rather than an np.full per block.
+        owner_column = np.repeat(
+            np.array(owners, dtype=edges.dtype), np.array(lengths, dtype=np.int64)
+        )
+        keys, first = np.unique(edges[:, 0], return_index=True)
+        map_keys.append(keys)
+        map_values.append(owner_column[first])
+        partner_ids.append(np.unique(edges[:, 1]))
+        batches.append(edges)
+        del edges, owner_column, keys, first
 
     # protect in case there are no edges
-    if len(edge_array) == 0:
+    if not batches:
         return np.empty((0, 2), dtype=np.uint64)
-    
-    edge_array = np.concatenate(edge_array)
-    known_supervoxels_list = []
-    known_l2_list = []
-    unknown_supervoxel_list = []
-    for lvl2_id in cce_dict:
-        for level in cce_dict[lvl2_id]:
-            known_supervoxels_for_lv2_id = cce_dict[lvl2_id][level][:, 0]
-            unknown_supervoxels_for_lv2_id = cce_dict[lvl2_id][level][:, 1]
-            known_supervoxels_list.append(known_supervoxels_for_lv2_id)
-            known_l2_list.append(np.full(known_supervoxels_for_lv2_id.shape, lvl2_id))
-            unknown_supervoxel_list.append(unknown_supervoxels_for_lv2_id)
 
-    # Create two arrays to map supervoxels for which we know their parents
-    known_supervoxel_array, unique_indices = np.unique(
-        np.concatenate(known_supervoxels_list), return_index=True
+    # A supervoxel belongs to exactly one level 2 node, so the fragments are disjoint.
+    known_supervoxel_array = np.concatenate(map_keys)
+    known_l2_array = np.concatenate(map_values)
+    del map_keys, map_values
+    known_supervoxel_array, known_l2_array = _sorted_by_key(
+        known_supervoxel_array, known_l2_array
     )
-    known_l2_array = (np.concatenate(known_l2_list))[unique_indices]
-    unknown_supervoxel_array = np.unique(np.concatenate(unknown_supervoxel_list))
 
-    # Call get_parents on any supervoxels for which we don't know their parents
-    supervoxels_to_query_parent = np.setdiff1d(
-        unknown_supervoxel_array, known_supervoxel_array
-    )
-    if len(supervoxels_to_query_parent) > 0:
+    # Partners with no mapping entry belong to level 2 nodes outside `lvl2_ids` and have
+    # to be looked up. For a whole object there are none -- cross edges are stored from
+    # both sides, so every partner also appears in some slice's column 0 -- but for a
+    # subset (a 'bounds' query, or a shared parent below the root) there are.
+    #
+    # Scanned one slice at a time on purpose. Concatenating every slice's partners and
+    # handing that to np.setdiff1d, which sorts both sides again, cost 477MB on the
+    # profiled object to produce an empty answer.
+    misses = []
+    for partners in partner_ids:
+        missed = partners[~in_sorted(partners, known_supervoxel_array)]
+        if len(missed):
+            misses.append(missed)
+    del partner_ids
+    if misses:
+        supervoxels_to_query_parent = np.unique(np.concatenate(misses))
+        del misses
         missing_l2_ids = cg.get_parents(supervoxels_to_query_parent)
         known_supervoxel_array = np.concatenate(
             (known_supervoxel_array, supervoxels_to_query_parent)
         )
         known_l2_array = np.concatenate((known_l2_array, missing_l2_ids))
+        del supervoxels_to_query_parent, missing_l2_ids
+        known_supervoxel_array, known_l2_array = _sorted_by_key(
+            known_supervoxel_array, known_l2_array
+        )
 
-    # Map the cross-chunk edges from supervoxels to lvl2 ids
-    edge_view = edge_array.view()
-    edge_view.shape = -1
-    fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
+    # Reduce each slice to level 2 pairs and free it before moving on, so the 66:1
+    # collapse happens per slice and the accumulator stays at answer size.
+    reduced = []
+    while batches:
+        edges = batches.pop()
+        # Every supervoxel here is in the mapping -- column 0 by construction, column 1
+        # via the get_parents step above -- so a binary search is exact. searchsorted
+        # rather than fastremap.remap_from_array_kv, which would rebuild a lookup over
+        # the whole mapping on every iteration of this loop.
+        flat = edges.reshape(-1)
+        flat[:] = known_l2_array[np.searchsorted(known_supervoxel_array, flat)]
+        del flat
+        # In place: `edges` is ours, np.concatenate having copied it out of the dict.
+        edges.sort(axis=1)
+        if induced:
+            # make this an induced subgraph
+            # keep only the edges that are between the lvl2 ids asked for. Filtering
+            # before the dedup is worth it when it bites -- a subset query -- and costs
+            # little when it does not. in_sorted rather than np.isin, which would re-sort
+            # lvl2_ids on each of the two calls.
+            edges = edges[
+                in_sorted(edges[:, 0], lvl2_ids) & in_sorted(edges[:, 1], lvl2_ids)
+            ]
+        reduced.append(np.unique(edges, axis=0))
+        del edges
 
-    edge_array = np.unique(np.sort(edge_array, axis=1), axis=0)
-
-    if induced:
-        # make this an induced subgraph
-        # keep only the edges that are between the lvl2 ids asked for
-        edge_array = edge_array[
-            np.isin(edge_array[:, 0], lvl2_ids) & np.isin(edge_array[:, 1], lvl2_ids)
-        ]
-
-    return edge_array
+    del known_supervoxel_array, known_l2_array
+    if len(reduced) == 1:
+        return reduced[0]
+    # Slices reduce independently, so the same level 2 pair can come out of more than one
+    # of them; this is what makes the result independent of batch_size.
+    return np.unique(np.concatenate(reduced), axis=0)
 
 
 def find_l2_shortest_path(
