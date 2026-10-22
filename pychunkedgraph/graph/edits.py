@@ -21,6 +21,7 @@ from .edges import get_latest_edges_wrapper, get_new_nodes
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts
 from pychunkedgraph.graph import basetypes
+from pychunkedgraph.graph.exceptions import PostconditionError
 from .utils import flatgraph
 from pychunkedgraph.graph import serializers
 from ..utils.general import in2d
@@ -707,7 +708,95 @@ class CreateParentNodes:
                 self.cg, combined_cx_edges, parent_ts=self._last_ts
             )
 
-        # update cache with resolved stale edges
+        edge_nodes = np.unique(np.asarray(edge_nodes, dtype=basetypes.NODE_ID))
+        edge_parents = np.asarray(
+            get_new_nodes(self.cg, edge_nodes, parent_layer, self._last_ts),
+            dtype=basetypes.NODE_ID,
+        )
+        if edge_parents.shape != edge_nodes.shape:
+            logger.error(
+                "cross-edge parent resolution cardinality mismatch; "
+                f"op={self._opid}, parent_layer={parent_layer}, "
+                f"edge_nodes={edge_nodes}, edge_parents={edge_parents}"
+            )
+            raise PostconditionError(
+                "Cross-chunk edge parent resolution is inconsistent. "
+                "Refresh the segmentation before retrying the split."
+            )
+
+        zero_parent_nodes = edge_nodes[edge_parents == 0]
+        if zero_parent_nodes.size:
+            logger.error(
+                "cross-edge parent resolution returned zero; "
+                f"op={self._opid}, parent_layer={parent_layer}, "
+                f"nodes={zero_parent_nodes}"
+            )
+            raise PostconditionError(
+                "Cross-chunk edge parent resolution is inconsistent. "
+                "Refresh the segmentation before retrying the split."
+            )
+
+        edge_parent_layers = self.cg.get_chunk_layers(edge_parents)
+        invalid_layer_mask = edge_parent_layers != parent_layer
+        if np.any(invalid_layer_mask):
+            logger.error(
+                "cross-edge parent resolution returned wrong layer; "
+                f"op={self._opid}, parent_layer={parent_layer}, "
+                f"nodes={edge_nodes[invalid_layer_mask]}, "
+                f"parents={edge_parents[invalid_layer_mask]}, "
+                f"layers={edge_parent_layers[invalid_layer_mask]}"
+            )
+            raise PostconditionError(
+                "Cross-chunk edge parent resolution is inconsistent. "
+                "Refresh the segmentation before retrying the split."
+            )
+
+        edge_parents_d = dict(zip(edge_nodes, edge_parents))
+        new_ids_array = np.asarray(new_ids, dtype=basetypes.NODE_ID)
+        parent_cx_edges = {new_id: {} for new_id in new_ids_array}
+
+        for layer in range(parent_layer, self.cg.meta.layer_count):
+            edges = updated_cx_edges.get(layer, types.empty_2d)
+            if len(edges) == 0:
+                continue
+
+            missing_nodes = np.setdiff1d(np.unique(edges), edge_nodes)
+            if missing_nodes.size:
+                logger.error(
+                    f"cross-edge parent lookup missing nodes; op={self._opid}, "
+                    f"layer={layer}, nodes={missing_nodes}"
+                )
+                raise PostconditionError(
+                    "Cross-chunk edge parent resolution is inconsistent. "
+                    "Refresh the segmentation before retrying the split."
+                )
+
+            parent_edges = fastremap.remap(
+                edges.copy(), edge_parents_d, preserve_missing_labels=False
+            )
+            source_parents = parent_edges[:, 0]
+            invalid_source_parents = np.setdiff1d(
+                np.unique(source_parents), new_ids_array
+            )
+            if invalid_source_parents.size:
+                logger.error(
+                    f"cross-edge source parent outside edit batch; op={self._opid}, "
+                    f"layer={layer}, source_nodes={np.unique(edges[:, 0])}, "
+                    f"source_parents={np.unique(source_parents)}, "
+                    f"new_ids={new_ids_array}"
+                )
+                raise PostconditionError(
+                    "Cross-chunk edge parent resolution is inconsistent. "
+                    "Refresh the segmentation before retrying the split."
+                )
+
+            for new_id in np.unique(source_parents):
+                mask = source_parents == new_id
+                parent_cx_edges[new_id][layer] = np.unique(
+                    parent_edges[mask], axis=0
+                )
+
+        # Persist stale-edge replacements only after parent ownership is validated.
         val_ds = defaultdict(dict)
         children_cx_edges = defaultdict(dict)
         for lyr in range(2, self.cg.meta.layer_count):
@@ -720,37 +809,16 @@ class CreateParentNodes:
                 children_cx_edges[child][lyr] = edges[mask]
                 val_ds[child][attributes.Connectivity.CrossChunkEdge[lyr]] = edges[mask]
 
-        for c, cx_edges_map in children_cx_edges.items():
-            self.cg.cache.cross_chunk_edges_cache[c] = cx_edges_map
-            rowkey = serializers.serialize_uint64(c)
-            row = self.cg.client.mutate_row(rowkey, val_ds[c], time_stamp=self._last_ts)
+        for child, cx_edges_map in children_cx_edges.items():
+            self.cg.cache.cross_chunk_edges_cache[child] = cx_edges_map
+            rowkey = serializers.serialize_uint64(child)
+            row = self.cg.client.mutate_row(
+                rowkey, val_ds[child], time_stamp=self._last_ts
+            )
             updated_entries.append(row)
 
-        # Distribute results back to each parent's cache
-        # Key insight: edges[:, 0] are children, map them to their parent
-        edge_parents = get_new_nodes(self.cg, edge_nodes, parent_layer, self._last_ts)
-        edge_parents_d = dict(zip(edge_nodes, edge_parents))
-        for new_id in new_ids:
-            children_set = set(all_children_d[new_id])
-            parent_cx_edges_d = {}
-            for layer in range(parent_layer, self.cg.meta.layer_count):
-                edges = updated_cx_edges.get(layer, types.empty_2d)
-                if len(edges) == 0:
-                    continue
-                # Filter to edges whose source is one of this parent's children
-                mask = np.isin(edges[:, 0], list(children_set))
-                if not np.any(mask):
-                    continue
-
-                pedges = edges[mask].copy()
-                pedges = fastremap.remap(
-                    pedges, edge_parents_d, preserve_missing_labels=True
-                )
-                parent_cx_edges_d[layer] = np.unique(pedges, axis=0)
-                assert np.all(
-                    pedges[:, 0] == new_id
-                ), f"OP {self._opid}: mismatch {new_id} != {np.unique(pedges[:, 0])}"
-            self.cg.cache.cross_chunk_edges_cache[new_id] = parent_cx_edges_d
+        for new_id, cx_edges_map in parent_cx_edges.items():
+            self.cg.cache.cross_chunk_edges_cache[new_id] = cx_edges_map
         return updated_entries
 
     def _get_new_ids(self, chunk_id, count, is_root):
