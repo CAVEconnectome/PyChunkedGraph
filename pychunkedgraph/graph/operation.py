@@ -3,7 +3,7 @@
 import time
 from abc import ABC, abstractmethod
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
@@ -17,6 +17,8 @@ from typing import Sequence
 from functools import reduce
 
 import numpy as np
+from kvdbclient.exceptions import WriteDeadlineError
+from kvdbclient.utils import require_before
 from pychunkedgraph import get_logger
 
 from . import err_dump
@@ -35,6 +37,7 @@ from .cache import CacheService
 from .cutting import Cut, SvSplitRequired, run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
+from .exceptions import EditDeadlineError
 from .utils.generic import get_bounding_box as get_bbox, assert_same_root
 from pychunkedgraph.graph import get_valid_timestamp
 
@@ -42,6 +45,11 @@ if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
 
 logger = get_logger(__name__)
+
+# No edit lands a graph cell past its op time plus this; older source state is settled.
+MAX_EDIT_AGE = timedelta(minutes=21)
+# A graph write starts only with this much time left, so a refusal lands no cell.
+WRITE_MARGIN = timedelta(seconds=30)
 
 
 def _log_edit_done(result, op_type, elapsed):
@@ -476,6 +484,7 @@ class GraphEditOperation(ABC):
                         new_lvl2_ids=new_lvl2_ids,
                         old_root_ids=root_ids,
                     )
+                deadline = self._write_deadline(operation_ts)
             except Exception as err:
                 self._raise_failure(err, lock.operation_id, operation_ts)
 
@@ -486,6 +495,7 @@ class GraphEditOperation(ABC):
                 new_lvl2_ids,
                 affected_records,
                 root_ids,
+                deadline,
             )
             _log_edit_done(result, op_type, time.time() - t_edit_start)
             return result
@@ -498,8 +508,9 @@ class GraphEditOperation(ABC):
         new_lvl2_ids: np.ndarray,
         affected_records: list,
         old_root_ids: np.ndarray,
+        deadline: datetime,
     ):
-        """Helper to persist changes after an edit."""
+        """Persist an edit's changes, its graph cells landing by `deadline`."""
         new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
         new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
 
@@ -526,6 +537,7 @@ class GraphEditOperation(ABC):
                 lock.locked_root_ids,
                 operation_id=lock.operation_id,
                 slow_retry=False,
+                deadline=deadline,
             )
             log_record_success = self._create_log_record(
                 operation_id=lock.operation_id,
@@ -547,11 +559,22 @@ class GraphEditOperation(ABC):
             seg_bbox=getattr(self, "seg_bboxes", None) or None,
         )
 
-    def _persist_rows(self, rows):
-        """Persist BT mutation rows; no-op under ``PCG_DRY_RUN=1``."""
+    def _persist_rows(self, rows, deadline: Optional[datetime] = None):
+        """Persist BT mutation rows by `deadline`; no-op under ``PCG_DRY_RUN=1``."""
         if is_dry_run():
             return
-        self.cg.client.write(rows)
+        self.cg.client.write(rows, deadline=deadline)
+
+    def _write_deadline(self, timestamp: datetime) -> datetime:
+        """When graph cells stamped `timestamp` must have landed; refused near it."""
+        deadline = timestamp + MAX_EDIT_AGE
+        try:
+            require_before(deadline - WRITE_MARGIN)
+        except WriteDeadlineError as err:
+            raise EditDeadlineError(
+                f"edit stamped {timestamp} cannot land by {deadline}"
+            ) from err
+        return deadline
 
     def _raise_failure(
         self, err: Exception, operation_id: np.uint64, operation_ts: datetime
@@ -579,6 +602,9 @@ class GraphEditOperation(ABC):
             exception=repr(err),
         )
         self._persist_rows([log_record_error])
+        if isinstance(err, EditDeadlineError):
+            # Kept typed, so the API answers with its 504.
+            raise err
         raise Exception(err) from err
 
 
@@ -969,6 +995,7 @@ class MulticutOperation(GraphEditOperation):
                     timestamp=timestamp,
                     parent_ts=self.parent_ts,
                 )
+                deadline = self._write_deadline(timestamp)
                 with locks.IndefiniteL2ChunkLock(
                     self.cg,
                     chunk_ids,
@@ -976,7 +1003,7 @@ class MulticutOperation(GraphEditOperation):
                     privileged_mode=self.privileged_mode,
                 ):
                     write_seg_chunks(self.cg.meta, sv_result.seg_writes)
-                    self._persist_rows(sv_result.bigtable_rows)
+                    self._persist_rows(sv_result.bigtable_rows, deadline=deadline)
             self.seg_bboxes = sv_result.seg_bboxes
             self.source_ids = sv_result.source_ids_fresh
             self.sink_ids = sv_result.sink_ids_fresh
