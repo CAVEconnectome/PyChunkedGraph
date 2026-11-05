@@ -5,6 +5,7 @@ undo/redo chain resolution, ID validation, and execute error handling
 -- all using real graph operations through the BigTable emulator.
 """
 
+from datetime import UTC, datetime
 from math import inf
 
 import numpy as np
@@ -13,6 +14,7 @@ import pytest
 from ...helpers import SV, build_graph
 from ....graph import attributes
 from ....graph.operation import (
+    MAX_EDIT_AGE,
     GraphEditOperation,
     MergeOperation,
     MulticutOperation,
@@ -21,6 +23,7 @@ from ....graph.operation import (
     UndoOperation,
 )
 from ....graph.exceptions import (
+    EditDeadlineError,
     PreconditionError,
     PostconditionError,
     SupervoxelSplitRequiredError,
@@ -693,6 +696,28 @@ class TestExecuteErrorHandling:
                 cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
 
         assert cg.cache is None
+
+    @pytest.mark.timeout(30)
+    def test_execute_refuses_a_write_past_the_edit_deadline(self, gen_graph):
+        """A stale op time writes nothing, logs EXCEPTION and frees its roots."""
+        from unittest.mock import patch
+
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
+        stale = datetime.now(UTC).replace(microsecond=0) - MAX_EDIT_AGE
+        with patch.object(
+            type(cg.client), "get_consolidated_lock_timestamp", return_value=stale
+        ), patch("pychunkedgraph.graph.err_dump.dump_err_artifact", return_value=None):
+            with pytest.raises(EditDeadlineError, match="cannot land") as refused:
+                cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
+        assert refused.value.status_code == 504
+
+        assert cg.get_root(sv0) != cg.get_root(sv1)
+        op = cg.client.get_max_operation_id()
+        status = cg.client.read_node(op, properties=attributes.OperationLogs.Status)
+        assert status[0].value == attributes.OperationLogs.StatusCodes.EXCEPTION.value
+        cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
+        assert cg.get_root(sv0) == cg.get_root(sv1)
 
 
 # ===========================================================================

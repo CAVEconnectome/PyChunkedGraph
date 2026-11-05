@@ -7,6 +7,7 @@ from itertools import chain
 from functools import reduce
 
 import numpy as np
+from kvdbclient.fork.client import ForkClient
 from pychunkedgraph import __version__
 
 from . import types
@@ -57,7 +58,9 @@ class ChunkedGraph:
             )
             self._meta = meta
         else:
-            _client = ClientClass(graph_id, config=client_info.CONFIG)
+            # A bigtable graph may be a fork; its meta read attaches the fork chain.
+            OpenClass = ForkClient if client_info.TYPE == "bigtable" else ClientClass
+            _client = OpenClass(graph_id, config=client_info.CONFIG)
             self._meta = _client.read_table_meta()
             _client._lock_expiry = self._meta.graph_config.ROOT_LOCK_EXPIRY
 

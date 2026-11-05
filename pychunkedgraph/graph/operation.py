@@ -3,7 +3,7 @@
 import time
 from abc import ABC, abstractmethod
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from typing import Dict
 from typing import List
@@ -11,11 +11,14 @@ from typing import Type
 from typing import Tuple
 from typing import Union
 from typing import Any
+from typing import NoReturn
 from typing import Optional
 from typing import Sequence
 from functools import reduce
 
 import numpy as np
+from kvdbclient.exceptions import WriteDeadlineError
+from kvdbclient.utils import require_before
 from pychunkedgraph import get_logger
 
 from . import err_dump
@@ -34,6 +37,7 @@ from .cache import CacheService
 from .cutting import Cut, SvSplitRequired, run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
+from .exceptions import EditDeadlineError
 from .utils.generic import get_bounding_box as get_bbox, assert_same_root
 from pychunkedgraph.graph import get_valid_timestamp
 
@@ -41,6 +45,11 @@ if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
 
 logger = get_logger(__name__)
+
+# No edit lands a graph cell past its op time plus this; older source state is settled.
+MAX_EDIT_AGE = timedelta(minutes=21)
+# A graph write starts only with this much time left, so a refusal lands no cell.
+WRITE_MARGIN = timedelta(seconds=30)
 
 
 def _log_edit_done(result, op_type, elapsed):
@@ -452,20 +461,20 @@ class GraphEditOperation(ABC):
             )
             if timestamp is None:
                 timestamp = get_valid_timestamp(timestamp)
+            operation_ts = override_ts if override_ts else timestamp
 
             log_record_before_edit = self._create_log_record(
                 operation_id=lock.operation_id,
                 new_root_ids=types.empty_1d,
                 timestamp=timestamp,
-                operation_ts=override_ts if override_ts else timestamp,
+                operation_ts=operation_ts,
                 status=attributes.OperationLogs.StatusCodes.CREATED.value,
             )
             self._persist_rows([log_record_before_edit])
 
             try:
                 new_root_ids, new_lvl2_ids, affected_records = self._apply(
-                    operation_id=lock.operation_id,
-                    timestamp=override_ts if override_ts else timestamp,
+                    operation_id=lock.operation_id, timestamp=operation_ts
                 )
                 if is_dry_run():
                     # return without persisting changes
@@ -475,56 +484,18 @@ class GraphEditOperation(ABC):
                         new_lvl2_ids=new_lvl2_ids,
                         old_root_ids=root_ids,
                     )
-            except PreconditionError as err:
-                self.cg.cache = None
-                raise PreconditionError(err) from err
-            except PostconditionError as err:
-                self.cg.cache = None
-                raise PostconditionError(err) from err
-            except (AssertionError, RuntimeError) as err:
-                self.cg.cache = None
-                dump_url = err_dump.dump_err_artifact(
-                    self.cg,
-                    lock.operation_id,
-                    err_dump.build_err_payload(self, lock.operation_id, err),
-                )
-                logger.error(
-                    f"<{lock.operation_id}> {type(self).__name__} failed: "
-                    f"{type(err).__name__}: {err}"
-                    f"{err_dump.payload_summary(self)} dump={dump_url}"
-                )
-                raise RuntimeError(err) from err
+                deadline = self._write_deadline(operation_ts)
             except Exception as err:
-                # unknown exception, update log record with error
-                self.cg.cache = None
-                dump_url = err_dump.dump_err_artifact(
-                    self.cg,
-                    lock.operation_id,
-                    err_dump.build_err_payload(self, lock.operation_id, err),
-                )
-                logger.error(
-                    f"<{lock.operation_id}> {type(self).__name__} failed: "
-                    f"{type(err).__name__}: {err}"
-                    f"{err_dump.payload_summary(self)} dump={dump_url}"
-                )
-                log_record_error = self._create_log_record(
-                    operation_id=lock.operation_id,
-                    new_root_ids=types.empty_1d,
-                    timestamp=None,
-                    operation_ts=override_ts if override_ts else timestamp,
-                    status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
-                    exception=repr(err),
-                )
-                self._persist_rows([log_record_error])
-                raise Exception(err) from err
+                self._raise_failure(err, lock.operation_id, operation_ts)
 
             result = self._write(
                 lock,
-                override_ts if override_ts else timestamp,
+                operation_ts,
                 new_root_ids,
                 new_lvl2_ids,
                 affected_records,
                 root_ids,
+                deadline,
             )
             _log_edit_done(result, op_type, time.time() - t_edit_start)
             return result
@@ -537,8 +508,9 @@ class GraphEditOperation(ABC):
         new_lvl2_ids: np.ndarray,
         affected_records: list,
         old_root_ids: np.ndarray,
+        deadline: datetime,
     ):
-        """Helper to persist changes after an edit."""
+        """Persist an edit's changes, its graph cells landing by `deadline`."""
         new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
         new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
 
@@ -565,6 +537,7 @@ class GraphEditOperation(ABC):
                 lock.locked_root_ids,
                 operation_id=lock.operation_id,
                 slow_retry=False,
+                deadline=deadline,
             )
             log_record_success = self._create_log_record(
                 operation_id=lock.operation_id,
@@ -586,11 +559,53 @@ class GraphEditOperation(ABC):
             seg_bbox=getattr(self, "seg_bboxes", None) or None,
         )
 
-    def _persist_rows(self, rows):
-        """Persist BT mutation rows; no-op under ``PCG_DRY_RUN=1``."""
+    def _persist_rows(self, rows, deadline: Optional[datetime] = None):
+        """Persist BT mutation rows by `deadline`; no-op under ``PCG_DRY_RUN=1``."""
         if is_dry_run():
             return
-        self.cg.client.write(rows)
+        self.cg.client.write(rows, deadline=deadline)
+
+    def _write_deadline(self, timestamp: datetime) -> datetime:
+        """When graph cells stamped `timestamp` must have landed; refused near it."""
+        deadline = timestamp + MAX_EDIT_AGE
+        try:
+            require_before(deadline - WRITE_MARGIN)
+        except WriteDeadlineError as err:
+            raise EditDeadlineError(
+                f"edit stamped {timestamp} cannot land by {deadline}"
+            ) from err
+        return deadline
+
+    def _raise_failure(
+        self, err: Exception, operation_id: np.uint64, operation_ts: datetime
+    ) -> NoReturn:
+        """Re-raise `err` from applying this edit, recorded as its kind requires."""
+        self.cg.cache = None
+        for expected in (PreconditionError, PostconditionError):
+            if isinstance(err, expected):
+                raise expected(err) from err
+        payload = err_dump.build_err_payload(self, operation_id, err)
+        dump_url = err_dump.dump_err_artifact(self.cg, operation_id, payload)
+        logger.error(
+            f"<{operation_id}> {type(self).__name__} failed: "
+            f"{type(err).__name__}: {err}"
+            f"{err_dump.payload_summary(self)} dump={dump_url}"
+        )
+        if isinstance(err, (AssertionError, RuntimeError)):
+            raise RuntimeError(err) from err
+        log_record_error = self._create_log_record(
+            operation_id=operation_id,
+            new_root_ids=types.empty_1d,
+            timestamp=None,
+            operation_ts=operation_ts,
+            status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
+            exception=repr(err),
+        )
+        self._persist_rows([log_record_error])
+        if isinstance(err, EditDeadlineError):
+            # Kept typed, so the API answers with its 504.
+            raise err
+        raise Exception(err) from err
 
 
 class MergeOperation(GraphEditOperation):
@@ -980,6 +995,7 @@ class MulticutOperation(GraphEditOperation):
                     timestamp=timestamp,
                     parent_ts=self.parent_ts,
                 )
+                deadline = self._write_deadline(timestamp)
                 with locks.IndefiniteL2ChunkLock(
                     self.cg,
                     chunk_ids,
@@ -987,7 +1003,7 @@ class MulticutOperation(GraphEditOperation):
                     privileged_mode=self.privileged_mode,
                 ):
                     write_seg_chunks(self.cg.meta, sv_result.seg_writes)
-                    self._persist_rows(sv_result.bigtable_rows)
+                    self._persist_rows(sv_result.bigtable_rows, deadline=deadline)
             self.seg_bboxes = sv_result.seg_bboxes
             self.source_ids = sv_result.source_ids_fresh
             self.sink_ids = sv_result.sink_ids_fresh
