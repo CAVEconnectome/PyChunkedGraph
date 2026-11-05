@@ -3,10 +3,10 @@
 Writes every mesh-related field a new or freshly-copied graph needs
 before any mesh fragment can be served:
 
-    1. ``cg.meta.ws_cv.info["mesh"]``  (mesh dir in the watershed cv info.json)
-    2. ``cg.meta.ws_cv.mesh.meta.info``  (per-layer sharded mesh spec)
-    3. ``cg.meta.ws_cv.info["mesh_metadata"]``  (uniform draco grid + dynamic dir)
-    4. ``cg.meta.custom_data["mesh"]``  (CG bigtable meta block)
+    1. ``<watershed>/<dir>/info``  (per-layer sharded mesh spec)
+    2. ``cg.meta.custom_data["mesh"]``  (CG bigtable meta block, draco grid size included)
+
+The watershed's own info is not written: the CG meta block is the only mesh source.
 
 Idempotent: re-running overwrites the same fields with the current
 inputs, with one exception — ``initial_ts`` is preserved if already
@@ -15,7 +15,10 @@ id and silently break served manifests.
 """
 
 import logging
+import posixpath
 from datetime import datetime, timezone
+
+from cloudfiles import CloudFiles
 
 from ..graph.chunkedgraph import ChunkedGraph
 from .meshgen import get_draco_encoding_settings_for_chunk
@@ -47,9 +50,8 @@ def setup_mesh_meta(
 ) -> dict:
     """Write every mesh.* metadata field this graph needs to serve meshes.
 
-    Writes go to two places: the watershed CloudVolume (steps 1-3, via
-    ``info.json`` / ``mesh/info`` on GCS) and the CG's bigtable meta
-    block (step 4).
+    Writes go to two places: the mesh dir's sharding ``info`` on GCS (step 1)
+    and the CG's bigtable meta block (step 2).
 
     ``initial_ts`` is set once and never overwritten — if the existing
     bigtable mesh meta already has one, it is reused as-is. Otherwise
@@ -69,12 +71,7 @@ def setup_mesh_meta(
     if existing_ts is not None:
         logger.info("preserving existing initial_ts=%d", initial_ts)
 
-    # 1. watershed CV info — mesh dir.
-    cg.meta.ws_cv.info["mesh"] = cfg.dir
-    cg.meta.ws_cv.commit_info()
-    logger.info("wrote ws_cv.info['mesh']=%r", cfg.dir)
-
-    # 2. sharded mesh spec — same template per layer, layer-specific bits.
+    # 1. sharded mesh spec — same template per layer, layer-specific bits.
     layer_shard_spec = {
         "@type": "neuroglancer_uint64_sharded_v1",
         "preshift_bits": 0,
@@ -96,24 +93,19 @@ def setup_mesh_meta(
         "chunk_size": [int(x) for x in mesh_chunk_size],
         "sharding": sharding,
     }
-    cg.meta.ws_cv.mesh.meta.info = mesh_spec
-    cg.meta.ws_cv.mesh.meta.commit_info()
+    mesh_root = posixpath.join(cg.meta.data_source.WATERSHED, cfg.dir)
+    CloudFiles(mesh_root).put_json("info", mesh_spec, cache_control="no-cache")
     logger.info("wrote sharded mesh spec for layers %s", sorted(sharding.keys()))
 
-    # 3. uniform draco grid size, derived from layer-2 draco settings.
+    # uniform draco grid size, derived from layer-2 draco settings.
     draco = get_draco_encoding_settings_for_chunk(
         cg, cg.get_chunk_id(layer=2, x=0, y=0, z=0), mip=cfg.mip
     )
     grid_size = draco["quantization_range"] / (2 ** draco["quantization_bits"] - 1)
-    cg.meta.ws_cv.info["mesh_metadata"] = {
-        "uniform_draco_grid_size": grid_size,
-        "unsharded_mesh_dir": "dynamic",
-    }
-    cg.meta.ws_cv.commit_info()
-    logger.info("wrote mesh_metadata uniform_draco_grid_size=%s", grid_size)
 
-    # 4. CG-side bigtable meta block.
+    # 2. CG-side bigtable meta block.
     mesh_meta = {
+        "uniform_draco_grid_size": grid_size,
         "max_layer": int(cfg.max_layer),
         "dynamic_mesh_dir": cfg.dynamic_mesh_dir,
         "mip": int(cfg.mip),
