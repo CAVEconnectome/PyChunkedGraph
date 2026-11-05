@@ -26,12 +26,14 @@ task-queue>=2.14.0
 messagingclient>0.3.0
 dracopy>=1.5.0
 datastoreflex>=0.5.0
-kvdbclient>=0.8.0
 zstandard>=0.23.0
 tinybrain>=1.7.0
 pykdtree>=1.4.3
 supervoxel-splitter[fast]>=0.1.0
 cave-pipeline[distribution]>=0.0.3,<0.1
+
+# TODO: back to a PyPI release once KVDbClient's table-forks PR merges and ships.
+kvdbclient @ git+https://github.com/seung-lab/KVDbClient@da067c7759c14f7347fe7ce277b507fdc9db6772
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool

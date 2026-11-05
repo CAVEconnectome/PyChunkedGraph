@@ -8,6 +8,7 @@ from flask import Response, current_app, jsonify, make_response, request
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.fork.guard import refuse_on_fork
 from pychunkedgraph.graph import chunkedgraph
 from pychunkedgraph.graph import exceptions as cg_exceptions
 
@@ -170,6 +171,7 @@ def handle_remesh(table_id):
     new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
     new_lvl2_ids = np.array(new_lvl2_ids, dtype=np.uint64)
     cg = app_utils.get_cg(table_id)
+    refuse_on_fork(cg, "remeshing")
     if len(new_lvl2_ids) > 0:
         t = threading.Thread(
             target=_remeshing, args=(cg.get_serialized_info(), new_lvl2_ids)
