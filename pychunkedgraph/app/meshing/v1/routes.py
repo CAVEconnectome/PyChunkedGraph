@@ -85,6 +85,8 @@ def handle_get_manifest(table_id, node_id):
 ## ENQUE MESHING JOBS ----------------------------------------------------------
 
 
+# TODO: remove with CAVEclient's `remesh_level2_chunks`, its one known caller, once usage
+# logs show no calls; edits already remesh through the pub/sub mesh workers.
 @bp.route("/table/<table_id>/remeshing", methods=["POST"])
 @auth_requires_permission("edit")
 @remap_public(edit=True)
