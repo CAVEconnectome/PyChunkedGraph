@@ -32,8 +32,9 @@ pykdtree>=1.4.3
 supervoxel-splitter[fast]>=0.1.0
 cave-pipeline[distribution]>=0.0.3,<0.1
 
-# TODO: back to a PyPI release once KVDbClient's table-forks PR merges and ships.
-kvdbclient @ https://github.com/seung-lab/KVDbClient/archive/da067c7759c14f7347fe7ce277b507fdc9db6772.zip
+# TODO: temporary, for test images. Drop this pin and every commit carrying it before
+# merge, then pin the KVDbClient release.
+kvdbclient @ https://github.com/seung-lab/KVDbClient/archive/276883f1270b766abb261b41c299d96bb7c195cb.zip
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool
