@@ -196,7 +196,7 @@ jsonschema==4.26.0
     #   python-jsonschema-objects
 jsonschema-specifications==2025.9.1
     # via jsonschema
-kvdbclient==0.8.0
+kvdbclient @ git+https://github.com/seung-lab/KVDbClient@da067c7759c14f7347fe7ce277b507fdc9db6772
     # via
     #   -r requirements.in
     #   cave-pipeline

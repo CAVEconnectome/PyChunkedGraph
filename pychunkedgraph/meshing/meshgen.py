@@ -18,6 +18,7 @@ import DracoPy
 import zmesh
 import fastremap
 
+from pychunkedgraph.fork.guard import refuse_on_fork
 from pychunkedgraph.graph.chunkedgraph import ChunkedGraph  # noqa
 from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
@@ -861,6 +862,7 @@ def remeshing(
     :param max_err: int
     :return:
     """
+    refuse_on_fork(cg, "remeshing")
     l2_chunk_dict = collections.defaultdict(set)
     # Find the chunk_ids of the l2_node_ids
 
