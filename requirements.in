@@ -34,7 +34,7 @@ cave-pipeline[distribution]>=0.0.3,<0.1
 
 # TODO: temporary, for test images. Drop this pin and every commit carrying it before
 # merge, then pin the KVDbClient release.
-kvdbclient @ https://github.com/seung-lab/KVDbClient/archive/83ba0370cb6f586453fa670352e334832e1d401e.zip
+kvdbclient @ https://github.com/seung-lab/KVDbClient/archive/c528cafd3b291b12ade21bc6433d8f2f724fb53c.zip
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool
