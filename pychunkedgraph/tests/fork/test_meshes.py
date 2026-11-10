@@ -18,7 +18,6 @@ from ...meshing.manifest.utils import (
 )
 from ...meshing.mesh_meta import MeshMeta
 from ...meshing.meshgen_utils import get_mesh_name
-from .test_reads import _forked, split_pair  # noqa: F401 -- `split_pair` is a fixture
 
 
 def _meshed(cg, dynamic_mesh_dir="dynamic"):
@@ -40,13 +39,13 @@ def _never_started(*args, **kwargs):
 
 
 def test_a_fork_finds_its_source_meshes_as_of_the_fork_point(
-    split_pair, request, tmp_path
+    split_pair, fork_of, tmp_path
 ):
     cg, ids, before = split_pair
     dynamic = tmp_path / "dynamic"
     dynamic.mkdir()
     _meshed(cg, dynamic.as_uri())
-    fork = _forked(cg, "test_fork", before, request)
+    fork = fork_of(cg, "test_fork", before)
     assert MeshMeta(fork).dynamic_path == MeshMeta(cg).dynamic_path == dynamic.as_uri()
     assert MeshMeta(fork).initial_path == MeshMeta(cg).initial_path
     root = cg.get_root(ids[0], time_stamp=before)
@@ -61,11 +60,11 @@ def test_a_fork_finds_its_source_meshes_as_of_the_fork_point(
 
 @pytest.mark.parametrize("accept", [None, "application/x.cave;manifest_version=2"])
 def test_a_fork_answers_its_source_manifest_as_of_the_fork_point(
-    split_pair, request, monkeypatch, accept
+    split_pair, fork_of, monkeypatch, accept
 ):
     cg, ids, before = split_pair
     _meshed(cg)
-    fork = _forked(cg, "test_fork", before, request)
+    fork = fork_of(cg, "test_fork", before)
     graphs = {cg.graph_id: cg, fork.graph_id: fork}
     monkeypatch.setattr(app_utils, "get_cg", lambda table_id, **_: graphs[table_id])
     # Shard readers place only nodes older than `initial_ts`, and none are; the emulator
@@ -77,9 +76,9 @@ def test_a_fork_answers_its_source_manifest_as_of_the_fork_point(
     assert _manifest(fork, root, accept) == _manifest(cg, root, accept)
 
 
-def test_remeshing_a_fork_is_refused_and_writes_nothing(split_pair, request, tmp_path):
+def test_remeshing_a_fork_is_refused_and_writes_nothing(split_pair, fork_of, tmp_path):
     cg, ids, before = split_pair
-    fork = _forked(cg, "test_fork", before, request)
+    fork = fork_of(cg, "test_fork", before)
     out = tmp_path / "out"
     with pytest.raises(Forbidden, match="read-only fork"):
         meshgen.remeshing(
@@ -89,10 +88,10 @@ def test_remeshing_a_fork_is_refused_and_writes_nothing(split_pair, request, tmp
 
 
 def test_a_remesh_request_for_a_fork_answers_403_before_queueing(
-    split_pair, request, monkeypatch
+    split_pair, fork_of, monkeypatch
 ):
     cg, ids, before = split_pair
-    fork = _forked(cg, "test_fork", before, request)
+    fork = fork_of(cg, "test_fork", before)
     monkeypatch.setattr(app_utils, "get_cg", lambda table_id, **_: fork)
     monkeypatch.setattr(common, "threading", SimpleNamespace(Thread=_never_started))
     body = json.dumps({"new_lvl2_ids": [int(i) for i in fork.get_parents(ids)]})
