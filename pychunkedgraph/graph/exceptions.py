@@ -91,10 +91,6 @@ class GatewayTimeout(ServerError):
     status_code = http_client.GATEWAY_TIMEOUT
 
 
-class EditDeadlineError(GatewayTimeout):
-    """An edit too close to its op time plus `MAX_EDIT_AGE` to start a graph write."""
-
-
 class SupervoxelSplitRequiredError(ChunkedGraphError):
     """
     Raised when supervoxel splitting is necessary.
