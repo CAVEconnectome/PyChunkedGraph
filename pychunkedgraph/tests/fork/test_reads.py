@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
+from kvdbclient.safe_time import SETTLE
 
 from ...fork.create import create_fork
 from ...graph import BackendClientInfo
@@ -11,10 +12,10 @@ from ...graph.operation import MAX_EDIT_AGE
 from ..helpers import SV, build_graph, fake_timestamp
 
 
-def _forked(source, name, at, request):
+def _forked(source, name, at, request, **options):
     """`create_fork` on a test graph, given the test mocks its stored meta lacks."""
     info = BackendClientInfo(TYPE="bigtable", CONFIG=source.client._config)
-    graph = create_fork(source.graph_id, name, at, client_info=info)
+    graph = create_fork(source.graph_id, name, at, client_info=info, **options)
     request.addfinalizer(graph.client._admin_table.delete)
     for attr in ("_ws_cv", "_ws_info_d", "ws_ts_scale"):
         setattr(graph.meta, attr, getattr(source.meta, attr))
@@ -32,8 +33,8 @@ def split_pair(gen_graph):
         supervoxels={"a": SV(), "b": SV(x=1)},
         edges=[("a", "b", 0.5)],
     )
-    if cg.client.backend_name != "bigtable":
-        pytest.skip("forks read through the bigtable fork client only")
+    if not cg.client.opens_forks:
+        pytest.skip("this backend's client opens no forks")
     # The graph is built at fake_timestamp(), ten days back; the split runs now.
     before = fake_timestamp() + timedelta(days=1)
     cg.remove_edges("test_user", source_ids=sv["a"], sink_ids=sv["b"], mincut=False)
@@ -62,12 +63,28 @@ def test_a_past_request_forks_at_exactly_that_time(split_pair, request):
     assert marker.tf == marker.requested_at
 
 
-def test_a_recent_request_steps_back_past_the_edit_cap(split_pair, request):
+def test_a_recent_request_steps_back_past_the_settle_window(split_pair, request):
     cg, ids, _ = split_pair
     requested = datetime.now(UTC).replace(microsecond=0)
     fork = _forked(cg, "test_fork", requested, request)
-    assert fork.client.marker.tf <= datetime.now(UTC) - MAX_EDIT_AGE
+    now = datetime.now(UTC)
+    assert now - MAX_EDIT_AGE < fork.client.marker.tf <= now - SETTLE
     assert fork.client.marker.requested_at == requested
     # The split ran seconds ago, after the stepped-back fork point.
     roots = fork.get_roots(ids)
     assert roots[0] == roots[1]
+
+
+def test_the_admins_wait_choice_reaches_the_safe_time_search(
+    split_pair, request, monkeypatch
+):
+    cg, _, before = split_pair
+    waits = []
+
+    def searched(client, requested, longest_edit, wait=False):
+        waits.append(wait)
+        return requested
+
+    monkeypatch.setattr("pychunkedgraph.fork.create.safe_time", searched)
+    _forked(cg, "test_fork", before, request, wait=True)
+    assert waits == [True]
