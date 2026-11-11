@@ -85,7 +85,7 @@ def after_request(response):
 
     response.data = compression.gzip_compress(response.data)
     response.headers["Content-Encoding"] = "gzip"
-    response.headers["Vary"] = "Accept-Encoding"
+    response.vary.add("Accept-Encoding")
     response.headers["Content-Length"] = len(response.data)
     return response
 
