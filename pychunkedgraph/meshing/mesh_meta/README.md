@@ -57,13 +57,16 @@ upstream; this module only reads the result.
 
 ## API
 
-`MeshMeta(cg)` exposes these properties:
+`MeshMeta(cg)`, or `MeshMeta(meta)` for a graph meta alone, exposes these properties:
 
 - `initial_path` → absolute dir of the initial (sharded) meshes.
 - `dynamic_path` → absolute dir of the dynamic (unsharded) meshes.
+- `spec_dir` → the dir of the shard spec `info`, the parent of `initial_path`.
 - `dir` → the sharded mesh dir name under the watershed.
 - `dynamic_mesh_dir` → the dynamic dir as configured, a name or a cloud URL.
 - `client_metadata` → the graphene info's `mesh_metadata` for this table.
+- `pinned_block` → the block with both dirs absolute and its grid keys written in, so it
+  reads the same under any watershed; `ChunkedGraphMeta.repoint_watershed` stores it.
 - `max_layer`, `mip`, `max_error`, `initial_ts` → the mesh params.
 - `needs_v2` → true when either location falls **outside** the watershed dir,
   i.e. meshes are not co-located with the watershed. Old clients compose paths

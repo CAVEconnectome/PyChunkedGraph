@@ -26,12 +26,13 @@ def _resolve(root: str, value: str) -> str:
 
 
 class MeshMeta:
-    """Mesh metadata for a ChunkedGraph, read from ``custom_data["mesh"]``."""
+    """Mesh metadata of a ChunkedGraph or its meta alone, from ``custom_data["mesh"]``."""
 
     def __init__(self, cg):
-        self._mesh = cg.meta.custom_data.get("mesh", {})
-        self._watershed = cg.meta.data_source.WATERSHED
-        self._meta = cg.meta
+        meta = getattr(cg, "meta", cg)
+        self._mesh = meta.custom_data.get("mesh", {})
+        self._watershed = meta.data_source.WATERSHED
+        self._meta = meta
 
     @property
     def dir(self) -> str:
@@ -59,26 +60,37 @@ class MeshMeta:
         return _resolve(self._root, self.dynamic_mesh_dir)
 
     @property
+    def _grid_keys(self) -> dict[str, object]:
+        """The client grid keys: the block's own, else the watershed info's (the shim)."""
+        ws_mesh = self._meta.ws_info.get("mesh_metadata", {})
+        return {
+            key: self._mesh[key] if key in self._mesh else ws_mesh[key]
+            for key in _WATERSHED_FALLBACK_KEYS
+            if key in self._mesh or key in ws_mesh
+        }
+
+    @property
     def client_metadata(self) -> dict[str, object]:
         """``mesh_metadata`` for a graphene info. cloud-volume reads the dynamic dir as
         ``unsharded_mesh_dir``, and a v2 client reads the two absolute paths."""
-        ws_mesh = self._meta.ws_info.get("mesh_metadata", {})
-        fallback = {
-            key: ws_mesh[key]
-            for key in _WATERSHED_FALLBACK_KEYS
-            if key in ws_mesh and key not in self._mesh
-        }
-        own = {
-            key: self._mesh[key]
-            for key in _WATERSHED_FALLBACK_KEYS
-            if key in self._mesh
-        }
         return {
-            **fallback,
-            **own,
+            **self._grid_keys,
             "unsharded_mesh_dir": self.dynamic_mesh_dir,
             "initial_mesh_path": self.initial_path,
             "dynamic_mesh_path": self.dynamic_path,
+        }
+
+    @property
+    def pinned_block(self) -> dict[str, object]:
+        """The block with every value it takes from the watershed written in, so it reads
+        the same under any watershed; a block without ``dir`` takes none."""
+        if "dir" not in self._mesh:
+            return dict(self._mesh)
+        return {
+            **self._mesh,
+            **self._grid_keys,
+            "initial_mesh_dir": self.initial_path,
+            "dynamic_mesh_dir": self.dynamic_path,
         }
 
     @property
