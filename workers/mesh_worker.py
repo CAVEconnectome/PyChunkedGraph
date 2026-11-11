@@ -50,14 +50,14 @@ def callback(payload):
         layer = mm.max_layer
         mip = mm.mip
         err = mm.max_error
-        mesh_dir = mm.dir
+        spec_dir = mm.spec_dir
         mesh_path = mm.dynamic_path
     except KeyError:
         logger.warning("no mesh metadata for %s; ignoring", table_id)
         return
 
-    if not CloudFiles(cg.meta.data_source.WATERSHED).exists(f"{mesh_dir}/info"):
-        logger.warning("no meshes at %s for %s; ignoring", mesh_dir, table_id)
+    if not CloudFiles(spec_dir).exists("info"):
+        logger.warning("no meshes at %s for %s; ignoring", spec_dir, table_id)
         return
 
     logger.info(
