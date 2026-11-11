@@ -33,3 +33,16 @@ class TestReaderAnchor:
         assert mm.initial_path == "gs://old/graphene_meshes/initial"
         assert posixpath.join(*mm.reader_anchor, "initial") == mm.initial_path
         assert mm.needs_v2 is True
+
+
+class TestSpecDir:
+    """The shard spec is read beside the initial meshes, which a watershed elsewhere
+    does not hold."""
+
+    def test_watershed_elsewhere_keeps_spec_beside_initial(self):
+        mesh = {
+            "dir": "graphene_meshes",
+            "initial_mesh_dir": "gs://old/graphene_meshes/initial",
+        }
+        mm = MeshMeta(_cg("gs://cheap/seg", mesh))
+        assert mm.spec_dir == "gs://old/graphene_meshes"
