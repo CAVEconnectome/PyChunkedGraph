@@ -14,7 +14,6 @@ from pychunkedgraph.graph.utils import basetypes
 from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.meshing.mesh_meta import MeshMeta
 
-
 PCG_CACHE = {}
 
 
@@ -46,14 +45,14 @@ def callback(payload):
         layer = mm.max_layer
         mip = mm.mip
         err = mm.max_error
-        mesh_dir = mm.dir
+        spec_dir = mm.spec_dir
         mesh_path = mm.dynamic_path
     except KeyError:
         logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
         return
 
-    if not CloudFiles(cg.meta.data_source.WATERSHED).exists(f"{mesh_dir}/info"):
-        logging.warning(f"No meshes at {mesh_dir} for {cg.graph_id}; ignoring...")
+    if not CloudFiles(spec_dir).exists("info"):
+        logging.warning(f"No meshes at {spec_dir} for {cg.graph_id}; ignoring...")
         return
 
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
