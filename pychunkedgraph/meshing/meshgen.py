@@ -22,6 +22,7 @@ from pychunkedgraph.graph.chunkedgraph import ChunkedGraph  # noqa
 from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 from pychunkedgraph.meshing.manifest.cache import ManifestCache
+from pychunkedgraph.meshing.manifest.utils import NodeMeshReader
 
 UTC = pytz.UTC
 
@@ -842,7 +843,6 @@ def _get_timestamp_from_node_ids(cg, node_ids):
 def remeshing(
     cg,
     l2_node_ids: Sequence[np.uint64],
-    cv_sharded_mesh_dir: str,
     cv_unsharded_mesh_path: str,
     stop_layer: int = None,
     mip: int = 2,
@@ -919,7 +919,6 @@ def remeshing(
                 fragment_batch_size=40,
                 node_id_subset=node_ids,
                 cg=cg,
-                cv_sharded_mesh_dir=cv_sharded_mesh_dir,
                 cv_unsharded_mesh_path=cv_unsharded_mesh_path,
             )
 
@@ -1108,7 +1107,6 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
 def chunk_stitch_remeshing_task(
     cg_name,
     chunk_id,
-    cv_sharded_mesh_dir,
     cv_unsharded_mesh_path,
     mip=2,
     lod=0,
@@ -1144,11 +1142,7 @@ def chunk_stitch_remeshing_task(
             print("Nothing to do", cx, cy, cz)
         return ", ".join(str(x) for x in result)
 
-    cv = CloudVolume(
-        f"graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=cv_sharded_mesh_dir,
-        info=meshgen_utils.get_json_info(cg),
-    )
+    reader = NodeMeshReader(cg)
 
     fragments_in_batch_processed = 0
     batches_processed = 0
@@ -1160,13 +1154,9 @@ def chunk_stitch_remeshing_task(
     ]
     cf = CloudFiles(cv_unsharded_mesh_path)
     if fragment_batch_size is None:
-        fragment_map = cv.mesh.get_meshes_on_bypass(
-            fragment_to_fetch, allow_missing=True
-        )
+        fragment_map = reader.get(fragment_to_fetch)
     else:
-        fragment_map = cv.mesh.get_meshes_on_bypass(
-            fragment_to_fetch[0:fragment_batch_size], allow_missing=True
-        )
+        fragment_map = reader.get(fragment_to_fetch[0:fragment_batch_size])
     i = 0
     fragments_d = {}
     for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
@@ -1183,12 +1173,11 @@ def chunk_stitch_remeshing_task(
                     fragments_in_batch_processed = 1
                     batches_processed += 1
                     num_fragments_processed = batches_processed * fragment_batch_size
-                    fragment_map = cv.mesh.get_meshes_on_bypass(
+                    fragment_map = reader.get(
                         fragment_to_fetch[
                             num_fragments_processed : num_fragments_processed
                             + fragment_batch_size
-                        ],
-                        allow_missing=True,
+                        ]
                     )
             if fragment_id in fragment_map:
                 old_frag = fragment_map[fragment_id]
