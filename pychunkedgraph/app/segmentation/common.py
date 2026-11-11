@@ -18,6 +18,7 @@ from pychunkedgraph import __version__, get_logger
 
 logger = get_logger(__name__)
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 from pychunkedgraph.graph import attributes, cutting, segmenthistory, ChunkedGraph
 from pychunkedgraph.graph import (
     edges as cg_edges,
@@ -104,25 +105,12 @@ def handle_info(table_id):
     combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
         "verify", False
     )
-    mesh_meta = cg.meta.custom_data.get("mesh", {})
-    mesh_dir = mesh_meta.get("dir", None)
-    if mesh_dir is not None:
-        combined_info["mesh_dir"] = mesh_dir
-    elif combined_info.get("mesh_dir", None) is not None:
-        combined_info["mesh_dir"] = "graphene_meshes"
-    # `dynamic_mesh_dir` lets a dataset name the unsharded dynamic-mesh
-    # subdir explicitly. Default `"dynamic"` matches mesh_worker.py's
-    # fallback and NG's current hardcoded subdir name in graphene
-    # backend.ts (`${fragmentUrl}dynamic/<fragmentId>`). NG must read
-    # this info field before non-default values route correctly.
-    dynamic_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
-    combined_info["dynamic_mesh_dir"] = dynamic_dir
-    # cloud-volume reads the dynamic dir from mesh_metadata.unsharded_mesh_dir, not
-    # dynamic_mesh_dir; mirror it so an unpatched client fetches dynamic meshes from
-    # the right dir. Copy the dict so cg.meta.dataset_info is untouched.
-    mesh_metadata = dict(combined_info.get("mesh_metadata", {}))
-    mesh_metadata["unsharded_mesh_dir"] = dynamic_dir
-    combined_info["mesh_metadata"] = mesh_metadata
+    # A table without a mesh dir has no meshes, so it advertises none.
+    if cg.meta.custom_data.get("mesh", {}).get("dir") is not None:
+        mm = MeshMeta(cg)
+        combined_info["mesh_dir"] = mm.dir
+        combined_info["dynamic_mesh_dir"] = mm.dynamic_mesh_dir
+        combined_info["mesh_metadata"] = mm.client_metadata
     return jsonify(combined_info)
 
 
