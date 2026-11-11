@@ -3,15 +3,16 @@
 import gc
 import pickle
 import logging
-from os import path
 from os import getenv
 
 import numpy as np
+from cloudfiles import CloudFiles
 from messagingclient import MessagingClient
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph import basetypes
 from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 
 PCG_CACHE = {}
 
@@ -45,19 +46,19 @@ def callback(payload):
         PCG_CACHE[table_id] = cg
 
     try:
-        mesh_meta = cg.meta.custom_data["mesh"]
-        mesh_dir = mesh_meta["dir"]
-        layer = mesh_meta["max_layer"]
-        mip = mesh_meta["mip"]
-        err = mesh_meta["max_error"]
-        cv_unsharded_mesh_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
+        mm = MeshMeta(cg)
+        layer = mm.max_layer
+        mip = mm.mip
+        err = mm.max_error
+        mesh_dir = mm.dir
+        mesh_path = mm.dynamic_path
     except KeyError:
         logger.warning("no mesh metadata for %s; ignoring", table_id)
         return
 
-    mesh_path = path.join(
-        cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
-    )
+    if not CloudFiles(cg.meta.data_source.WATERSHED).exists(f"{mesh_dir}/info"):
+        logger.warning("no meshes at %s for %s; ignoring", mesh_dir, table_id)
+        return
 
     logger.info(
         "remeshing %s l2 ids %s; graph %s operation %s",
@@ -72,7 +73,6 @@ def callback(payload):
         stop_layer=layer,
         mip=mip,
         max_err=err,
-        cv_sharded_mesh_dir=mesh_dir,
         cv_unsharded_mesh_path=mesh_path,
     )
     logger.info("remeshing complete; graph %s operation %s", table_id, op_id)
