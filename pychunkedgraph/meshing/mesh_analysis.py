@@ -1,7 +1,5 @@
-from cloudvolume import CloudVolume
 import numpy as np
-import os
-from pychunkedgraph.meshing import meshgen, meshgen_utils
+from pychunkedgraph.meshing.manifest.utils import NodeMeshReader
 
 
 def compute_centroid_by_range(vertices):
@@ -58,21 +56,7 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
     :param l2_ids: Sequence[np.uint64]
     :return: Union[Dict[np.uint64, np.ndarray], [np.uint64], [np.uint64]]
     """
-    cv_sharded_mesh_dir = cg.meta.dataset_info["mesh"]
-    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"][
-        "unsharded_mesh_dir"
-    ]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED,
-        cv_sharded_mesh_dir,
-        cv_unsharded_mesh_dir,
-    )
-    cv = CloudVolume(
-        f"graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=cv_sharded_mesh_dir,
-        info=meshgen_utils.get_json_info(cg),
-    )
-    meshes = cv.mesh.get_meshes_on_bypass(l2_ids, allow_missing=True)
+    meshes = NodeMeshReader(cg).get(l2_ids)
     if flatten:
         centroids_with_chunk_boundary_points = []
     else:
