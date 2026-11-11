@@ -84,7 +84,7 @@ def after_request(response):
     # for 9% fewer bytes.
     response.data = compression.gzip_compress(response.data, compresslevel=1)
     response.headers["Content-Encoding"] = "gzip"
-    response.headers["Vary"] = "Accept-Encoding"
+    response.vary.add("Accept-Encoding")
     response.headers["Content-Length"] = len(response.data)
     return response
 
