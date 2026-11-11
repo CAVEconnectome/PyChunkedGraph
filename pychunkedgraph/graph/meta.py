@@ -101,6 +101,11 @@ class ChunkedGraphMeta:
         return self._ws_cv
 
     @property
+    def ws_info(self) -> dict[str, object]:
+        """The watershed's own ``info``; its mesh keys belong to no table in particular."""
+        return self.ws_cv.info  # pylint: disable=no-member
+
+    @property
     def resolution(self):
         return self.ws_cv.resolution  # pylint: disable=no-member
 
@@ -233,9 +238,13 @@ class ChunkedGraphMeta:
         )
 
     @property
-    def dataset_info(self) -> Dict:
-        info = self.ws_cv.info  # pylint: disable=no-member
-
+    def dataset_info(self) -> dict[str, object]:
+        # Mesh keys come from this table's mesh block alone; the watershed's are not its own.
+        info = {
+            key: value
+            for key, value in self.ws_info.items()
+            if key not in ("mesh", "mesh_dir", "mesh_metadata")
+        }
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,
