@@ -1,4 +1,3 @@
-import json
 from datetime import timedelta
 from typing import Dict
 from typing import List
@@ -11,10 +10,7 @@ from cloudvolume import CloudVolume
 
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
-from ..utils.redis import keys as r_keys
-from ..utils.redis import get_rq_queue
-from ..utils.redis import get_redis_connection
-
+from ..meshing.mesh_meta import MeshMeta
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
@@ -80,24 +76,21 @@ class ChunkedGraphMeta:
     def custom_data(self):
         return self._custom_data
 
+    def repoint_watershed(self, watershed: str) -> "ChunkedGraphMeta":
+        """Point this meta at ``watershed`` in place, the mesh block pinned first so
+        meshes stay where they are. Persists nothing: save the returned self with
+        ``cg.update_meta(meta, overwrite=True)``."""
+        if "mesh" in self._custom_data:
+            self._custom_data["mesh"] = MeshMeta(self).pinned_block
+        self._data_source = self._data_source._replace(WATERSHED=watershed)
+        self._ws_cv = None
+        return self
+
     @property
     def ws_cv(self):
         if self._ws_cv:
             return self._ws_cv
-
-        cache_key = f"{self.graph_config.ID}:ws_cv_info_cached"
-        try:
-            # try reading a cached info file for distributed workers
-            # useful to avoid md5 errors on high gcs load
-            redis = get_redis_connection()
-            cached_info = json.loads(redis.get(cache_key))
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED, info=cached_info)
-        except Exception:
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED)
-            try:
-                redis.set(cache_key, json.dumps(self._ws_cv.info))
-            except Exception:
-                ...
+        self._ws_cv = CloudVolume(self._data_source.WATERSHED)
         return self._ws_cv
 
     @property
