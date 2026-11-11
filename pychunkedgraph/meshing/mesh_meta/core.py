@@ -15,9 +15,14 @@ _WATERSHED_FALLBACK_KEYS = (
 )
 
 
+def is_absolute(value: str) -> bool:
+    """Whether mesh dir is cloud URL used as-is, rather than name under root."""
+    return "://" in value
+
+
 def _resolve(root: str, value: str) -> str:
     """Absolute ``value`` (a cloud URL) as-is, else joined under ``root``."""
-    return value.rstrip("/") if "://" in value else posixpath.join(root, value)
+    return value.rstrip("/") if is_absolute(value) else posixpath.join(root, value)
 
 
 class MeshMeta:
