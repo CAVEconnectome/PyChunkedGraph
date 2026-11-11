@@ -85,10 +85,16 @@ class MeshMeta:
         )
 
     @property
+    def spec_dir(self) -> str:
+        """Dir of the shard spec ``info``: the parent of ``initial_path``, wherever that
+        lives, so a watershed elsewhere never hides it."""
+        return posixpath.dirname(self.initial_path)
+
+    @property
     def reader_anchor(self):
         """``(data_dir, mesh)`` so a CloudVolume that appends ``initial/`` lands at
         ``initial_path`` — points the shard reader at a migrated bucket."""
-        return posixpath.split(posixpath.dirname(self.initial_path))
+        return posixpath.split(self.spec_dir)
 
     @property
     def max_layer(self) -> int:
