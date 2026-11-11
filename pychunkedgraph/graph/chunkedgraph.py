@@ -57,6 +57,7 @@ class ChunkedGraph:
             )
             self._meta = meta
         else:
+            # A fork's meta read attaches the chain of tables it reads through.
             _client = ClientClass(graph_id, config=client_info.CONFIG)
             self._meta = _client.read_table_meta()
             _client._lock_expiry = self._meta.graph_config.ROOT_LOCK_EXPIRY

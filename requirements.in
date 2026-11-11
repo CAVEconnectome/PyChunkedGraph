@@ -26,12 +26,15 @@ task-queue>=2.14.0
 messagingclient>0.3.0
 dracopy>=1.5.0
 datastoreflex>=0.5.0
-kvdbclient>=0.8.0
 zstandard>=0.23.0
 tinybrain>=1.7.0
 pykdtree>=1.4.3
 supervoxel-splitter[fast]>=0.1.0
 cave-pipeline[distribution]>=0.0.3,<0.1
+
+# TODO: temporary, for test images. Drop this pin and every commit carrying it before
+# merge, then pin the KVDbClient release.
+kvdbclient @ https://github.com/seung-lab/KVDbClient/archive/c528cafd3b291b12ade21bc6433d8f2f724fb53c.zip
 
 # Conda only - use requirements.yml (or install manually):
 # graph-tool

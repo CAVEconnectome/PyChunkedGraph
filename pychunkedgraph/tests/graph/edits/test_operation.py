@@ -694,6 +694,26 @@ class TestExecuteErrorHandling:
 
         assert cg.cache is None
 
+    @pytest.mark.timeout(30)
+    def test_a_failed_edit_logs_exception_and_frees_its_roots(self, gen_graph):
+        """A failure after locking leaves the graph untouched, so a retry lands."""
+        from unittest.mock import patch
+
+        cg, sv = _build_two_sv_disconnected(gen_graph)
+        sv0, sv1 = sv["a0"], sv["a1"]
+        with patch.object(
+            MergeOperation, "_apply", side_effect=ValueError("test failure")
+        ), patch("pychunkedgraph.graph.err_dump.dump_err_artifact", return_value=None):
+            with pytest.raises(Exception, match="test failure"):
+                cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
+
+        assert cg.get_root(sv0) != cg.get_root(sv1)
+        op = cg.client.get_max_operation_id()
+        status = cg.client.read_node(op, properties=attributes.OperationLogs.Status)
+        assert status[0].value == attributes.OperationLogs.StatusCodes.EXCEPTION.value
+        cg.add_edges("test_user", [sv0, sv1], affinities=[0.3])
+        assert cg.get_root(sv0) == cg.get_root(sv1)
+
 
 # ===========================================================================
 # NEW: UndoOperation.execute() edge validation (lines 1245-1267)
