@@ -78,6 +78,14 @@ def handle_info(table_id):
     return common.handle_info(table_id)
 
 
+# Admin-only rather than auth_requires_permission: that decorator needs the table->dataset
+# mapping to exist, which is one of the things this endpoint reports on.
+@bp.route("/table/<table_id>/readiness", methods=["GET"])
+@auth_requires_admin
+def handle_readiness(table_id):
+    return common.handle_readiness(table_id)
+
+
 # -------------------
 # ------ API versions
 # -------------------

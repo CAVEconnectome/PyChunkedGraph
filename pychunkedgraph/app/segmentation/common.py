@@ -13,7 +13,7 @@ from flask import current_app, g, jsonify, make_response, request
 from pytz import UTC
 
 from pychunkedgraph import __version__
-from pychunkedgraph.app import app_utils
+from pychunkedgraph.app import app_utils, readiness
 from pychunkedgraph.graph import (
     attributes,
     cutting,
@@ -112,6 +112,16 @@ def handle_info(table_id):
     elif combined_info.get("mesh_dir", None) is not None:
         combined_info["mesh_dir"] = "graphene_meshes"
     return jsonify(combined_info)
+
+
+def handle_readiness(table_id):
+    report = readiness.get_report(
+        table_id,
+        lambda t: app_utils.get_cg(t, skip_cache=True),
+        token=current_app.config.get("AUTH_TOKEN"),
+        refresh=request.args.get("refresh", False, type=str2bool),
+    )
+    return jsonify(report)
 
 
 def handle_api_versions():
@@ -359,6 +369,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id, skip_cache=True)
+    readiness.check_edit_allowed(cg)
     node_ids = []
     coords = []
     for node in nodes:
@@ -421,6 +432,7 @@ def handle_split(table_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id, skip_cache=True)
+    readiness.check_edit_allowed(cg)
     node_idents = []
     node_ident_map = {
         "sources": 0,
@@ -487,6 +499,7 @@ def handle_undo(table_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    readiness.check_edit_allowed(cg)
     operation_id = np.uint64(data["operation_id"])
 
     try:
@@ -520,6 +533,7 @@ def handle_redo(table_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    readiness.check_edit_allowed(cg)
     operation_id = np.uint64(data["operation_id"])
 
     try:
@@ -555,6 +569,7 @@ def handle_rollback(table_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    readiness.check_edit_allowed(cg)
     user_operations = all_user_operations(table_id)
     operation_ids = user_operations["operation_id"]
     timestamps = user_operations["timestamp"]
