@@ -12,6 +12,10 @@ from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
 from ..meshing.mesh_meta import MeshMeta
 
+#: TEMPORARY, revert before merge: tables a test cluster serves from another watershed,
+#: repointed in memory each time their stored meta loads.
+TEST_WATERSHEDS = {"minnie3_v1": "gs://iarpa_microns/minnie/minnie65/ws"}
+
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
 DataSource = namedtuple(
@@ -63,6 +67,7 @@ class ChunkedGraphMeta:
         self._layer_bounds_d = None
         self._layer_count = None
         self._bitmasks = None
+        self._stored = None
 
     @property
     def graph_config(self):
@@ -261,16 +266,24 @@ class ChunkedGraphMeta:
         return (self.graph_config, self.data_source)
 
     def __getstate__(self):
+        # A test table pickles as stored, so a write never persists its in-memory repoint.
+        source = self._stored or self
         return {
-            "graph_config": self.graph_config,
-            "data_source": self.data_source,
-            "custom_data": self.custom_data,
+            "graph_config": source.graph_config,
+            "data_source": source.data_source,
+            "custom_data": source.custom_data,
         }
 
     def __setstate__(self, state):
         self.__init__(
             state["graph_config"], state["data_source"], state.get("custom_data", {})
         )
+        graph_id = self._graph_config.ID_PREFIX + self._graph_config.ID
+        if graph_id in TEST_WATERSHEDS:
+            self._stored = ChunkedGraphMeta(
+                self._graph_config, self._data_source, dict(self._custom_data)
+            )
+            self.repoint_watershed(TEST_WATERSHEDS[graph_id])
 
     def __str__(self):
         from json import dumps
