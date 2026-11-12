@@ -78,6 +78,11 @@ class InternalServerError(ServerError):
     status_code = http_client.INTERNAL_SERVER_ERROR
 
 
+class ServiceUnavailable(ServerError):
+    """Exception mapping a ``503 Service Unavailable`` response."""
+    status_code = http_client.SERVICE_UNAVAILABLE
+
+
 class GatewayTimeout(ServerError):
     """Exception mapping a ``504 Gateway Timeout`` response."""
     status_code = http_client.GATEWAY_TIMEOUT
