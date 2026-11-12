@@ -1,5 +1,7 @@
 """Tests for pychunkedgraph.graph.meta.ChunkedGraphMeta.repoint_watershed."""
 
+import pickle
+
 import pytest
 
 from pychunkedgraph.graph import meta as meta_module
@@ -55,3 +57,25 @@ def test_repoint_keeps_the_old_watershed_grid_keys(infos):
 def test_repoint_of_a_table_without_meshes_keeps_its_custom_data(infos, custom_data):
     meta = _meta(dict(custom_data)).repoint_watershed(NEW)
     assert meta.custom_data == custom_data
+
+
+def test_a_test_table_loads_repointed_and_others_load_as_stored(infos, monkeypatch):
+    monkeypatch.setattr(meta_module, "TEST_WATERSHEDS", {"minnie3_v1": NEW})
+    test = ChunkedGraphMeta(GraphConfig(ID="minnie3_v1"), DataSource(WATERSHED=OLD), {})
+    other = ChunkedGraphMeta(GraphConfig(ID="other"), DataSource(WATERSHED=OLD), {})
+    assert pickle.loads(pickle.dumps(test)).data_source.WATERSHED == NEW
+    assert pickle.loads(pickle.dumps(other)).data_source.WATERSHED == OLD
+
+
+def test_a_loaded_test_table_writes_back_as_stored(infos, monkeypatch):
+    monkeypatch.setattr(meta_module, "TEST_WATERSHEDS", {"minnie3_v1": NEW})
+    block = {"mesh": {"dir": "graphene_meshes"}}
+    stored = ChunkedGraphMeta(
+        GraphConfig(ID="minnie3_v1"), DataSource(WATERSHED=OLD), dict(block)
+    )
+    loaded = pickle.loads(pickle.dumps(stored))
+    assert MeshMeta(loaded).initial_path == f"{OLD}/graphene_meshes/initial"
+    written = pickle.dumps(loaded)
+    monkeypatch.setattr(meta_module, "TEST_WATERSHEDS", {})
+    row = pickle.loads(written)
+    assert (row.data_source.WATERSHED, row.custom_data) == (OLD, block)
