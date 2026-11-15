@@ -1,11 +1,14 @@
 """Tests for pychunkedgraph.graph.meta"""
 
 import pickle
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from pychunkedgraph.graph import meta as meta_module
 from pychunkedgraph.graph.meta import ChunkedGraphMeta, GraphConfig, DataSource
+from pychunkedgraph.meshing.mesh_meta import MeshMeta
 from pychunkedgraph.tests.helpers import mock_ws_info
 
 
@@ -391,98 +394,27 @@ class TestDatasetInfo:
 
 
 # =====================================================================
-# Pure unit tests (no BigTable emulator needed) - mock CloudVolume & Redis
+# Pure unit tests (no BigTable emulator needed) - mock CloudVolume
 # =====================================================================
 import json
 from unittest.mock import MagicMock, patch, PropertyMock
 
 
-class TestWsCvRedisCached:
-    """Test ws_cv property with Redis caching."""
+class TestWsCv:
+    """Test the ws_cv property: one CloudVolume, opened at the watershed and kept."""
 
     @patch("cloudvolume.CloudVolume")
-    @patch("pychunkedgraph.graph.meta.get_redis_connection")
-    def test_ws_cv_redis_cached(self, mock_get_redis, mock_cv_cls):
-        """When redis has cached info, ws_cv uses cached CloudVolume."""
+    def test_ws_cv_opens_the_watershed(self, mock_cv_cls):
+        """ws_cv opens the watershed path itself, with progress off."""
         gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
         meta = ChunkedGraphMeta(gc, ds)
 
-        cached_info = {"scales": [{"resolution": [8, 8, 40]}]}
-        mock_redis = MagicMock()
-        mock_redis.get.return_value = json.dumps(cached_info)
-        mock_get_redis.return_value = mock_redis
-
-        mock_cv_instance = MagicMock()
-        mock_cv_cls.return_value = mock_cv_instance
-
-        result = meta.ws_cv
-
-        assert result is mock_cv_instance
-        mock_cv_cls.assert_called_once_with(
-            "gs://bucket/ws", info=cached_info, progress=False
-        )
+        assert meta.ws_cv is mock_cv_cls.return_value
+        mock_cv_cls.assert_called_once_with("gs://bucket/ws", progress=False)
 
     @patch("cloudvolume.CloudVolume")
-    @patch("pychunkedgraph.graph.meta.get_redis_connection")
-    def test_ws_cv_redis_failure_fallback(self, mock_get_redis, mock_cv_cls):
-        """When redis raises, ws_cv still fetches `.info` (via the loader) and
-        then constructs the cached CloudVolume with that info — it just skips
-        writing the info back to redis.
-        """
-        gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
-        ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
-        meta = ChunkedGraphMeta(gc, ds)
-
-        mock_get_redis.side_effect = Exception("Redis connection failed")
-
-        mock_cv_instance = MagicMock()
-        mock_cv_instance.info = {"scales": []}
-        mock_cv_cls.return_value = mock_cv_instance
-
-        result = meta.ws_cv
-
-        assert result is mock_cv_instance
-        # Loader path runs even when redis is dead — fetch .info first…
-        mock_cv_cls.assert_any_call("gs://bucket/ws", progress=False)
-        # …then construct the cached handle with explicit info=.
-        mock_cv_cls.assert_any_call(
-            "gs://bucket/ws", info={"scales": []}, progress=False
-        )
-
-    @patch("cloudvolume.CloudVolume")
-    @patch("pychunkedgraph.graph.meta.get_redis_connection")
-    def test_ws_cv_caches_to_redis(self, mock_get_redis, mock_cv_cls):
-        """When redis is available but cache miss, ws_cv caches info to redis."""
-        gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
-        ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
-        meta = ChunkedGraphMeta(gc, ds)
-
-        mock_redis = MagicMock()
-        # Make redis.get raise to simulate cache miss on json.loads
-        mock_redis.get.return_value = None  # This will make json.loads fail
-        mock_get_redis.return_value = mock_redis
-
-        mock_cv_instance = MagicMock()
-        mock_cv_instance.info = {"scales": [{"resolution": [8, 8, 40]}]}
-        mock_cv_cls.return_value = mock_cv_instance
-
-        result = meta.ws_cv
-
-        assert result is mock_cv_instance
-        # Cache-miss path: loader fetches .info, then handle is constructed
-        # with explicit info=, and the info gets written to redis.
-        mock_cv_cls.assert_any_call("gs://bucket/ws", progress=False)
-        mock_cv_cls.assert_any_call(
-            "gs://bucket/ws",
-            info={"scales": [{"resolution": [8, 8, 40]}]},
-            progress=False,
-        )
-        mock_redis.set.assert_called_once()
-
-    @patch("cloudvolume.CloudVolume")
-    @patch("pychunkedgraph.graph.meta.get_redis_connection")
-    def test_ws_cv_returns_cached_instance(self, mock_get_redis, mock_cv_cls):
+    def test_ws_cv_returns_cached_instance(self, mock_cv_cls):
         """Once ws_cv has been set, subsequent calls return the cached instance."""
         gc = GraphConfig(ID="test_graph", CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
@@ -682,3 +614,91 @@ class TestLayerChunkBoundsComputed:
         bounds1 = meta.layer_chunk_bounds
         bounds2 = meta.layer_chunk_bounds
         assert bounds1 is bounds2
+
+
+# =====================================================================
+# repoint_watershed
+# =====================================================================
+OLD, NEW = "gs://old/seg", "gs://new/seg"
+
+
+@pytest.fixture
+def infos(monkeypatch):
+    """Watershed infos by path, served in place of the bucket: ``ts.KvStore.open`` reads
+    an info, and ``ts.open`` answers the path it was opened at."""
+    by_path = {OLD: {"at": OLD}, NEW: {"at": NEW}}
+
+    def done(value):
+        return SimpleNamespace(result=lambda: value)
+
+    def kvstore(path):
+        info = SimpleNamespace(value=json.dumps(by_path[path]))
+        return done(SimpleNamespace(read=lambda _key: done(info)))
+
+    stub = SimpleNamespace(
+        KvStore=SimpleNamespace(open=kvstore), open=lambda spec: done(spec["kvstore"])
+    )
+    monkeypatch.setattr(meta_module, "ts", stub)
+    return by_path
+
+
+def _meta(custom_data):
+    return ChunkedGraphMeta(GraphConfig(ID="g"), DataSource(WATERSHED=OLD), custom_data)
+
+
+def test_repoint_reads_the_new_watershed(infos):
+    meta = _meta({})
+    assert meta.ws_info == {"at": OLD}
+    assert meta.repoint_watershed(NEW) is meta
+    assert meta.data_source.WATERSHED == NEW
+    assert meta.ws_info == {"at": NEW}
+
+
+def test_repoint_reopens_what_the_old_watershed_fed(infos, monkeypatch):
+    """A volume or store opened at the old watershed does not outlive the repoint."""
+    monkeypatch.setattr("cloudvolume.CloudVolume", lambda path, progress: path)
+    meta = _meta({})
+    assert (meta.ws_cv, meta.ws_ts) == (OLD, OLD)
+    meta.repoint_watershed(NEW)
+    assert (meta.ws_cv, meta.ws_ts) == (NEW, NEW)
+
+
+def test_repoint_keeps_meshes_where_they_resolved(infos):
+    mm = MeshMeta(_meta({"mesh": {"dir": "graphene_meshes"}}).repoint_watershed(NEW))
+    assert mm.initial_path == f"{OLD}/graphene_meshes/initial"
+    assert mm.dynamic_path == f"{OLD}/graphene_meshes/dynamic"
+
+
+def test_repoint_keeps_the_old_watershed_grid_keys(infos):
+    infos[OLD] = {
+        "mesh_metadata": {"uniform_draco_grid_size": 7.0, "max_meshed_layer": 9}
+    }
+    infos[NEW] = {"mesh_metadata": {"max_meshed_layer": 3}}
+    meta = _meta({"mesh": {"dir": "graphene_meshes", "max_meshed_layer": 5}})
+    client = MeshMeta(meta.repoint_watershed(NEW)).client_metadata
+    assert client["uniform_draco_grid_size"] == 7.0
+    assert client["max_meshed_layer"] == 5
+
+
+@pytest.mark.parametrize("custom_data", [{"READ_ONLY": True}, {"mesh": {"mip": 2}}])
+def test_repoint_of_a_table_without_meshes_keeps_its_custom_data(infos, custom_data):
+    meta = _meta(dict(custom_data)).repoint_watershed(NEW)
+    assert meta.custom_data == custom_data
+
+
+def test_repoint_reopens_the_segmentation_store_at_the_new_watershed(monkeypatch):
+    """OCDBT settings and handles read after a repoint come from the new watershed."""
+    populate = {OLD: {"populate_layer": 3}, NEW: {"populate_layer": 5}}
+    monkeypatch.setattr(meta_module, "read_populate_meta", populate.get)
+    monkeypatch.setattr(meta_module, "fork_exists", lambda ws, graph_id: True)
+    monkeypatch.setattr(meta_module, "ensure_fork_synced", lambda ws, graph_id: False)
+    monkeypatch.setattr(
+        meta_module,
+        "get_seg_source_and_destination_ocdbt",
+        lambda ws, graph_id, config: ([], [ws], [config.populate_layer]),
+    )
+    meta = _meta({"ocdbt_config": {"enabled": True}})
+    assert meta.ws_ocdbt_scales == [OLD]
+    meta.repoint_watershed(NEW)
+    assert meta.ocdbt_config.populate_layer == 5
+    assert (meta.ws_ocdbt_scales, meta.ws_ocdbt_resolutions) == ([NEW], [5])

@@ -20,7 +20,7 @@ from pychunkedgraph.graph.ocdbt import (
 
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
-from ..utils.redis import get_redis_connection
+from ..meshing.mesh_meta import MeshMeta
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
@@ -56,29 +56,6 @@ _graphconfig_defaults = (
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )
-
-
-def _redis_cached_json(key: str, loader):
-    """Return JSON-decoded value at ``key`` in Redis, or call ``loader()`` and
-    write the result through. Spares distributed workers from re-fetching the
-    same GCS object on every CG instantiation. Silently bypasses Redis if it
-    is unreachable; returns ``loader()`` directly in that case.
-    """
-    redis = None
-    try:
-        redis = get_redis_connection()
-        cached = redis.get(key)
-        if cached is not None:
-            return json.loads(cached)
-    except Exception:
-        redis = None
-    value = loader()
-    if value is not None and redis is not None:
-        try:
-            redis.set(key, json.dumps(value))
-        except Exception:
-            ...
-    return value
 
 
 class ChunkedGraphMeta:
@@ -143,6 +120,21 @@ class ChunkedGraphMeta:
             mesh["dir"], mesh["dynamic_mesh_dir"] = rewrite(mesh["dir"], graph_id)
         return self
 
+    def repoint_watershed(self, watershed: str) -> "ChunkedGraphMeta":
+        """Point this meta at ``watershed`` in place, the mesh block pinned first so
+        meshes stay where they are. Persists nothing: save the returned self with
+        ``cg.update_meta(meta, overwrite=True)``."""
+        if "mesh" in self._custom_data:
+            self._custom_data["mesh"] = MeshMeta(self).pinned_block
+        # Rebuilt as an open builds it, so no volume, store or info read at the old
+        # watershed outlives the swap.
+        self.__init__(
+            self._graph_config,
+            self._data_source._replace(WATERSHED=watershed),
+            self._custom_data,
+        )
+        return self
+
     @property
     def ws_cv(self):
         """Watershed CloudVolume — back-compat hatch (meshing / diagnostics)."""
@@ -150,12 +142,7 @@ class ChunkedGraphMeta:
             return self._ws_cv
         from cloudvolume import CloudVolume
 
-        ws = self._data_source.WATERSHED
-        info = _redis_cached_json(
-            f"ws_cv_info_cached:{ws}",
-            lambda: CloudVolume(ws, progress=False).info,
-        )
-        self._ws_cv = CloudVolume(ws, info=info, progress=False)
+        self._ws_cv = CloudVolume(self._data_source.WATERSHED, progress=False)
         return self._ws_cv
 
     def ws_ts_scale(self, mip: int):
@@ -178,16 +165,13 @@ class ChunkedGraphMeta:
 
     @property
     def _ws_info(self):
-        """Watershed precomputed ``info`` JSON, Redis-cached."""
+        """Watershed precomputed ``info`` JSON, read once per meta."""
         if self._ws_info_d is None:
             # Base must not end in '/'; the leading '/' in '/info' supplies the
             # separator — otherwise the GCS read returns empty.
             ws = self._data_source.WATERSHED.rstrip("/")
-            self._ws_info_d = _redis_cached_json(
-                f"ws_info_cached:{ws}",
-                lambda: json.loads(
-                    ts.KvStore.open(ws).result().read("/info").result().value
-                ),
+            self._ws_info_d = json.loads(
+                ts.KvStore.open(ws).result().read("/info").result().value
             )
         return self._ws_info_d
 
@@ -206,12 +190,9 @@ class ChunkedGraphMeta:
         fields (enabled, sv_split_threshold) and anything the info file
         doesn't pin. Both layers fall through to dataclass defaults.
 
-        The info-file fetch goes through a Redis cache (same pattern as
-        ``ws_cv``) so distributed workers don't re-read the same GCS
-        object on every CG instantiation. Result is also cached in
-        instance state after first access. Legacy ``custom_data["seg"]``
-        shape is read when ``"ocdbt_config"`` is absent so pre-refactor
-        CGs still open.
+        The result is cached in instance state after first access. Legacy
+        ``custom_data["seg"]`` shape is read when ``"ocdbt_config"`` is
+        absent so pre-refactor CGs still open.
         """
         if self._ocdbt_config_cached is not None:
             return self._ocdbt_config_cached
@@ -227,10 +208,7 @@ class ChunkedGraphMeta:
         info_d = None
         ws = self._data_source.WATERSHED
         if ws:
-            info_d = _redis_cached_json(
-                f"ocdbt_info_cached:{ws}",
-                lambda: read_populate_meta(ws),
-            )
+            info_d = read_populate_meta(ws)
 
         self._ocdbt_config_cached = OcdbtConfig.resolve(meta_d, info_d)
         return self._ocdbt_config_cached
