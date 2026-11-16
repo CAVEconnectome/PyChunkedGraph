@@ -1,3 +1,4 @@
+import time
 from datetime import timedelta
 from typing import Dict
 from typing import List
@@ -10,7 +11,7 @@ from cloudvolume import CloudVolume
 
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
-from ..meshing.mesh_meta import MeshMeta
+from ..meshing.mesh_meta import INHERITED, MeshMeta
 
 #: TEMPORARY, revert before merge: tables a test cluster serves from another watershed,
 #: repointed in memory each time their stored meta loads.
@@ -80,6 +81,25 @@ class ChunkedGraphMeta:
     @property
     def custom_data(self):
         return self._custom_data
+
+    def for_copied_graph(self, graph_id: str) -> "ChunkedGraphMeta":
+        """Rewrite this meta for a table copied under ``graph_id``: its id, and a mesh
+        block keeping the source's meshes, reading the source's dynamic dir for nodes
+        made before now while writing its own. Returns self, for ``update_meta``."""
+        gc = self._graph_config._asdict()
+        gc["ID"] = graph_id
+        self._graph_config = GraphConfig(**gc)
+        mesh = self._custom_data.get("mesh")
+        if not mesh or "dir" not in mesh:
+            return self
+        source = MeshMeta(self)
+        layer = {"path": source.dynamic_path, "until": int(time.time())}
+        block = {**source.pinned_block, "dynamic_mesh_dir": f"dynamic_{graph_id}"}
+        block[INHERITED] = [*mesh.get(INHERITED, ()), layer]
+        self._custom_data["mesh"] = block
+        # Pinned again, so the copy's own dir is absolute and a setup re-run keeps it.
+        self._custom_data["mesh"] = MeshMeta(self).pinned_block
+        return self
 
     def repoint_watershed(self, watershed: str) -> "ChunkedGraphMeta":
         """Point this meta at ``watershed`` in place, the mesh block pinned first so
