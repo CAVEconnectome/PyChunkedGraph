@@ -58,7 +58,7 @@ def speculative_manifest(
     """
     from .utils import check_skips
     from .utils import segregate_node_ids
-    from ..meshgen_utils import get_mesh_name
+    from .dynamic import hinted_rows
 
     if start_layer is None:
         start_layer = MeshMeta(cg).max_layer
@@ -101,5 +101,5 @@ def speculative_manifest(
         mesh_shards.append(f"~{id_}:{layer}:{chunk_id}:{fname}:{minishard}")
 
     # get mesh files for new IDs
-    mesh_files = [f"{get_mesh_name(cg, id_)}" for id_ in new_ids]
+    mesh_files = hinted_rows(cg, new_ids)
     return np.concatenate([initial_ids, new_ids]), mesh_shards + mesh_files
