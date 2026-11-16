@@ -4,6 +4,9 @@
 """
 
 import posixpath
+from typing import NamedTuple
+
+import numpy as np
 
 #: DEPRECATED shim: client mesh keys older setups wrote into the watershed info only. A key
 #: the table's mesh block lacks is copied from there at read time; drop this once every
@@ -23,6 +26,18 @@ def is_absolute(value: str) -> bool:
 def _resolve(root: str, value: str) -> str:
     """Absolute ``value`` (a cloud URL) as-is, else joined under ``root``."""
     return value.rstrip("/") if is_absolute(value) else posixpath.join(root, value)
+
+
+#: The block key a copy's rewrite fills: its sources' dynamic dirs, oldest first.
+INHERITED = "inherited_dynamic"
+
+
+class Layer(NamedTuple):
+    """A source's dynamic dir, holding the meshes of nodes made before ``until``."""
+
+    path: str
+    #: Unix seconds: the copy's first open, before which the source made the node.
+    until: int
 
 
 class MeshMeta:
@@ -60,6 +75,38 @@ class MeshMeta:
         return _resolve(self._root, self.dynamic_mesh_dir)
 
     @property
+    def inherited(self) -> tuple[Layer, ...]:
+        """Dynamic dirs inherited as a copy, oldest first; none for any other table."""
+        return tuple(
+            Layer(str(one["path"]), int(one["until"]))
+            for one in self._mesh.get(INHERITED, ())
+        )
+
+    @property
+    def dynamic_stack(self) -> tuple[str, ...]:
+        """Every dynamic dir a node's mesh may be in, in the order a miss searches them:
+        the table's own first, then inherited dirs newest first."""
+        return (self.dynamic_path, *(one.path for one in reversed(self.inherited)))
+
+    def by_dynamic_dir(self, node_ids, created) -> dict[str, np.ndarray]:
+        """New node ids grouped by the dynamic dir their creation time hints at, each dir
+        once: the first inherited dir a node's ``created`` (datetime64) predates, else
+        ``dynamic_path``. ``created`` must hold one time per id; this is not checked,
+        since every caller reads the times of nodes that exist."""
+        node_ids = np.asarray(node_ids)
+        if not node_ids.size:
+            return {}
+        layers = self.inherited
+        if not layers:
+            return {self.dynamic_path: node_ids}
+        untils = np.array([np.datetime64(one.until, "s") for one in layers])
+        at = np.searchsorted(
+            untils, np.asarray(created, dtype="datetime64[s]"), side="right"
+        )
+        paths = [one.path for one in layers] + [self.dynamic_path]
+        return {paths[i]: node_ids[at == i] for i in np.unique(at)}
+
+    @property
     def _grid_keys(self) -> dict[str, object]:
         """The client grid keys: the block's own, else the watershed info's (the shim)."""
         ws_mesh = self._meta.ws_info.get("mesh_metadata", {})
@@ -95,9 +142,10 @@ class MeshMeta:
 
     @property
     def needs_v2(self) -> bool:
-        """True when meshes live outside the watershed dir (old clients can't reach)."""
+        """True when meshes live outside the watershed dir, or across inherited dynamic
+        dirs: old clients reach neither."""
         root = self._root
-        return not (
+        return bool(self.inherited) or not (
             self.initial_path.startswith(root) and self.dynamic_path.startswith(root)
         )
 

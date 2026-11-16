@@ -58,9 +58,9 @@ def to_v2_groups(node_ids, fragments, *, verified):
 
 
 def assemble(
-    initial_path: str, dynamic_path: str, initial_frags, dynamic_frags
+    initial_path: str, initial_frags, dynamic: dict[str, list[str]]
 ) -> dict[str, object]:
-    """v2 manifest: fragment lists grouped by absolute bucket path.
+    """v2 manifest: fragment lists grouped by absolute bucket path, one per dynamic dir.
 
     Empty groups are omitted. Metadata is added beside ``fragments`` at the top
     level, so a bucket maps straight to its list.
@@ -68,6 +68,5 @@ def assemble(
     fragments: dict[str, list[str]] = {}
     if len(initial_frags):
         fragments[initial_path] = list(initial_frags)
-    if len(dynamic_frags):
-        fragments[dynamic_path] = list(dynamic_frags)
+    fragments.update({path: list(rows) for path, rows in dynamic.items() if len(rows)})
     return {"manifest_version": MANIFEST_VERSION, "fragments": fragments}

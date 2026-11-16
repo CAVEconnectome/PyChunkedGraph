@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import timedelta
 from typing import Dict
 from typing import List
@@ -20,7 +21,7 @@ from pychunkedgraph.graph.ocdbt import (
 
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
-from ..meshing.mesh_meta import MeshMeta
+from ..meshing.mesh_meta import INHERITED, MeshMeta
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
@@ -101,23 +102,22 @@ class ChunkedGraphMeta:
         return self._custom_data
 
     def for_copied_graph(self, graph_id: str) -> "ChunkedGraphMeta":
-        """Rewrite this meta in place for a table copied/restored under ``graph_id`` — its
-        graph id and mesh dirs — so the copy's meshes never alias the source's; returns self
-        for a one-line ``update_meta`` call."""
+        """Rewrite this meta for a table copied under ``graph_id``: its id, and a mesh
+        block keeping the source's meshes, reading the source's dynamic dir for nodes
+        made before now while writing its own. Returns self, for ``update_meta``."""
         gc = self._graph_config._asdict()
         gc["ID"] = graph_id
         self._graph_config = GraphConfig(**gc)
         mesh = self._custom_data.get("mesh")
-        if mesh and "dir" in mesh:
-            # Only an explicit graph-suffixed dynamic_mesh_dir shares initial meshes; a bare
-            # "dynamic" or an unset value defaults to a private per-graph top-level dir, so a
-            # copy can never alias the source.
-            rewrite = (
-                shared_initial_mesh_dirs
-                if mesh.get("dynamic_mesh_dir") not in (None, "dynamic")
-                else private_mesh_dirs
-            )
-            mesh["dir"], mesh["dynamic_mesh_dir"] = rewrite(mesh["dir"], graph_id)
+        if not mesh or "dir" not in mesh:
+            return self
+        source = MeshMeta(self)
+        layer = {"path": source.dynamic_path, "until": int(time.time())}
+        block = {**source.pinned_block, "dynamic_mesh_dir": f"dynamic_{graph_id}"}
+        block[INHERITED] = [*mesh.get(INHERITED, ()), layer]
+        self._custom_data["mesh"] = block
+        # Pinned again, so the copy's own dir is absolute and a setup re-run keeps it.
+        self._custom_data["mesh"] = MeshMeta(self).pinned_block
         return self
 
     def repoint_watershed(self, watershed: str) -> "ChunkedGraphMeta":
@@ -468,18 +468,3 @@ class ChunkedGraphMeta:
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.bitmasks[1]
         )
-
-
-def private_mesh_dirs(mesh_dir: str, graph_id: str) -> tuple[str, str]:
-    """(dir, dynamic_mesh_dir) for a copied table whose meshes are all its own (source
-    dynamic dir unset or the bare "dynamic"). Suffix the top-level dir per graph so even
-    initial meshes stay private; the dynamic subdir keeps the bare "dynamic" inside it.
-    """
-    return f"{mesh_dir}_{graph_id}", "dynamic"
-
-
-def shared_initial_mesh_dirs(mesh_dir: str, graph_id: str) -> tuple[str, str]:
-    """(dir, dynamic_mesh_dir) for a copied table that shares initial meshes with siblings
-    from the same backup — the source dynamic dir was graph-suffixed. Keep the top-level dir
-    shared; re-derive only the dynamic subdir per graph."""
-    return mesh_dir, f"dynamic_{graph_id}"

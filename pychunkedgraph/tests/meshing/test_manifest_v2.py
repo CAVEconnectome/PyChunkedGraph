@@ -53,12 +53,20 @@ class TestToV2Groups:
     def test_assemble_maps_each_bucket_to_its_list(self):
         """A bucket maps straight to its fragments; metadata sits at the top level."""
         resp = assemble(
-            "gs://b/initial", "gs://b/dynamic", ["386:a.shard:1:2"], ["529:0:y"]
+            "gs://b/initial", ["386:a.shard:1:2"], {"gs://b/dynamic": ["529:0:y"]}
         )
         assert resp["fragments"]["gs://b/initial"] == ["386:a.shard:1:2"]
         assert resp["fragments"]["gs://b/dynamic"] == ["529:0:y"]
         assert resp["manifest_version"] == 2
 
+    def test_assemble_keeps_each_dynamic_dir_under_its_own_bucket(self):
+        """A copy's rows from its source's dir stay apart from its own."""
+        dynamic = {"gs://src/dynamic": ["529:0:y"], "gs://b/dynamic": ["530:0:z"]}
+        resp = assemble("gs://b/initial", [], dynamic)
+        assert resp["fragments"]["gs://src/dynamic"] == ["529:0:y"]
+        assert resp["fragments"]["gs://b/dynamic"] == ["530:0:z"]
+
     def test_assemble_omits_a_group_with_no_fragments(self):
-        resp = assemble("gs://b/initial", "gs://b/dynamic", [], ["529:0:y"])
+        dynamic = {"gs://src/dynamic": [], "gs://b/dynamic": ["529:0:y"]}
+        resp = assemble("gs://b/initial", [], dynamic)
         assert list(resp["fragments"]) == ["gs://b/dynamic"]
