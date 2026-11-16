@@ -112,6 +112,7 @@ def manifest_response(cg, args):
     from pychunkedgraph.meshing.manifest import speculative_manifest_sharded
     from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
     from pychunkedgraph.meshing.manifest import v2
+    from pychunkedgraph.meshing.manifest.dynamic import dynamic_buckets
     from pychunkedgraph.meshing.mesh_meta import MeshMeta
 
     (
@@ -143,7 +144,7 @@ def manifest_response(cg, args):
         # Every row carries its seg id, so neither seg id flag changes a v2 response.
         mm = MeshMeta(cg)
         initial, dynamic = v2.to_v2_groups(seg_ids, fragments, verified=verify)
-        resp = v2.assemble(mm.initial_path, mm.dynamic_path, initial, dynamic)
+        resp = v2.assemble(mm.initial_path, initial, dynamic_buckets(cg, dynamic))
     else:
         resp = {"fragments": fragments}
         if prepend_seg_ids:
