@@ -24,7 +24,9 @@ ChunkedGraph.
 - **dynamic** — the unsharded meshes produced by proofreading edits.
   **Per-graph**: each graph keeps its own, so on the pcgv3 line it defaults to a
   graph-id-derived dir (`dynamic_<graph_id>`) and stays isolated even while
-  sharing initial meshes; on the pcgv2 line it is a plain subdir.
+  sharing initial meshes; on the pcgv2 line it is a plain subdir. A copy writes
+  only its own, and also reads the dynamic dirs it inherits, for meshes its
+  sources wrote before it was copied.
 
 ## Configuration
 
@@ -35,6 +37,11 @@ All read from `custom_data["mesh"]`:
 - `initial_mesh_dir` — the initial location (default `initial`).
 - `dynamic_mesh_dir` — the dynamic location (default `dynamic`; pcgv3 setup fills
   `dynamic_<graph_id>`).
+- `inherited_dynamic` — a copy's sources' dynamic dirs, oldest first, each
+  `{"path", "until"}`: an absolute dir, and the Unix second of the copy's first
+  open, before which its source made a node. Only a copy's first open writes it,
+  through `ChunkedGraphMeta.for_copied_graph`; any other table has none and reads
+  as before.
 - `max_layer`, `mip`, `max_error` — mesh params (start layer for manifests, and
   the mip / max-error used by remeshing).
 - `uniform_draco_grid_size` — the draco grid clients deduplicate on, written by setup.
@@ -61,6 +68,14 @@ upstream; this module only reads the result.
 
 - `initial_path` → absolute dir of the initial (sharded) meshes.
 - `dynamic_path` → absolute dir of the dynamic (unsharded) meshes.
+- `inherited` → a copy's inherited dynamic dirs as `Layer(path, until)`, oldest
+  first; empty for any other table.
+- `dynamic_stack` → every dynamic dir a node's mesh may be in, the table's own first,
+  then inherited dirs newest first: the order a missed lookup searches.
+- `by_dynamic_dir(node_ids, created)` → new node ids grouped by the dynamic dir their
+  creation times hint at. `manifest/dynamic.py` checks each hint with a probe and
+  searches `dynamic_stack` on a miss, so a copy finds every mesh it or its sources
+  wrote.
 - `spec_dir` → the dir of the shard spec `info`, the parent of `initial_path`.
 - `dir` → the sharded mesh dir name under the watershed.
 - `dynamic_mesh_dir` → the dynamic dir as configured, a name or a cloud URL.
@@ -68,11 +83,11 @@ upstream; this module only reads the result.
 - `pinned_block` → the block with both dirs absolute and its grid keys written in, so it
   reads the same under any watershed; `ChunkedGraphMeta.repoint_watershed` stores it.
 - `max_layer`, `mip`, `max_error`, `initial_ts` → the mesh params.
-- `needs_v2` → true when either location falls **outside** the watershed dir,
-  i.e. meshes are not co-located with the watershed. Old clients compose paths
-  relative to the watershed, so they cannot reach such meshes: the v2 manifest
-  serves them correctly, and the v1 path must fail loudly rather than return
-  unreachable paths.
+- `needs_v2` → true when either location falls **outside** the watershed dir, or the
+  table inherits dynamic dirs, i.e. meshes are not all co-located with the
+  watershed. Old clients compose paths relative to the watershed, so they cannot
+  reach such meshes: the v2 manifest serves them correctly, and the v1 path must
+  fail loudly rather than return unreachable paths.
 - `reader_anchor` → the `(data_dir, mesh)` pair to hand a CloudVolume mesh reader.
   The reader appends `initial/` internally, so it must be anchored at the
   **parent** of the initial dir; this yields shard byte-ranges from the right

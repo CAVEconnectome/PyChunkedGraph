@@ -8,12 +8,14 @@ from typing import Tuple
 from typing import Sequence
 
 import numpy as np
-from cloudfiles import CloudFiles
 from cloudvolume import CloudVolume
 from cloudvolume import Mesh
 
 from .cache import ManifestCache
-from ..meshgen_utils import get_mesh_name
+from .dynamic import dynamic_row
+from .dynamic import probe_exists
+from .dynamic import probe_read
+from .dynamic import search_dynamic
 from ..meshgen_utils import get_json_info
 from ..mesh_meta import MeshMeta
 from ...graph import ChunkedGraph
@@ -107,24 +109,21 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     if len(node_ids) == 0:
         return result, not_existing
 
-    mesh_path = MeshMeta(cg).dynamic_path
-    cf = CloudFiles(mesh_path)
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
 
     result_, not_cached, not_existing_ = manifest_cache.get_fragments(node_ids)
     not_existing.extend(not_existing_)
     result.update(result_)
 
-    filenames = [get_mesh_name(cg, id_) for id_ in not_cached]
-    existence_dict = cf.exists(filenames)
-
+    own = MeshMeta(cg).dynamic_path
+    found = search_dynamic(cg, not_cached, probe_exists)
     result_ = {}
-    for mesh_key in existence_dict:
-        node_id = np.uint64(mesh_key.split(":")[0])
-        if existence_dict[mesh_key]:
-            result_[node_id] = mesh_key
+    for node_id in not_cached:
+        hit = found.get(int(node_id))
+        if hit is None:
+            not_existing.append(node_id)
             continue
-        not_existing.append(node_id)
+        result_[node_id] = dynamic_row(own, hit.path, hit.name)
 
     manifest_cache.set_fragments(result_)
     result.update(result_)
@@ -206,14 +205,13 @@ def shard_mesh_source(cg):
 
 
 class NodeMeshReader:
-    """Reads node meshes from this table's own mesh dirs, a cloud-URL dir included.
+    """Reads node meshes from the dirs holding them, a copy's inherited dirs included.
 
     Built once per task so the shard readers keep their index caches across reads.
     """
 
     def __init__(self, cg):
         self._cg = cg
-        self._dynamic = CloudFiles(MeshMeta(cg).dynamic_path)
         self._source = shard_mesh_source(cg)
 
     def get(self, node_ids: Sequence[np.uint64]) -> Dict[int, Mesh]:
@@ -227,13 +225,8 @@ class NodeMeshReader:
             return {}
         initial_ids, new_ids = segregate_node_ids(self._cg, node_ids)
         result = {}
-        names = {get_mesh_name(self._cg, id_): int(id_) for id_ in new_ids}
-        for res in self._dynamic.get(list(names)):
-            if res["error"]:
-                raise res["error"]
-            if res["content"] is not None:
-                label = names[res["path"]]
-                result[label] = Mesh.from_draco(res["content"], segid=label)
+        for node_id, hit in search_dynamic(self._cg, new_ids, probe_read).items():
+            result[node_id] = Mesh.from_draco(hit.value, segid=node_id)
         meta = self._source.meta
         layers = self._cg.get_chunk_layers(initial_ids)
         for layer in np.unique(layers):

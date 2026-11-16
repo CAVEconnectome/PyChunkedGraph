@@ -28,6 +28,34 @@ def _meta(custom_data):
     return ChunkedGraphMeta(GraphConfig(ID="g"), DataSource(WATERSHED=OLD), custom_data)
 
 
+def test_a_copy_keeps_its_sources_initial_meshes(infos):
+    meta = _meta({"mesh": {"dir": "graphene_meshes"}}).for_copied_graph("c")
+    assert meta.graph_config.ID == "c"
+    assert MeshMeta(meta).initial_path == f"{OLD}/graphene_meshes/initial"
+
+
+def test_a_copy_reads_its_sources_dynamic_dir_and_writes_its_own(infos):
+    meta = _meta({"mesh": {"dir": "graphene_meshes"}}).for_copied_graph("c")
+    mm = MeshMeta(meta)
+    assert mm.dynamic_path == f"{OLD}/graphene_meshes/dynamic_c"
+    assert [one.path for one in mm.inherited] == [f"{OLD}/graphene_meshes/dynamic"]
+
+
+def test_a_copy_of_a_copy_reads_both_sources_oldest_first(infos):
+    root = f"{OLD}/graphene_meshes"
+    meta = _meta({"mesh": {"dir": "graphene_meshes"}})
+    mm = MeshMeta(meta.for_copied_graph("c").for_copied_graph("d"))
+    assert [one.path for one in mm.inherited] == [
+        f"{root}/dynamic",
+        f"{root}/dynamic_c",
+    ]
+    assert mm.dynamic_path == f"{root}/dynamic_d"
+
+
+def test_a_copy_without_meshes_keeps_its_custom_data(infos):
+    assert _meta({"other": 1}).for_copied_graph("c").custom_data == {"other": 1}
+
+
 def test_repoint_reads_the_new_watershed(infos):
     meta = _meta({})
     assert meta.ws_info == {"at": OLD}
