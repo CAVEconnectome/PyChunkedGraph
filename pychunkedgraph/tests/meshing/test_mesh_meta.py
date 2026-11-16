@@ -3,6 +3,8 @@
 import posixpath
 from types import SimpleNamespace
 
+import numpy as np
+
 from pychunkedgraph.meshing.mesh_meta import MeshMeta
 
 
@@ -12,6 +14,57 @@ def _cg(watershed, mesh):
         data_source=SimpleNamespace(WATERSHED=watershed),
     )
     return SimpleNamespace(meta=meta)
+
+
+def _created(*seconds):
+    return np.array([np.datetime64(one, "s") for one in seconds], dtype="datetime64[s]")
+
+
+class TestByDynamicDir:
+    """New node is read from dir its creation time falls in; each dir grouped once."""
+
+    SOURCE = "gs://src/graphene_meshes/dynamic"
+    COPY = {
+        "dir": "graphene_meshes",
+        "inherited_dynamic": [{"path": SOURCE, "until": 100}],
+    }
+
+    def test_a_table_without_layers_reads_every_node_from_its_own_dir(self):
+        mm = MeshMeta(_cg("gs://ws/seg", {"dir": "graphene_meshes"}))
+        groups = mm.by_dynamic_dir([5, 6], _created(1, 2))
+        assert list(groups) == [mm.dynamic_path]
+        assert list(groups[mm.dynamic_path]) == [5, 6]
+
+    def test_a_copy_reads_nodes_its_source_made_from_the_source(self):
+        mm = MeshMeta(_cg("gs://ws/seg", self.COPY))
+        groups = mm.by_dynamic_dir([5, 6, 7], _created(99, 100, 101))
+        assert list(groups[self.SOURCE]) == [5]
+        assert list(groups[mm.dynamic_path]) == [6, 7]
+
+    def test_a_copy_of_a_copy_reads_each_node_from_the_table_that_made_it(self):
+        older = "gs://src/graphene_meshes/dynamic_a"
+        layers = [{"path": older, "until": 100}, {"path": self.SOURCE, "until": 200}]
+        mesh = {"dir": "graphene_meshes", "inherited_dynamic": layers}
+        mm = MeshMeta(_cg("gs://ws/seg", mesh))
+        groups = mm.by_dynamic_dir([5, 6, 7], _created(99, 150, 200))
+        assert list(groups[older]) == [5]
+        assert list(groups[self.SOURCE]) == [6]
+        assert list(groups[mm.dynamic_path]) == [7]
+
+    def test_a_miss_searches_the_own_dir_then_inherited_dirs_newest_first(self):
+        older = "gs://src/graphene_meshes/dynamic_a"
+        layers = [{"path": older, "until": 100}, {"path": self.SOURCE, "until": 200}]
+        mesh = {"dir": "graphene_meshes", "inherited_dynamic": layers}
+        mm = MeshMeta(_cg("gs://ws/seg", mesh))
+        assert mm.dynamic_stack == (mm.dynamic_path, self.SOURCE, older)
+
+    def test_no_nodes_group_to_nothing(self):
+        """A copy given no nodes reads no creation times, as its caller passes none."""
+        mm = MeshMeta(_cg("gs://ws/seg", self.COPY))
+        assert mm.by_dynamic_dir([], None) == {}
+
+    def test_a_copy_needs_v2(self):
+        assert MeshMeta(_cg("gs://ws/seg", self.COPY)).needs_v2 is True
 
 
 class TestReaderAnchor:
