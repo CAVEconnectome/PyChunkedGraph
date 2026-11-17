@@ -1,6 +1,7 @@
 """Tests for pychunkedgraph.graph.meta.ChunkedGraphMeta.repoint_watershed."""
 
 import pickle
+import time
 
 import pytest
 
@@ -34,11 +35,20 @@ def test_a_copy_keeps_its_sources_initial_meshes(infos):
     assert MeshMeta(meta).initial_path == f"{OLD}/graphene_meshes/initial"
 
 
-def test_a_copy_reads_its_sources_dynamic_dir_and_writes_its_own(infos):
+def test_a_copy_reads_its_sources_dynamic_dir_and_writes_its_own(infos, monkeypatch):
+    monkeypatch.setattr(time, "time", lambda: 1234.5)
     meta = _meta({"mesh": {"dir": "graphene_meshes"}}).for_copied_graph("c")
     mm = MeshMeta(meta)
     assert mm.dynamic_path == f"{OLD}/graphene_meshes/dynamic_c"
-    assert [one.path for one in mm.inherited] == [f"{OLD}/graphene_meshes/dynamic"]
+    assert [(one.path, one.until) for one in mm.inherited] == [
+        (f"{OLD}/graphene_meshes/dynamic", 1234)
+    ]
+
+
+def test_a_copy_stores_its_own_dir_absolute(infos):
+    meta = _meta({"mesh": {"dir": "graphene_meshes"}}).for_copied_graph("c")
+    own = f"{OLD}/graphene_meshes/dynamic_c"
+    assert meta.custom_data["mesh"]["dynamic_mesh_dir"] == own
 
 
 def test_a_copy_of_a_copy_reads_both_sources_oldest_first(infos):
@@ -52,8 +62,10 @@ def test_a_copy_of_a_copy_reads_both_sources_oldest_first(infos):
     assert mm.dynamic_path == f"{root}/dynamic_d"
 
 
-def test_a_copy_without_meshes_keeps_its_custom_data(infos):
-    assert _meta({"other": 1}).for_copied_graph("c").custom_data == {"other": 1}
+@pytest.mark.parametrize("custom_data", [{"other": 1}, {"mesh": {"mip": 2}}])
+def test_a_copy_of_a_table_without_meshes_keeps_its_custom_data(infos, custom_data):
+    meta = _meta(dict(custom_data)).for_copied_graph("c")
+    assert meta.custom_data == custom_data
 
 
 def test_repoint_reads_the_new_watershed(infos):

@@ -95,6 +95,31 @@ class TestSearchDynamic:
     def test_a_node_in_no_dir_is_absent(self, dirs):
         assert search_dynamic(_copy(dirs, {7: 99}), [7], probe_exists) == {}
 
+    def test_a_node_the_copy_made_never_takes_its_sources_mesh_of_its_id(self, dirs):
+        """The restored id counter gave the source's own later node this id too."""
+        _write(dirs.source, "8:0:x")
+        assert search_dynamic(_copy(dirs, {8: 101}), [8], probe_exists) == {}
+
+    def test_a_copy_of_a_copy_searches_only_dirs_newer_than_the_hint(
+        self, dirs, tmp_path
+    ):
+        """Nodes 4 and 5, the first source's, sit where this copy and the middle one
+        remeshed them; the middle copy's node 9 is never read from the first source."""
+        middle = tmp_path / "mid" / "dynamic"
+        middle.mkdir(parents=True)
+        layers = [
+            {"path": dirs.source, "until": UNTIL},
+            {"path": f"file://{middle}", "until": 2 * UNTIL},
+        ]
+        mesh = {"dir": "graphene_meshes", "inherited_dynamic": layers}
+        cg = _cg(dirs.watershed, mesh, {4: UNTIL - 1, 5: UNTIL - 1, 9: UNTIL + 1})
+        _write(dirs.own, "4:0:x")
+        _write(f"file://{middle}", "5:0:x")
+        _write(dirs.source, "9:0:x")
+        found = search_dynamic(cg, [4, 5, 9], probe_exists)
+        paths = {i: hit.path for i, hit in found.items()}
+        assert paths == {4: dirs.own, 5: f"file://{middle}"}
+
     def test_a_read_returns_the_mesh_bytes(self, dirs):
         _write(dirs.source, "5:0:x", b"draco")
         found = search_dynamic(_copy(dirs, {5: 99}), [5], probe_read)
