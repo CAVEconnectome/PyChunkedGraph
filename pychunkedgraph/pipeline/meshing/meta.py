@@ -22,6 +22,8 @@ Example yaml block::
 from dataclasses import asdict, dataclass, replace
 from typing import Dict, Optional
 
+from ...meshing.mesh_meta import dynamic_dir_name
+
 
 @dataclass
 class MeshConfig:
@@ -59,7 +61,7 @@ class MeshConfig:
         """Return a copy with ``dynamic_mesh_dir`` filled in if unset."""
         if self.dynamic_mesh_dir is not None:
             return self
-        return replace(self, dynamic_mesh_dir=f"dynamic_{graph_id}")
+        return replace(self, dynamic_mesh_dir=dynamic_dir_name(graph_id))
 
     def to_dict(self) -> Dict:
         return asdict(self)
