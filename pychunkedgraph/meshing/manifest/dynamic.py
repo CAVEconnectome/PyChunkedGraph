@@ -1,7 +1,8 @@
 """Where a dynamic mesh lives, across a table's own dynamic dir and the dirs it inherits.
 
 A node's creation time hints at its dir; a probe checks the hint, and a miss searches the
-rest of the stack, own dir first, so a table finds every mesh it wrote whatever the hint says.
+other dirs that can hold the node, own dir first, so a table finds every mesh it wrote
+whatever the hint says, and never another node's under a reused id.
 """
 
 import posixpath
@@ -28,8 +29,8 @@ class Found(NamedTuple):
 
 
 def dynamic_groups(cg, new_ids) -> Dict[str, np.ndarray]:
-    """``new_ids`` grouped by the dynamic dir their creation time hints at; node timestamps
-    are read only for a copy, the one table with inherited dirs."""
+    """``new_ids`` grouped by the dynamic dir their creation time hints at; node
+    timestamps are read only for a copy, the one table with inherited dirs."""
     mm = MeshMeta(cg)
     new_ids = np.asarray(new_ids, dtype=NODE_ID)
     created = cg.get_node_timestamps(new_ids) if mm.inherited and new_ids.size else None
@@ -59,8 +60,10 @@ def probe_read(path: str, names: List[str]) -> Dict[str, Optional[bytes]]:
 
 def search_dynamic(cg, new_ids, probe: Probe) -> Dict[int, Found]:
     """Each new node's dynamic mesh, probed first in its creation-time dir, then on a
-    miss in each other dir of ``dynamic_stack`` once, in order; a node in none is absent.
+    miss in each of that hint's ``fallback_dirs``, each dir probed once, in
+    ``dynamic_stack`` order; a node in none is absent.
     """
+    mm = MeshMeta(cg)
     names = {int(i): get_mesh_name(cg, i) for i in new_ids}
     hint, found = {}, {}
 
@@ -73,8 +76,9 @@ def search_dynamic(cg, new_ids, probe: Probe) -> Dict[int, Found]:
     for path, ids in dynamic_groups(cg, list(names)).items():
         hint.update({int(i): path for i in ids})
         run(path, [int(i) for i in ids])
-    for path in MeshMeta(cg).dynamic_stack:
-        rest = [i for i in names if i not in found and hint[i] != path]
+    fallbacks = {path: mm.fallback_dirs(path) for path in set(hint.values())}
+    for path in mm.dynamic_stack:
+        rest = [i for i in names if i not in found and path in fallbacks[hint[i]]]
         if rest:
             run(path, rest)
     return found

@@ -1,5 +1,4 @@
 import json
-import time
 from datetime import timedelta
 from typing import Dict
 from typing import List
@@ -21,7 +20,7 @@ from pychunkedgraph.graph.ocdbt import (
 
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
-from ..meshing.mesh_meta import INHERITED, MeshMeta
+from ..meshing.mesh_meta import MeshMeta
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
@@ -102,22 +101,13 @@ class ChunkedGraphMeta:
         return self._custom_data
 
     def for_copied_graph(self, graph_id: str) -> "ChunkedGraphMeta":
-        """Rewrite this meta for a table copied under ``graph_id``: its id, and a mesh
-        block keeping the source's meshes, reading the source's dynamic dir for nodes
-        made before now while writing its own. Returns self, for ``update_meta``."""
+        """Rewrite this meta for a table copied under ``graph_id``: its id, and the mesh
+        block ``MeshMeta.copied_block`` gives it. Returns self, for ``update_meta``."""
         gc = self._graph_config._asdict()
         gc["ID"] = graph_id
         self._graph_config = GraphConfig(**gc)
-        mesh = self._custom_data.get("mesh")
-        if not mesh or "dir" not in mesh:
-            return self
-        source = MeshMeta(self)
-        layer = {"path": source.dynamic_path, "until": int(time.time())}
-        block = {**source.pinned_block, "dynamic_mesh_dir": f"dynamic_{graph_id}"}
-        block[INHERITED] = [*mesh.get(INHERITED, ()), layer]
-        self._custom_data["mesh"] = block
-        # Pinned again, so the copy's own dir is absolute and a setup re-run keeps it.
-        self._custom_data["mesh"] = MeshMeta(self).pinned_block
+        if "mesh" in self._custom_data:
+            self._custom_data["mesh"] = MeshMeta(self).copied_block(graph_id)
         return self
 
     def repoint_watershed(self, watershed: str) -> "ChunkedGraphMeta":
