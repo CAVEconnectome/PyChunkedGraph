@@ -4,6 +4,7 @@
 """
 
 import posixpath
+import time
 from typing import NamedTuple
 
 import numpy as np
@@ -28,6 +29,11 @@ def _resolve(root: str, value: str) -> str:
     return value.rstrip("/") if is_absolute(value) else posixpath.join(root, value)
 
 
+def dynamic_dir_name(graph_id: str) -> str:
+    """A graph's own dynamic dir name: setup's default, and a copy's."""
+    return f"dynamic_{graph_id}"
+
+
 #: The block key a copy's rewrite fills: its sources' dynamic dirs, oldest first.
 INHERITED = "inherited_dynamic"
 
@@ -36,7 +42,8 @@ class Layer(NamedTuple):
     """A source's dynamic dir, holding the meshes of nodes made before ``until``."""
 
     path: str
-    #: Unix seconds: the copy's first open, before which the source made the node.
+    #: Unix seconds of the copy's first open: of the copy's nodes, the source made every
+    #: older one and no newer one, while the opener's clock agrees with node timestamps.
     until: int
 
 
@@ -88,6 +95,15 @@ class MeshMeta:
         the table's own first, then inherited dirs newest first."""
         return (self.dynamic_path, *(one.path for one in reversed(self.inherited)))
 
+    def fallback_dirs(self, hint: str) -> tuple[str, ...]:
+        """Dirs a node hinted at ``hint`` may also be in, in search order: the table's
+        own, then inherited dirs newer than ``hint``. An older dir's source never had
+        the node, and its id counter may have given that id to a node of its own."""
+        if hint == self.dynamic_path:
+            return ()
+        paths = [one.path for one in self.inherited]
+        return self.dynamic_stack[: len(paths) - paths.index(hint)]
+
     def by_dynamic_dir(self, node_ids, created) -> dict[str, np.ndarray]:
         """New node ids grouped by the dynamic dir their creation time hints at, each dir
         once: the first inherited dir a node's ``created`` (datetime64) predates, else
@@ -138,6 +154,19 @@ class MeshMeta:
             **self._grid_keys,
             "initial_mesh_dir": self.initial_path,
             "dynamic_mesh_dir": self.dynamic_path,
+        }
+
+    def copied_block(self, graph_id: str) -> dict[str, object]:
+        """The block a copy under ``graph_id`` stores: this table's meshes pinned, a
+        dynamic dir of its own, and this table's dynamic dir inherited for the nodes
+        made before now. A block without ``dir`` is copied as it is."""
+        if "dir" not in self._mesh:
+            return dict(self._mesh)
+        layer = Layer(self.dynamic_path, int(time.time()))._asdict()
+        return {
+            **self.pinned_block,
+            "dynamic_mesh_dir": _resolve(self._root, dynamic_dir_name(graph_id)),
+            INHERITED: [*self._mesh.get(INHERITED, ()), layer],
         }
 
     @property
