@@ -4,6 +4,7 @@ import posixpath
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from pychunkedgraph.meshing.mesh_meta import MeshMeta
 
@@ -57,6 +58,23 @@ class TestByDynamicDir:
         mesh = {"dir": "graphene_meshes", "inherited_dynamic": layers}
         mm = MeshMeta(_cg("gs://ws/seg", mesh))
         assert mm.dynamic_stack == (mm.dynamic_path, self.SOURCE, older)
+
+    def test_a_miss_searches_only_dirs_newer_than_its_hint(self):
+        """An older dir's source never had the node, and may have given its id away."""
+        oldest, middle = "gs://src/meshes/dynamic_a", "gs://src/meshes/dynamic_b"
+        layers = [
+            {"path": oldest, "until": 100},
+            {"path": middle, "until": 200},
+            {"path": self.SOURCE, "until": 300},
+        ]
+        mesh = {"dir": "graphene_meshes", "inherited_dynamic": layers}
+        mm = MeshMeta(_cg("gs://ws/seg", mesh))
+        own = mm.dynamic_path
+        assert mm.fallback_dirs(oldest) == (own, self.SOURCE, middle)
+        assert mm.fallback_dirs(self.SOURCE) == (own,)
+        assert mm.fallback_dirs(own) == ()
+        with pytest.raises(ValueError):
+            mm.fallback_dirs("gs://elsewhere/dynamic")
 
     def test_no_nodes_group_to_nothing(self):
         """A copy given no nodes reads no creation times, as its caller passes none."""
