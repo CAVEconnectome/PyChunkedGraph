@@ -117,3 +117,43 @@ class TestSpecDir:
         }
         mm = MeshMeta(_cg("gs://cheap/seg", mesh))
         assert mm.spec_dir == "gs://old/graphene_meshes"
+
+
+class TestClientDynamicDir:
+    """v1 clients join the published dynamic dir under ``<watershed>/<dir>``."""
+
+    @pytest.mark.parametrize(
+        "mesh_dir, dynamic, published",
+        [
+            ("graphene_meshes", "dynamic_g", "dynamic_g"),
+            ("graphene_meshes/", "dynamic_g", "dynamic_g"),
+            ("graphene_meshes", "gs://ws/seg/graphene_meshes/dynamic_g", "dynamic_g"),
+            ("graphene_meshes", "gs://ws/seg/graphene_meshes", ""),
+            (
+                "graphene_meshes",
+                "gs://ws/seg/graphene_meshes_v2/dynamic",
+                "gs://ws/seg/graphene_meshes_v2/dynamic",
+            ),
+        ],
+    )
+    def test_a_dir_under_the_root_is_published_by_name_any_other_by_url(
+        self, mesh_dir, dynamic, published
+    ):
+        mesh = {"dir": mesh_dir, "dynamic_mesh_dir": dynamic}
+        assert MeshMeta(_cg("gs://ws/seg", mesh)).client_dynamic_dir == published
+
+
+class TestNeedsV2:
+    """v1 clients join every row under ``<watershed>/<dir>``, so a dir anywhere else,
+    a sibling sharing the root's prefix included, needs v2."""
+
+    @pytest.mark.parametrize(
+        "key, path",
+        [
+            ("initial_mesh_dir", "gs://ws/seg/graphene_meshes_v2/initial"),
+            ("dynamic_mesh_dir", "gs://ws/seg/graphene_meshes_v2/dynamic"),
+        ],
+    )
+    def test_a_sibling_sharing_the_roots_prefix_needs_v2(self, key, path):
+        mesh = {"dir": "graphene_meshes", key: path}
+        assert MeshMeta(_cg("gs://ws/seg", mesh)).needs_v2 is True
