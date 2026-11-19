@@ -148,7 +148,7 @@ def get_json_info(cg):
     info = {**dataset_info, **dummy_app_info}
     mm = MeshMeta(cg)
     info["mesh"] = mm.dir
-    info["dynamic_mesh_dir"] = mm.dynamic_mesh_dir
+    info["dynamic_mesh_dir"] = mm.client_dynamic_dir
     info["mesh_metadata"] = mm.client_metadata
     info_str = dumps(info)
     return loads(info_str)

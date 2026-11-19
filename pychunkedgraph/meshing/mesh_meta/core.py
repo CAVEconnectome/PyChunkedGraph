@@ -64,7 +64,7 @@ class MeshMeta:
 
     @property
     def _root(self) -> str:
-        return posixpath.join(self._watershed, self.dir)
+        return posixpath.join(self._watershed, self.dir).rstrip("/")
 
     @property
     def initial_path(self) -> str:
@@ -80,6 +80,20 @@ class MeshMeta:
     def dynamic_path(self) -> str:
         """Absolute dir of the per-graph dynamic (unsharded) meshes."""
         return _resolve(self._root, self.dynamic_mesh_dir)
+
+    def _under_root(self, path: str) -> bool:
+        """Whether ``path`` is ``<watershed>/<dir>`` or lies under it, by whole segments,
+        so a sibling sharing its prefix, such as ``<dir>_v2``, does not."""
+        return path == self._root or path.startswith(f"{self._root}/")
+
+    @property
+    def client_dynamic_dir(self) -> str:
+        """The dynamic dir as v1 clients join it under ``<watershed>/<dir>``: relative
+        when it lies there, a repoint's pinned URL included, else its URL."""
+        path = self.dynamic_path
+        if not self._under_root(path):
+            return path
+        return path.removeprefix(self._root).lstrip("/")
 
     @property
     def inherited(self) -> tuple[Layer, ...]:
@@ -138,7 +152,7 @@ class MeshMeta:
         ``unsharded_mesh_dir``, and a v2 client reads the two absolute paths."""
         return {
             **self._grid_keys,
-            "unsharded_mesh_dir": self.dynamic_mesh_dir,
+            "unsharded_mesh_dir": self.client_dynamic_dir,
             "initial_mesh_path": self.initial_path,
             "dynamic_mesh_path": self.dynamic_path,
         }
@@ -173,9 +187,8 @@ class MeshMeta:
     def needs_v2(self) -> bool:
         """True when meshes live outside the watershed dir, or across inherited dynamic
         dirs: old clients reach neither."""
-        root = self._root
         return bool(self.inherited) or not (
-            self.initial_path.startswith(root) and self.dynamic_path.startswith(root)
+            self._under_root(self.initial_path) and self._under_root(self.dynamic_path)
         )
 
     @property
