@@ -148,7 +148,7 @@ def get_json_info(cg):
     info = {**dataset_info, **dummy_app_info}
     mm = MeshMeta(cg)
     info["mesh"] = mm.dir
-    info["dynamic_mesh_dir"] = mm.dynamic_mesh_dir
+    info["dynamic_mesh_dir"] = mm.client_dynamic_dir
     info["mesh_metadata"] = mm.client_metadata
     info_str = dumps(info)
     return loads(info_str)
@@ -159,7 +159,7 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
     mip_diff = mip - cg.meta.cv.mip
 
     mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int) / np.array(
-        [2 ** mip_diff, 2 ** mip_diff, 1]
+        [2**mip_diff, 2**mip_diff, 1]
     )
     mip_chunk_size = mip_chunk_size.astype(int)
 
