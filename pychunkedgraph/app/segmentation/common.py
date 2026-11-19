@@ -109,7 +109,7 @@ def handle_info(table_id):
     if cg.meta.custom_data.get("mesh", {}).get("dir") is not None:
         mm = MeshMeta(cg)
         combined_info["mesh_dir"] = mm.dir
-        combined_info["dynamic_mesh_dir"] = mm.dynamic_mesh_dir
+        combined_info["dynamic_mesh_dir"] = mm.client_dynamic_dir
         combined_info["mesh_metadata"] = mm.client_metadata
     return jsonify(combined_info)
 
