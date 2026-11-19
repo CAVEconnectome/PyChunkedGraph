@@ -14,6 +14,7 @@ from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
+from .mesh_meta import MeshMeta
 
 
 def str_to_slice(slice_str: str):
@@ -145,7 +146,10 @@ def get_json_info(cg):
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    mm = MeshMeta(cg)
+    info["mesh"] = mm.dir
+    info["dynamic_mesh_dir"] = mm.client_dynamic_dir
+    info["mesh_metadata"] = mm.client_metadata
     info_str = dumps(info)
     return loads(info_str)
 
@@ -155,7 +159,7 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
     mip_diff = mip - cg.meta.cv.mip
 
     mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int) / np.array(
-        [2 ** mip_diff, 2 ** mip_diff, 1]
+        [2**mip_diff, 2**mip_diff, 1]
     )
     mip_chunk_size = mip_chunk_size.astype(int)
 
