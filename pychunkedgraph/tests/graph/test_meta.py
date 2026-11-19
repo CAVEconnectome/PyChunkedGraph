@@ -93,6 +93,18 @@ def test_repoint_keeps_the_old_watershed_grid_keys(infos):
     assert client["max_meshed_layer"] == 5
 
 
+def test_a_table_repointed_away_and_back_publishes_its_dynamic_dir_by_name(infos):
+    meta = _meta({"mesh": {"dir": "graphene_meshes", "dynamic_mesh_dir": "dynamic_g"}})
+    meta.repoint_watershed(NEW).repoint_watershed(OLD)
+    assert MeshMeta(meta).client_metadata["unsharded_mesh_dir"] == "dynamic_g"
+
+
+def test_a_moved_table_publishes_its_dynamic_dir_url(infos):
+    meta = _meta({"mesh": {"dir": "graphene_meshes"}}).repoint_watershed(NEW)
+    published = MeshMeta(meta).client_metadata["unsharded_mesh_dir"]
+    assert published == f"{OLD}/graphene_meshes/dynamic"
+
+
 @pytest.mark.parametrize("custom_data", [{"READ_ONLY": True}, {"mesh": {"mip": 2}}])
 def test_repoint_of_a_table_without_meshes_keeps_its_custom_data(infos, custom_data):
     meta = _meta(dict(custom_data)).repoint_watershed(NEW)
