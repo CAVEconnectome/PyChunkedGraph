@@ -1,0 +1,65 @@
+"""v2 graphene manifest: Accept-header negotiation + format assembly.
+
+Branch-agnostic, pure-stdlib. The v2 format keys ``fragments`` by absolute mesh
+bucket path so mesh location travels in the manifest itself; a client advertises
+support via ``Accept: application/x.cave;manifest_version=2``.
+"""
+
+ACCEPT_MEDIA_TYPE = "application/x.cave"
+MANIFEST_VERSION = 2  # highest manifest version this server produces
+
+
+def requested_manifest_version(accept_header, default: int = 1) -> int:
+    """Manifest version the client advertised via
+    ``Accept: application/x.cave;manifest_version=N``.
+
+    Parsed with stdlib — werkzeug's ``MIMEAccept`` mangles media-type params.
+    """
+    if not accept_header:
+        return default
+    for part in accept_header.split(","):
+        params = [p.strip() for p in part.split(";")]
+        if params[0].lower() != ACCEPT_MEDIA_TYPE:
+            continue
+        for param in params[1:]:
+            key, _, value = param.partition("=")
+            if key.strip().lower() == "manifest_version":
+                try:
+                    return int(value.strip())
+                except ValueError:
+                    return default
+    return default
+
+
+def to_v2_groups(node_ids, fragments, *, verified):
+    """Group v1 fragments into ``(initial, dynamic)``, every row opening with its one segid.
+
+    A verified row gains the segid its v1 form lacks. A speculative row already opens with it
+    and drops its file name's constant ``.shard``: a row names a shard only with its byte range.
+    """
+    initial, dynamic = [], []
+    for node_id, frag in zip(node_ids, fragments):
+        if not frag.startswith("~"):
+            dynamic.append(frag)
+        elif verified:
+            initial.append(f"{node_id}:{frag[1:]}")
+        else:
+            segid, layer, chunk_id, fname, minishard = frag[1:].split(":")
+            stem = fname.removesuffix(".shard")
+            initial.append(f"{segid}:{layer}:{chunk_id}:{stem}:{minishard}")
+    return initial, dynamic
+
+
+def assemble(
+    initial_path: str, initial_frags, dynamic: dict[str, list[str]]
+) -> dict[str, object]:
+    """v2 manifest: fragment lists grouped by absolute bucket path, one per dynamic dir.
+
+    Empty groups are omitted. Metadata is added beside ``fragments`` at the top
+    level, so a bucket maps straight to its list.
+    """
+    fragments: dict[str, list[str]] = {}
+    if len(initial_frags):
+        fragments[initial_path] = list(initial_frags)
+    fragments.update({path: list(rows) for path, rows in dynamic.items() if len(rows)})
+    return {"manifest_version": MANIFEST_VERSION, "fragments": fragments}
