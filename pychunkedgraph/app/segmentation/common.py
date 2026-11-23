@@ -734,6 +734,9 @@ def handle_leaves_many(table_id):
 
     node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
     stop_layer = int(request.args.get("stop_layer", 1))
+    counts_only = request.args.get(
+        "counts_only", default=False, type=app_utils.toboolean
+    )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -747,6 +750,8 @@ def handle_leaves_many(table_id):
         return_flattened=True,
     )
 
+    if counts_only:
+        return {node: len(leaves) for node, leaves in node_to_leaves_mapping.items()}
     return node_to_leaves_mapping
 
 
