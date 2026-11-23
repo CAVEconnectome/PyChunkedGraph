@@ -80,7 +80,9 @@ def after_request(response):
     ):
         return response
 
-    response.data = compression.gzip_compress(response.data)
+    # Level 1: at the default 9, gzip took 0.4 s of a 0.5 s million-id answer,
+    # for 9% fewer bytes.
+    response.data = compression.gzip_compress(response.data, compresslevel=1)
     response.headers["Content-Encoding"] = "gzip"
     response.headers["Vary"] = "Accept-Encoding"
     response.headers["Content-Length"] = len(response.data)
