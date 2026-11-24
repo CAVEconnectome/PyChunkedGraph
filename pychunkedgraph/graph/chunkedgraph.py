@@ -61,6 +61,11 @@ class ChunkedGraph:
         self._cache_service = None
         self.mock_edges = None  # hack for unit tests
 
+        # A copied table carries its source's meta; its first open under the new id
+        # rewrites and saves it once, and a later open matches the id.
+        if graph_id != self.graph_id:
+            self.update_meta(self.meta.for_copied_graph(graph_id), overwrite=True)
+
     @property
     def meta(self) -> ChunkedGraphMeta:
         return self._meta
@@ -112,9 +117,13 @@ class ChunkedGraph:
         """Read all nodes in a chunk."""
         layer = self.get_chunk_layer(chunk_id)
         root_chunk = layer == self.meta.layer_count
-        max_node_id = self.id_client.get_max_node_id(chunk_id=chunk_id, root_chunk=root_chunk)
+        max_node_id = self.id_client.get_max_node_id(
+            chunk_id=chunk_id, root_chunk=root_chunk
+        )
         if layer == 1:
-            max_node_id = chunk_id | self.get_segment_id_limit(chunk_id) # pylint: disable=unsupported-binary-operation
+            max_node_id = chunk_id | self.get_segment_id_limit(
+                chunk_id
+            )  # pylint: disable=unsupported-binary-operation
 
         return self.client.read_nodes(
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
@@ -283,9 +292,11 @@ class ChunkedGraph:
                 node_ids=node_ids, properties=attributes.Hierarchy.Child
             )
             return {
-                x: node_children_d[x][0].value
-                if x in node_children_d
-                else types.empty_1d.copy()
+                x: (
+                    node_children_d[x][0].value
+                    if x in node_children_d
+                    else types.empty_1d.copy()
+                )
                 for x in node_ids
             }
         return self.cache.children_multiple(node_ids)
@@ -692,9 +703,7 @@ class ChunkedGraph:
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
 
         in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
-            self.meta,
-            all_chunk_edges,
-            sv_parent_d
+            self.meta, all_chunk_edges, sv_parent_d
         )
 
         agglomeration_d = get_agglomerations(
@@ -702,9 +711,11 @@ class ChunkedGraph:
         )
         return (
             agglomeration_d,
-            (self.mock_edges,)
-            if self.mock_edges is not None
-            else (in_edges, out_edges, cross_edges),
+            (
+                (self.mock_edges,)
+                if self.mock_edges is not None
+                else (in_edges, out_edges, cross_edges)
+            ),
         )
 
     def get_node_timestamps(
