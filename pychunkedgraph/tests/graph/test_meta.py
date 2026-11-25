@@ -516,6 +516,25 @@ class TestOcdbtSeg:
         val2 = meta.ocdbt_seg
         assert val1 is val2
 
+    @pytest.mark.parametrize(
+        "custom_data", [{"ocdbt_config": {"enabled": False}}, {"seg": {"ocdbt": False}}]
+    )
+    @patch(
+        "pychunkedgraph.graph.meta.read_populate_meta", return_value={"enabled": True}
+    )
+    def test_a_stored_flag_beats_the_populate_marker(self, _marker, custom_data):
+        ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
+        meta = ChunkedGraphMeta(GraphConfig(CHUNK_SIZE=[64, 64, 64]), ds, custom_data)
+        assert meta.ocdbt_seg is False
+
+    @patch(
+        "pychunkedgraph.graph.meta.read_populate_meta", return_value={"enabled": True}
+    )
+    def test_a_table_storing_no_flag_takes_the_marker_s(self, _marker):
+        ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
+        meta = ChunkedGraphMeta(GraphConfig(CHUNK_SIZE=[64, 64, 64]), ds)
+        assert meta.ocdbt_seg is True
+
     def test_ws_ocdbt_asserts_when_not_ocdbt(self):
         gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
         ds = DataSource(DATA_VERSION=4)
