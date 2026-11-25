@@ -7,6 +7,7 @@ import pytest
 
 from ...fork.create import create_fork
 from ...graph import BackendClientInfo
+from ...graph.meta import ChunkedGraphMeta
 from ..helpers import SV, build_graph, fake_timestamp
 
 
@@ -46,12 +47,16 @@ def split_pair(joined):
 
 
 @pytest.fixture()
-def fork_of(request):
+def fork_of(request, monkeypatch):
     """Forks a test graph at a time; each fork's table is deleted after the test."""
 
     def forked(source, name, at, **options):
         info = BackendClientInfo(TYPE="bigtable", CONFIG=source.client._config)
-        graph = create_fork(source.graph_id, name, at, client_info=info, **options)
+        # The fork's fresh meta copies its mesh block from the source's mocked watershed.
+        ws_info = source.meta.ws_info
+        with monkeypatch.context() as patch:
+            patch.setattr(ChunkedGraphMeta, "ws_info", property(lambda _: ws_info))
+            graph = create_fork(source.graph_id, name, at, client_info=info, **options)
         request.addfinalizer(graph.client._admin_table.delete)
         graph.mock_edges = source.mock_edges
         for attr in ("_ws_cv", "_ws_info_d", "ws_ts_scale"):

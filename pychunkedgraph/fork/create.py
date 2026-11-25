@@ -45,7 +45,10 @@ def create_fork(
         requested_at=requested,
     )
     config = meta.graph_config._replace(ID=fork, ID_PREFIX="")
-    fork_meta = ChunkedGraphMeta(config, meta.data_source, deepcopy(meta.custom_data))
+    # A copy's mesh block: own dynamic dir, source's dirs read for what it inherits.
+    fork_meta = ChunkedGraphMeta(
+        config, meta.data_source, deepcopy(meta.custom_data)
+    ).for_copied_graph(fork)
     version = upstream.read_table_version()
     upstream.close()
     ClientClass.create_fork_table(

@@ -1,4 +1,4 @@
-"""A fork finds its source's meshes as of the fork point, and refuses to remesh."""
+"""A fork reads its source's meshes from the source's dir, and remeshes only into its own."""
 
 import json
 from types import SimpleNamespace
@@ -9,7 +9,7 @@ from flask import Flask
 from ...app import app_utils
 from ...app.meshing import common
 from ...fork.guard import refuse_on_fork
-from ...graph.exceptions import Forbidden
+from ...graph.exceptions import Forbidden, NotAcceptable
 from ...meshing import meshgen
 from ...meshing.manifest import sharded
 from ...meshing.manifest.utils import (
@@ -18,6 +18,9 @@ from ...meshing.manifest.utils import (
 )
 from ...meshing.mesh_meta import MeshMeta
 from ...meshing.meshgen_utils import get_mesh_name
+
+#: A v2 client's Accept header; a fork answers no other manifest.
+V2 = "application/x.cave;manifest_version=2"
 
 
 def _meshed(cg, dynamic_mesh_dir="dynamic"):
@@ -38,7 +41,7 @@ def _never_started(*args, **kwargs):
     raise AssertionError("a refused remesh queued its thread")
 
 
-def test_a_fork_finds_its_source_meshes_as_of_the_fork_point(
+def test_a_fork_reads_its_source_meshes_from_the_source_s_dir(
     split_pair, fork_of, tmp_path
 ):
     cg, ids, before = split_pair
@@ -46,8 +49,10 @@ def test_a_fork_finds_its_source_meshes_as_of_the_fork_point(
     dynamic.mkdir()
     _meshed(cg, dynamic.as_uri())
     fork = fork_of(cg, "test_fork", before)
-    assert MeshMeta(fork).dynamic_path == MeshMeta(cg).dynamic_path == dynamic.as_uri()
-    assert MeshMeta(fork).initial_path == MeshMeta(cg).initial_path
+    mm = MeshMeta(fork)
+    assert mm.dynamic_path.endswith("/dynamic_test_fork")
+    assert [one.path for one in mm.inherited] == [dynamic.as_uri()]
+    assert mm.initial_path == MeshMeta(cg).initial_path
     root = cg.get_root(ids[0], time_stamp=before)
     assert fork.get_root(ids[0]) == root
     nodes = get_children_before_start_layer(fork, root, start_layer=2)
@@ -55,12 +60,11 @@ def test_a_fork_finds_its_source_meshes_as_of_the_fork_point(
         (dynamic / get_mesh_name(cg, node)).touch()
     found, missing = _get_dynamic_meshes(fork, nodes)
     assert set(found) == set(nodes) and missing.size == 0
-    assert found == _get_dynamic_meshes(cg, nodes)[0]
+    assert all(row.startswith(dynamic.as_uri()) for row in found.values())
 
 
-@pytest.mark.parametrize("accept", [None, "application/x.cave;manifest_version=2"])
-def test_a_fork_answers_its_source_manifest_as_of_the_fork_point(
-    split_pair, fork_of, monkeypatch, accept
+def test_a_fork_answers_only_v2_manifests_with_its_source_s_rows(
+    split_pair, fork_of, monkeypatch
 ):
     cg, ids, before = split_pair
     _meshed(cg)
@@ -73,15 +77,38 @@ def test_a_fork_answers_its_source_manifest_as_of_the_fork_point(
         sharded, "shard_mesh_source", lambda cg: SimpleNamespace(readers={})
     )
     root = cg.get_root(ids[0], time_stamp=before)
-    assert fork.get_root(ids[0]) == root
-    assert _manifest(fork, root, accept) == _manifest(cg, root, accept)
+    with pytest.raises(NotAcceptable):
+        _manifest(fork, root, None)
+    assert _manifest(fork, root, V2) == _manifest(cg, root, V2)
+
+
+def test_a_fork_inheriting_its_source_s_dir_is_not_refused(split_pair, fork_of):
+    cg, _, before = split_pair
+    _meshed(cg)
+    refuse_on_fork(fork_of(cg, "test_fork", before), "remeshing")
+
+
+def test_a_fork_naming_its_source_s_dir_is_refused_though_it_inherits(
+    split_pair, fork_of
+):
+    cg, _, before = split_pair
+    _meshed(cg)
+    fork = fork_of(cg, "test_fork", before)
+    block = {
+        **fork.meta.custom_data["mesh"],
+        "dynamic_mesh_dir": MeshMeta(cg).dynamic_path,
+    }
+    fork.meta._custom_data = {**fork.meta.custom_data, "mesh": block}
+    assert MeshMeta(fork).inherited
+    with pytest.raises(Forbidden, match="no mesh dir of its own"):
+        refuse_on_fork(fork, "remeshing")
 
 
 def test_remeshing_a_fork_is_refused_and_writes_nothing(split_pair, fork_of, tmp_path):
     cg, ids, before = split_pair
     fork = fork_of(cg, "test_fork", before)
     out = tmp_path / "out"
-    with pytest.raises(Forbidden, match="read-only fork"):
+    with pytest.raises(Forbidden, match="no mesh dir of its own"):
         meshgen.remeshing(
             fork, fork.get_parents(ids), cv_unsharded_mesh_path=out.as_uri()
         )
