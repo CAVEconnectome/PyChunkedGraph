@@ -24,6 +24,14 @@ def _pair(gen_graph, edges):
     return cg, np.array([sv["a"], sv["b"]], dtype=np.uint64)
 
 
+@pytest.fixture(autouse=True)
+def offline_creation(monkeypatch):
+    """Creation reads the watershed's OCDBT marker and lists the fork's mesh dir, both in
+    cloud storage the test graphs only name; here neither holds anything."""
+    monkeypatch.setattr("pychunkedgraph.graph.meta.read_populate_meta", lambda ws: None)
+    monkeypatch.setattr("pychunkedgraph.fork.create.holds_files", lambda path: False)
+
+
 @pytest.fixture()
 def joined(gen_graph):
     """Two supervoxels one edge joins into one root."""

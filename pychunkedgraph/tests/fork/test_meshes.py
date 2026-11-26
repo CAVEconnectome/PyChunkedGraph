@@ -8,8 +8,9 @@ from flask import Flask
 
 from ...app import app_utils
 from ...app.meshing import common
+from ...fork import create
 from ...fork.guard import refuse_on_fork
-from ...graph.exceptions import Forbidden, NotAcceptable
+from ...graph.exceptions import Forbidden, NotAcceptable, PreconditionError
 from ...meshing import meshgen
 from ...meshing.manifest import sharded
 from ...meshing.manifest.utils import (
@@ -102,6 +103,20 @@ def test_a_fork_naming_its_source_s_dir_is_refused_though_it_inherits(
     assert MeshMeta(fork).inherited
     with pytest.raises(Forbidden, match="no mesh dir of its own"):
         refuse_on_fork(fork, "remeshing")
+
+
+def test_a_fork_whose_own_dynamic_dir_holds_meshes_is_refused_writing_nothing(
+    split_pair, fork_of, monkeypatch
+):
+    cg, _, before = split_pair
+    _meshed(cg)
+    listed = []
+    monkeypatch.setattr(create, "holds_files", lambda path: listed.append(path) or True)
+    with pytest.raises(PreconditionError, match="already holds meshes"):
+        fork_of(cg, "test_fork", before)
+    assert listed[0].endswith("/mesh/dynamic_test_fork")
+    monkeypatch.setattr(create, "holds_files", lambda path: False)
+    assert fork_of(cg, "test_fork", before).graph_id == "test_fork"
 
 
 def test_remeshing_a_fork_is_refused_and_writes_nothing(split_pair, fork_of, tmp_path):

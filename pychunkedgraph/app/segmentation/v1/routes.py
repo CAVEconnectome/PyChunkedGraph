@@ -178,6 +178,22 @@ def handle_rollback(table_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
+### FORK -----------------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/fork", methods=["POST"])
+@auth_requires_admin
+@remap_public(edit=True)
+def handle_fork(table_id):
+    created = common.handle_fork(table_id)
+    resp = {
+        "fork_id": created.fork_id,
+        "source": table_id,
+        "fork_time": created.fork_time.timestamp(),
+    }
+    return jsonify_with_kwargs(resp)
+
+
 ### USER OPERATIONS -------------------------------------------------------------
 
 
