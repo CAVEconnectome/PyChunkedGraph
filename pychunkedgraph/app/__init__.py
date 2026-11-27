@@ -16,6 +16,7 @@ from rq import Queue
 
 from pychunkedgraph import NOTICE, configure_logging
 from pychunkedgraph.logging import jsonformatter
+from pychunkedgraph.profiler import timeline
 
 from . import config
 from .meshing.legacy.routes import bp as meshing_api_legacy
@@ -23,7 +24,7 @@ from .meshing.v1.routes import bp as meshing_api_v1
 from .segmentation.legacy.routes import bp as segmentation_api_legacy
 from .segmentation.v1.routes import bp as segmentation_api_v1
 from .segmentation.generic.routes import bp as generic_api
-from .app_utils import get_instance_folder_path
+from .app_utils import PCG_CACHE, get_instance_folder_path
 
 
 class CustomJsonEncoder(json.JSONEncoder):
@@ -75,6 +76,7 @@ def create_app(test_config=None):
     app.register_blueprint(segmentation_api_legacy)
     app.register_blueprint(segmentation_api_v1)
 
+    timeline.init_app(app, PCG_CACHE.get)
     return app
 
 
