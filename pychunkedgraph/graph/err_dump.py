@@ -1,9 +1,10 @@
 """Best-effort error artifact dumps for edit operations.
 
-Writes a JSON blob per failed operation to
-`{WATERSHED}/graphene_errors/{cg.graph_id}/{op_id}.json` so logs stay
-concise while the full payload (ids, edges, traceback) survives for
-later inspection. `read_err_artifact(cg, op_id)` reads it back.
+Writes a JSON blob per failed operation to the diagnostics store, as
+`graphene_diagnostics/{cg.graph_id}/errors/{op_id}.json` beside the graph's
+mesh dir, so logs stay concise while the full payload (ids, edges,
+traceback) survives for later inspection. `read_err_artifact(cg, op_id)`
+reads it back.
 """
 
 import traceback
@@ -12,8 +13,12 @@ from datetime import datetime
 import numpy as np
 
 from pychunkedgraph import get_logger
+from pychunkedgraph.utils import diagnostics
 
 logger = get_logger(__name__)
+
+# The diagnostics store's kind for a failed operation's dump.
+ERRORS = "errors"
 
 _DUMP_ATTRS = (
     "source_ids",
@@ -43,14 +48,6 @@ def _json_safe(obj):
     if isinstance(obj, datetime):
         return obj.isoformat()
     return obj
-
-
-def _err_dir(cg):
-    """The `{WATERSHED}/graphene_errors/{cg.graph_id}` base; None if WATERSHED unset."""
-    ws = getattr(cg.meta.data_source, "WATERSHED", None)
-    if not ws:
-        return None
-    return f"{ws.rstrip('/')}/graphene_errors/{cg.graph_id}"
 
 
 def payload_summary(op) -> str:
@@ -84,30 +81,15 @@ def build_err_payload(op, op_id, err) -> dict:
 
 
 def dump_err_artifact(cg, op_id, payload):
-    """Write `{err_dir}/{op_id}.json`. Returns URL or None; never raises."""
-    cf_dir = _err_dir(cg)
-    if cf_dir is None:
-        return None
+    """Write the operation's `errors` artifact. Returns URL or None; never raises."""
     try:
-        from cloudfiles import CloudFiles
-
-        filename = f"{op_id}.json"
-        CloudFiles(cf_dir).put_json(filename, _json_safe(payload))
-        return f"{cf_dir}/{filename}"
+        safe = _json_safe(payload)
     except Exception as e:
         logger.warning(f"err_dump failed for op={op_id}: {e}")
         return None
+    return diagnostics.put_json(cg, ERRORS, f"{op_id}.json", safe)
 
 
 def read_err_artifact(cg, op_id):
     """Return the artifact dict for this `op_id`, or None if missing."""
-    cf_dir = _err_dir(cg)
-    if cf_dir is None:
-        return None
-    try:
-        from cloudfiles import CloudFiles
-
-        return CloudFiles(cf_dir).get_json(f"{op_id}.json")
-    except Exception as e:
-        logger.warning(f"err_dump read failed for op={op_id}: {e}")
-        return None
+    return diagnostics.get_json(cg, ERRORS, f"{op_id}.json")

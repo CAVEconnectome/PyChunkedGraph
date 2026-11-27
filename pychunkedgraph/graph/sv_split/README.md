@@ -484,8 +484,8 @@ referenced by any hierarchy row.
 ### Diagnostic artifact on failure
 
 Every edit-flow `AssertionError` / `RuntimeError` / unknown `Exception`
-writes a JSON snapshot to
-`{cg.meta.data_source.WATERSHED}/graphene_errors/{cg.graph_id}/{op_id}.json`
+writes a JSON snapshot to the diagnostics store, a sibling of the mesh dir, as
+`graphene_diagnostics/{cg.graph_id}/errors/{op_id}.json`
 before the exception propagates. The artifact contains op type, user,
 source / sink ids + coords, removed / added edges, parent_ts, the
 exception class + message, and the full traceback — enough to replay
