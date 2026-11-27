@@ -172,13 +172,14 @@ class ChunkedGraphMeta:
 
     @property
     def ocdbt_config(self) -> OcdbtConfig:
-        """Per-CG OCDBT settings with precedence info-file > custom_data > defaults.
+        """Per-CG OCDBT settings with precedence info-file > custom_data > defaults,
+        save a table's stored ``enabled``, which beats the info file.
 
         The watershed's ``<ws>/ocdbt/.populated/meta.json`` is the authoritative
         on-disk source for fields that affect the OCDBT format (compression,
-        max_inline_value_bytes, populate_layer). custom_data fills per-CG
-        fields (enabled, sv_split_threshold) and anything the info file
-        doesn't pin. Both layers fall through to dataclass defaults.
+        max_inline_value_bytes, populate_layer). custom_data fills anything the
+        info file doesn't pin, and its stored flag alone decides whether this table
+        reads OCDBT. Both layers fall through to dataclass defaults.
 
         The result is cached in instance state after first access. Legacy
         ``custom_data["seg"]`` shape is read when ``"ocdbt_config"`` is
@@ -194,13 +195,17 @@ class ChunkedGraphMeta:
                 "enabled": bool(seg.get("ocdbt", False)),
                 "sv_split_threshold": int(seg.get("sv_split_threshold", 10)),
             }
+            stored = "ocdbt" in seg
+        else:
+            stored = "enabled" in meta_d
+        flag = {"enabled": meta_d["enabled"]} if stored else {}
 
         info_d = None
         ws = self._data_source.WATERSHED
         if ws:
             info_d = read_populate_meta(ws)
 
-        self._ocdbt_config_cached = OcdbtConfig.resolve(meta_d, info_d)
+        self._ocdbt_config_cached = OcdbtConfig.resolve(meta_d, info_d, flag)
         return self._ocdbt_config_cached
 
     @property

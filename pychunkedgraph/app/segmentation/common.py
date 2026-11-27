@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from functools import reduce
 from collections import deque, defaultdict
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -29,7 +30,8 @@ from pychunkedgraph.graph import (
 from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.graph.misc import get_contact_sites
 from pychunkedgraph.graph.operation import GraphEditOperation
-from pychunkedgraph.graph import basetypes
+from pychunkedgraph.graph import basetypes, get_default_client_info
+from pychunkedgraph.fork.create import create_fork
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
@@ -587,6 +589,34 @@ def handle_rollback(table_id):
             publish_edit(table_id, user_id, ret, is_priority=is_priority, remesh=remesh)
 
     return user_operations
+
+
+### FORK -----------------------------------------------------------------------
+
+
+class CreatedFork(NamedTuple):
+    """A fork the endpoint made: its table id and the fork time its marker holds."""
+
+    fork_id: str
+    fork_time: datetime
+
+
+def handle_fork(table_id: str) -> CreatedFork:
+    """Forks `table_id` into the JSON body's `fork_id` at the `timestamp` arg, else now; a
+    fork `create_fork` refuses answers 400, and the fork it opens is closed."""
+    current_app.table_id = table_id
+    fork_id = (request.get_json(silent=True) or {}).get("fork_id")
+    if not fork_id:
+        raise cg_exceptions.BadRequest("a fork needs a `fork_id` in the request body")
+    at = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+    try:
+        fork = create_fork(table_id, fork_id, at, client_info=get_default_client_info())
+    except cg_exceptions.PreconditionError as err:
+        raise cg_exceptions.BadRequest(str(err)) from err
+    try:
+        return CreatedFork(fork.graph_id, fork.client.marker.chain[0].tf)
+    finally:
+        fork.client.close()
 
 
 ### USER OPERATIONS -------------------------------------------------------------
