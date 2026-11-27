@@ -3,13 +3,14 @@
 from time import time
 
 import numpy as np
-from cloudvolume import CloudVolume
 
 from .utils import get_children_before_start_layer
+from .utils import shard_mesh_source
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
 from ...graph.basetypes import NODE_ID
 from ...graph.chunks import utils as chunk_utils
+from ..mesh_meta import MeshMeta
 
 
 def verified_manifest(
@@ -57,11 +58,10 @@ def speculative_manifest(
     """
     from .utils import check_skips
     from .utils import segregate_node_ids
-    from ..meshgen_utils import get_mesh_name
-    from ..meshgen_utils import get_json_info
+    from .dynamic import hinted_rows
 
     if start_layer is None:
-        start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+        start_layer = MeshMeta(cg).max_layer
 
     start = time()
     bounding_box = chunk_utils.normalize_bounding_box(
@@ -87,11 +87,7 @@ def speculative_manifest(
     result.append(node_ids[node_layers == stop_layer])
     print("chilren IDs", len(result), time() - start)
 
-    readers = CloudVolume(  # pylint: disable=no-member
-        "graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
-        info=get_json_info(cg),
-    ).mesh.readers
+    readers = shard_mesh_source(cg).readers
 
     node_ids = np.concatenate(result)
     initial_ids, new_ids = segregate_node_ids(cg, node_ids)
@@ -105,5 +101,5 @@ def speculative_manifest(
         mesh_shards.append(f"~{id_}:{layer}:{chunk_id}:{fname}:{minishard}")
 
     # get mesh files for new IDs
-    mesh_files = [f"{get_mesh_name(cg, id_)}" for id_ in new_ids]
+    mesh_files = hinted_rows(cg, new_ids)
     return np.concatenate([initial_ids, new_ids]), mesh_shards + mesh_files
